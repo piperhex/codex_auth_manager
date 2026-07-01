@@ -1,0 +1,8 @@
+node_modules/
+dist/
+src-tauri/target/
+.DS_Store
+*.log
+auth.json
+*.auth.json
+.webview2-test

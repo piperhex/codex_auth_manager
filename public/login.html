@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>登录 ChatGPT</title>
+    <style>
+      :root {
+        color: #17211b;
+        background: #f3f5f1;
+        font-family: "Microsoft YaHei UI", system-ui, sans-serif;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+      }
+
+      main {
+        display: grid;
+        justify-items: center;
+        gap: 12px;
+        color: #536159;
+        font-size: 13px;
+      }
+
+      .mark {
+        width: 40px;
+        height: 40px;
+        border: 3px solid #dce7dd;
+        border-top-color: #1f7a51;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark"></div>
+      <span>正在打开 ChatGPT 登录</span>
+    </main>
+  </body>
+</html>
