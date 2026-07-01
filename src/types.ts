@@ -21,10 +21,20 @@ export interface Account {
   usage: UsageSummary;
 }
 
+export interface ResetCredit {
+  issuedAt?: string | null;
+  expiresAt?: string | null;
+}
+
+export interface ResetCreditsSummary {
+  credits: ResetCredit[];
+}
+
 export interface AppInfo {
   codexHome: string;
   authPath: string;
   accountStore: string;
+  version: string;
 }
 
 export interface LoginStart {

@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Button, ConfigProvider, Dropdown, Progress, Space, Table, Tag, Tooltip, theme as antdTheme } from "antd";
+import { Button, ConfigProvider, InputNumber, Popconfirm, Progress, Space, Switch, Table, Tag, Tooltip, theme as antdTheme } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
   ArrowRight,
+  CalendarClock,
   Check,
   ChevronRight,
   CircleHelp,
@@ -28,9 +29,36 @@ import {
   Zap,
 } from "lucide-react";
 import { DEMO_ACCOUNTS, DEMO_INFO } from "./demo";
-import type { Account, AppInfo, LoginStart, UsageWindow } from "./types";
+import type { Account, AppInfo, LoginStart, ResetCreditsSummary, UsageWindow } from "./types";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
+const AUTO_REFRESH_KEY = "codex-auth-manager:auto-refresh-seconds";
+const AUTO_REFRESH_ENABLED_KEY = "codex-auth-manager:auto-refresh-enabled";
+const LAST_AUTO_REFRESH_KEY = "codex-auth-manager:last-auto-refresh-at";
+const DEFAULT_AUTO_REFRESH_SECONDS = 5;
+const MIN_AUTO_REFRESH_SECONDS = 1;
+const MAX_AUTO_REFRESH_SECONDS = 3600;
+
+function clampAutoRefreshSeconds(value: unknown) {
+  if (value == null) return DEFAULT_AUTO_REFRESH_SECONDS;
+  if (typeof value === "string" && value.trim() === "") return DEFAULT_AUTO_REFRESH_SECONDS;
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) return DEFAULT_AUTO_REFRESH_SECONDS;
+  return Math.min(MAX_AUTO_REFRESH_SECONDS, Math.max(MIN_AUTO_REFRESH_SECONDS, Math.round(seconds)));
+}
+
+function initialAutoRefreshSeconds() {
+  return clampAutoRefreshSeconds(window.localStorage.getItem(AUTO_REFRESH_KEY));
+}
+
+function initialAutoRefreshEnabled() {
+  return window.localStorage.getItem(AUTO_REFRESH_ENABLED_KEY) === "true";
+}
+
+function initialLastAutoRefreshAt() {
+  const value = window.localStorage.getItem(LAST_AUTO_REFRESH_KEY);
+  return value && !Number.isNaN(new Date(value).getTime()) ? value : null;
+}
 
 function remainingTone(value: number) {
   if (value <= 15) return "danger";
@@ -151,6 +179,17 @@ function formatUpdated(timestamp?: string | null) {
   });
 }
 
+function formatAutoRefreshTime(timestamp?: string | null) {
+  if (!timestamp) return "暂无";
+  return new Date(timestamp).toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 function usageStroke(value: number) {
   const tone = remainingTone(value);
   if (tone === "danger") return "#d2685b";
@@ -175,6 +214,64 @@ function UsageMeter({ window }: { window?: UsageWindow | null }) {
   );
 }
 
+type ResetCreditsLoadState =
+  | { status: "loading" }
+  | { status: "loaded"; data: ResetCreditsSummary }
+  | { status: "error"; error: string };
+
+function formatBeijingTime(timestamp?: string | null) {
+  if (!timestamp) return "时间未知";
+  const value = new Date(timestamp);
+  if (Number.isNaN(value.getTime())) return "时间未知";
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(value);
+}
+
+function ResetCreditsPanel({
+  state,
+  onRetry,
+}: {
+  state?: ResetCreditsLoadState;
+  onRetry: () => void;
+}) {
+  if (!state || state.status === "loading") {
+    return <div className="reset-credits-status"><RefreshCw className="spin" size={16} />正在读取重置卡…</div>;
+  }
+  if (state.status === "error") {
+    return (
+      <div className="reset-credits-status reset-credits-error">
+        <span>{state.error}</span>
+        <Button size="small" icon={<RefreshCw size={13} />} onClick={onRetry}>重试</Button>
+      </div>
+    );
+  }
+  if (!state.data.credits.length) {
+    return <div className="reset-credits-status">当前账号没有重置卡</div>;
+  }
+
+  return (
+    <div className="reset-credits-panel">
+      {state.data.credits.map((credit, index) => (
+        <div className="reset-credit" key={`${credit.issuedAt ?? "unknown"}-${credit.expiresAt ?? "unknown"}-${index}`}>
+          <div className="reset-credit-index"><CalendarClock size={16} />重置卡 {index + 1}</div>
+          <dl>
+            <div><dt>发放时间</dt><dd>{formatBeijingTime(credit.issuedAt)} <span>北京时间</span></dd></div>
+            <div><dt>过期时间</dt><dd>{formatBeijingTime(credit.expiresAt)} <span>北京时间</span></dd></div>
+          </dl>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AccountTable({
   accounts,
   busy,
@@ -188,6 +285,36 @@ function AccountTable({
   onRefresh: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
+  const [resetCredits, setResetCredits] = useState<Record<string, ResetCreditsLoadState>>({});
+  const resetCreditRequests = useRef(new Set<string>());
+
+  const loadResetCredits = useCallback(async (account: Account, force = false) => {
+    if (resetCreditRequests.current.has(account.id)) return;
+    if (!force && resetCredits[account.id]) return;
+    resetCreditRequests.current.add(account.id);
+    setResetCredits((current) => ({ ...current, [account.id]: { status: "loading" } }));
+    try {
+      const data = isTauri
+        ? await invoke<ResetCreditsSummary>("fetch_reset_credits", { id: account.id })
+        : {
+            credits: [
+              {
+                issuedAt: new Date(Date.now() - 3 * 24 * 60 * 60_000).toISOString(),
+                expiresAt: new Date(Date.now() + 27 * 24 * 60 * 60_000).toISOString(),
+              },
+            ],
+          };
+      setResetCredits((current) => ({ ...current, [account.id]: { status: "loaded", data } }));
+    } catch (error) {
+      setResetCredits((current) => ({
+        ...current,
+        [account.id]: { status: "error", error: String(error) },
+      }));
+    } finally {
+      resetCreditRequests.current.delete(account.id);
+    }
+  }, [resetCredits]);
+
   const columns: ColumnsType<Account> = [
     {
       title: "账号",
@@ -268,25 +395,26 @@ function AccountTable({
                 onClick={() => onRefresh(account.id)}
               />
             </Tooltip>
-            <Dropdown
-              trigger={["click"]}
-              menu={{
-                items: [
-                  {
-                    key: "delete",
-                    danger: true,
-                    disabled: account.active,
-                    icon: <Trash2 size={14} />,
-                    label: "删除账户",
-                  },
-                ],
-                onClick: ({ key }) => {
-                  if (key === "delete") onDelete(account.id);
-                },
-              }}
+            <Popconfirm
+              title="确认删除此账户？"
+              description="只会删除本地保存的账户，不会注销 ChatGPT。"
+              okText="删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              disabled={account.active}
+              onConfirm={() => onDelete(account.id)}
             >
-              <Button size="small" className="table-icon-button" icon={<MoreHorizontal size={14} />} />
-            </Dropdown>
+              <Tooltip title={account.active ? "正在使用的账户无法删除" : "删除账户"}>
+                <Button
+                  danger
+                  size="small"
+                  className="table-icon-button"
+                  aria-label="删除账户"
+                  disabled={account.active}
+                  icon={<Trash2 size={14} />}
+                />
+              </Tooltip>
+            </Popconfirm>
           </Space>
         );
       },
@@ -302,7 +430,19 @@ function AccountTable({
         dataSource={accounts}
         pagination={false}
         rowClassName={(account) => (account.active ? "active-row" : "")}
-        scroll={{ x: 1092 }}
+        expandable={{
+          columnWidth: 42,
+          expandedRowRender: (account) => (
+            <ResetCreditsPanel
+              state={resetCredits[account.id]}
+              onRetry={() => void loadResetCredits(account, true)}
+            />
+          ),
+          onExpand: (expanded, account) => {
+            if (expanded) void loadResetCredits(account);
+          },
+        }}
+        scroll={{ x: 1134 }}
       />
     </div>
   );
@@ -335,15 +475,50 @@ function LoginModal({ onClose, onStart, onImport }: { onClose: () => void; onSta
   );
 }
 
+function HelpModal({ onClose, version }: { onClose: () => void; version: string }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <section
+        className="modal help-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="help-modal-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button type="button" className="modal-close" aria-label="关闭使用帮助" onClick={onClose}><X size={19} /></button>
+        <div className="modal-icon"><CircleHelp size={25} /></div>
+        <h2 id="help-modal-title">使用帮助</h2>
+        <p>Codex Auth Manager 用于在本机安全地管理多个 Codex 账户。</p>
+
+        <div className="help-features">
+          <div><UserRound size={18} /><span><b>多账户管理</b><small>登录 ChatGPT 或导入已有 auth.json，集中保存多个账户。</small></span></div>
+          <div><RotateCcw size={18} /><span><b>快速切换</b><small>切换账户时自动同步当前 Codex 使用的 auth.json。</small></span></div>
+          <div><RefreshCw size={18} /><span><b>用量查看</b><small>查看 5 小时与 1 周配额，支持单个或全部账户刷新。</small></span></div>
+          <div><Clock3 size={18} /><span><b>自动刷新</b><small>可在设置中开启、关闭并调整全局用量刷新间隔。</small></span></div>
+          <div><CalendarClock size={18} /><span><b>重置卡信息</b><small>展开账户行即可查看重置卡的发放和过期时间。</small></span></div>
+          <div><ShieldCheck size={18} /><span><b>本地安全存储</b><small>令牌保留在 Rust 后端，不会显示在界面或写入日志。</small></span></div>
+        </div>
+
+        <div className="help-version"><span>Codex Auth Manager</span><b>v{version}</b></div>
+      </section>
+    </div>
+  );
+}
+
 export default function App() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [refreshingAll, setRefreshingAll] = useState(false);
+  const [autoRefreshSeconds, setAutoRefreshSeconds] = useState(initialAutoRefreshSeconds);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(initialAutoRefreshEnabled);
+  const [lastAutoRefreshAt, setLastAutoRefreshAt] = useState(initialLastAutoRefreshAt);
   const [toast, setToast] = useState<string | null>(null);
+  const refreshingAllRef = useRef(false);
 
   const notify = useCallback((message: string) => {
     setToast(message);
@@ -374,6 +549,19 @@ export default function App() {
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
+    window.localStorage.setItem(AUTO_REFRESH_KEY, String(autoRefreshSeconds));
+  }, [autoRefreshSeconds]);
+
+  useEffect(() => {
+    window.localStorage.setItem(AUTO_REFRESH_ENABLED_KEY, String(autoRefreshEnabled));
+  }, [autoRefreshEnabled]);
+
+  useEffect(() => {
+    if (lastAutoRefreshAt) window.localStorage.setItem(LAST_AUTO_REFRESH_KEY, lastAutoRefreshAt);
+    else window.localStorage.removeItem(LAST_AUTO_REFRESH_KEY);
+  }, [lastAutoRefreshAt]);
+
+  useEffect(() => {
     if (!isTauri) return;
     const unlistenAccounts = listen("accounts-changed", () => void load());
     const unlistenLogin = listen<{ ok: boolean; message: string }>("login-status", ({ payload }) => {
@@ -384,7 +572,43 @@ export default function App() {
     return () => { void unlistenAccounts.then((fn) => fn()); void unlistenLogin.then((fn) => fn()); };
   }, [load, notify]);
 
-  const active = useMemo(() => accounts.find((account) => account.active), [accounts]);
+  const updateAutoRefreshSeconds = useCallback((value: number | string | null) => {
+    setAutoRefreshSeconds(clampAutoRefreshSeconds(value));
+  }, []);
+
+  const refreshAllUsage = useCallback(async (
+    {
+      quiet = false,
+      showSpinner = true,
+      automatic = false,
+    }: { quiet?: boolean; showSpinner?: boolean; automatic?: boolean } = {},
+  ) => {
+    if (!accounts.length || refreshingAllRef.current) return;
+    refreshingAllRef.current = true;
+    if (showSpinner) setRefreshingAll(true);
+    try {
+      if (isTauri) {
+        await Promise.allSettled(accounts.map((account) => invoke("refresh_usage", { id: account.id })));
+        await load();
+      } else {
+        const fetchedAt = new Date().toISOString();
+        setAccounts((items) => items.map((item) => ({ ...item, usage: { ...item.usage, fetchedAt } })));
+      }
+      if (automatic) setLastAutoRefreshAt(new Date().toISOString());
+      if (!quiet) notify("所有账户用量已刷新");
+    } finally {
+      if (showSpinner) setRefreshingAll(false);
+      refreshingAllRef.current = false;
+    }
+  }, [accounts, load, notify]);
+
+  useEffect(() => {
+    if (!autoRefreshEnabled || !accounts.length) return;
+    const timer = window.setInterval(() => {
+      void refreshAllUsage({ quiet: true, showSpinner: false, automatic: true });
+    }, autoRefreshSeconds * 1000);
+    return () => window.clearInterval(timer);
+  }, [accounts.length, autoRefreshEnabled, autoRefreshSeconds, refreshAllUsage]);
 
   async function startLogin(embedded: boolean) {
     if (!isTauri) { setShowLogin(false); notify("浏览器预览模式不会发起真实登录"); return; }
@@ -430,14 +654,10 @@ export default function App() {
   }
 
   async function refreshAll() {
-    setRefreshingAll(true);
-    await Promise.allSettled(accounts.map((account) => refreshUsage(account.id, true)));
-    setRefreshingAll(false);
-    notify("所有账户用量已刷新");
+    await refreshAllUsage();
   }
 
   async function deleteAccount(id: string) {
-    if (!window.confirm("确定删除这个已保存账户吗？此操作不会注销 ChatGPT。")) return;
     try {
       if (isTauri) await invoke("delete_account", { id });
       else setAccounts((items) => items.filter((item) => item.id !== id));
@@ -458,26 +678,66 @@ export default function App() {
       }}
     >
     <div className="app-shell">
-      <aside className="sidebar">
+      <header className="app-menu">
         <div className="brand"><div className="brand-mark"><Zap size={19} fill="currentColor" /></div><span>Codex<br /><b>Auth Manager</b></span></div>
-        <nav>
+        <nav className="top-tabs" aria-label="主导航">
           <button className={!showSettings ? "selected" : ""} onClick={() => setShowSettings(false)}><UserRound size={19} />账户管理</button>
           <button className={showSettings ? "selected" : ""} onClick={() => setShowSettings(true)}><Settings size={19} />设置</button>
         </nav>
-        <div className="sidebar-bottom">
+        <div className="menu-tools">
           <div className="security-chip"><ShieldCheck size={16} /><span><b>本地安全存储</b><small>凭据仅保存在此设备</small></span></div>
-          <button className="help-button"><CircleHelp size={17} />使用帮助</button>
+          <button className="help-button" onClick={() => setShowHelp(true)}><CircleHelp size={17} />使用帮助</button>
         </div>
-      </aside>
+      </header>
 
       <main>
         <header className="topbar">
-          <div><span className="eyebrow">CODEX / AUTHENTICATION</span><h1>{showSettings ? "设置" : "账户管理"}</h1></div>
-          {!showSettings && <button className="primary-button" onClick={() => setShowLogin(true)}><Plus size={18} />添加账户</button>}
+          <div><span className="eyebrow">CODEX / AUTHENTICATION</span><h1>{showSettings ? "设置" : `账户管理（${accounts.length}）`}</h1></div>
+          {!showSettings && (
+            <div className="topbar-actions">
+              <button className="primary-button" onClick={() => setShowLogin(true)}><Plus size={18} />添加账户</button>
+              <div className="refresh-all-wrap">
+                <button className="refresh-all" onClick={refreshAll} disabled={refreshingAll || !accounts.length}>
+                  <RefreshCw className={refreshingAll ? "spin" : ""} size={17} />刷新全部用量
+                </button>
+                <small className="last-auto-refresh">
+                  最后更新：{formatAutoRefreshTime(lastAutoRefreshAt)}
+                </small>
+              </div>
+            </div>
+          )}
         </header>
 
         {showSettings ? (
           <div className="settings-page">
+            <section className="settings-card">
+              <div className="settings-icon"><RefreshCw size={23} /></div>
+              <div>
+                <h3>用量自动刷新</h3>
+                <p>关闭后不会再定时请求用量，手动刷新仍可正常使用。</p>
+                <div className="settings-field">
+                  <label htmlFor="auto-refresh-enabled">自动刷新</label>
+                  <Switch
+                    id="auto-refresh-enabled"
+                    checked={autoRefreshEnabled}
+                    checkedChildren="开"
+                    unCheckedChildren="关"
+                    onChange={setAutoRefreshEnabled}
+                  />
+                  <label htmlFor="auto-refresh-interval">刷新间隔</label>
+                  <InputNumber
+                    id="auto-refresh-interval"
+                    min={MIN_AUTO_REFRESH_SECONDS}
+                    max={MAX_AUTO_REFRESH_SECONDS}
+                    step={1}
+                    addonAfter="秒"
+                    value={autoRefreshSeconds}
+                    disabled={!autoRefreshEnabled}
+                    onChange={updateAutoRefreshSeconds}
+                  />
+                </div>
+              </div>
+            </section>
             <section className="settings-card">
               <div className="settings-icon"><FolderKey size={23} /></div>
               <div><h3>Codex Home</h3><p>切换账户时，管理器会原子覆盖此目录中的 auth.json。</p><code>{info?.codexHome ?? "读取中…"}</code></div>
@@ -493,28 +753,6 @@ export default function App() {
           </div>
         ) : (
           <>
-            <section className="overview">
-              <div>
-                <span className="section-label">已连接账户</span>
-                <strong>{accounts.length}</strong>
-                <small>个 ChatGPT 账户</small>
-              </div>
-              <div className="overview-divider" />
-              <div className="active-overview">
-                <span className="section-label">当前 Codex 身份</span>
-                <b>{active?.email ?? "未选择账户"}</b>
-                <small>{active ? `${active.plan} · auth.json 已同步` : "添加或导入账户后即可切换"}</small>
-              </div>
-              <button className="refresh-all" onClick={refreshAll} disabled={refreshingAll || !accounts.length}>
-                <RefreshCw className={refreshingAll ? "spin" : ""} size={17} />刷新全部用量
-              </button>
-            </section>
-
-            <div className="content-heading">
-              <div><h2>我的账户</h2><p>查看配额，并在不同 Codex 身份之间快速切换。</p></div>
-              <span><span className="live-dot" />配额来自 Codex 实时接口</span>
-            </div>
-
             {loading ? (
               <div className="loading-state"><RefreshCw className="spin" />正在读取本地账户…</div>
             ) : accounts.length ? (
@@ -530,6 +768,7 @@ export default function App() {
       </main>
 
       {showLogin && <LoginModal onClose={() => setShowLogin(false)} onStart={startLogin} onImport={importAuth} />}
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} version={info?.version ?? "0.1.0"} />}
       {toast && <div className="toast"><Check size={17} />{toast}</div>}
     </div>
     </ConfigProvider>

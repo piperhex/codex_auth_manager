@@ -23,6 +23,7 @@ use tiny_http::{Header, Request, Response as HttpResponse, Server, StatusCode};
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const ISSUER: &str = "https://auth.openai.com";
 const USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
+const RESET_CREDITS_URL: &str = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
 const ORIGINATOR: &str = "codex_cli_rs";
 
 #[derive(Default)]
@@ -59,6 +60,19 @@ struct UsageWindow {
     window_minutes: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ResetCredit {
+    issued_at: Option<String>,
+    expires_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ResetCreditsSummary {
+    credits: Vec<ResetCredit>,
+}
+
 #[derive(Default, Serialize, Deserialize)]
 struct ManagerStateFile {
     active_account_id: Option<String>,
@@ -70,6 +84,7 @@ struct AppInfo {
     codex_home: String,
     auth_path: String,
     account_store: String,
+    version: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -326,6 +341,7 @@ fn get_app_info<R: Runtime>(app: tauri::AppHandle<R>) -> Result<AppInfo, String>
         codex_home: paths.codex_home.display().to_string(),
         auth_path: paths.current_auth.display().to_string(),
         account_store: paths.accounts.display().to_string(),
+        version: app.package_info().version.to_string(),
     })
 }
 
@@ -482,6 +498,60 @@ fn usage_request(client: &Client, auth: &Value) -> Result<Response, String> {
         .map_err(|error| format!("读取 Codex 用量失败：{error}"))
 }
 
+fn reset_credits_request(client: &Client, auth: &Value) -> Result<Response, String> {
+    let access_token = token_string(auth, "access_token")
+        .ok_or_else(|| "auth.json 缺少 access_token".to_string())?;
+    let (_, _, account_id, _) = account_fields(auth)?;
+    let mut request = client
+        .get(RESET_CREDITS_URL)
+        .bearer_auth(access_token)
+        .header("originator", ORIGINATOR)
+        .header("User-Agent", "codex_cli_rs/0.1.0");
+    if let Some(account_id) = account_id {
+        request = request.header("ChatGPT-Account-Id", account_id);
+    }
+    request
+        .send()
+        .map_err(|error| format!("读取 Codex 重置卡失败：{error}"))
+}
+
+fn normalized_timestamp(value: Option<&Value>) -> Option<String> {
+    let value = value?;
+    if let Some(timestamp) = value.as_str() {
+        return chrono::DateTime::parse_from_rfc3339(timestamp)
+            .ok()
+            .map(|value| value.with_timezone(&Utc).to_rfc3339());
+    }
+
+    let raw = value.as_i64()?;
+    let seconds = if raw.abs() >= 100_000_000_000 {
+        raw / 1000
+    } else {
+        raw
+    };
+    chrono::DateTime::<Utc>::from_timestamp(seconds, 0).map(|value| value.to_rfc3339())
+}
+
+fn parse_reset_credits(payload: &Value) -> Result<ResetCreditsSummary, String> {
+    let credits = payload
+        .get("credits")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "重置卡接口响应缺少 credits 列表".to_string())?;
+    let mut result = credits
+        .iter()
+        .map(|credit| ResetCredit {
+            issued_at: normalized_timestamp(
+                credit
+                    .get("granted_at")
+                    .or_else(|| credit.get("created_at")),
+            ),
+            expires_at: normalized_timestamp(credit.get("expires_at")),
+        })
+        .collect::<Vec<_>>();
+    result.sort_by(|left, right| left.expires_at.cmp(&right.expires_at));
+    Ok(ResetCreditsSummary { credits: result })
+}
+
 fn window_from(value: Option<&Value>) -> Option<UsageWindow> {
     let value = value?;
     let used = value.get("used_percent")?.as_f64()?.clamp(0.0, 100.0);
@@ -558,6 +628,47 @@ fn refresh_usage<R: Runtime>(app: tauri::AppHandle<R>, id: String) -> Result<Usa
             Err(error)
         }
     }
+}
+
+#[tauri::command]
+fn fetch_reset_credits<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    id: String,
+) -> Result<ResetCreditsSummary, String> {
+    let paths = paths(&app)?;
+    let auth_path = managed_auth_path(&paths, &id);
+    let mut auth = read_json(&auth_path)?;
+    let client = Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|error| format!("创建网络客户端失败：{error}"))?;
+
+    if token_expiring(&auth) {
+        refresh_tokens(&client, &mut auth)?;
+        write_json_atomic(&auth_path, &auth)?;
+    }
+
+    let mut response = reset_credits_request(&client, &auth)?;
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        refresh_tokens(&client, &mut auth)?;
+        write_json_atomic(&auth_path, &auth)?;
+        response = reset_credits_request(&client, &auth)?;
+    }
+
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err("凭证已失效，或请求未正确携带 Authorization，请重新登录".to_string());
+    }
+    if !response.status().is_success() {
+        return Err(format!("Codex 重置卡接口返回 HTTP {}", response.status()));
+    }
+
+    let payload: Value = response
+        .json()
+        .map_err(|error| format!("解析重置卡响应失败：{error}"))?;
+    if read_state(&paths).active_account_id.as_deref() == Some(&id) {
+        write_json_atomic(&paths.current_auth, &auth)?;
+    }
+    parse_reset_credits(&payload)
 }
 
 fn random_urlsafe<const N: usize>() -> String {
@@ -663,18 +774,20 @@ fn open_embedded_login_window<R: Runtime + 'static>(
             if let Some(window) = window_app.get_webview_window("codex-login") {
                 let _ = window.close();
             }
-            let redirect_target =
-                serde_json::to_string(&fallback_url).unwrap_or_else(|_| "\"about:blank\"".to_string());
-            let redirect_script = format!(
-                "window.setTimeout(() => window.location.replace({redirect_target}), 50);"
-            );
-            let window =
-                WebviewWindowBuilder::new(&window_app, "codex-login", WebviewUrl::App("login.html".into()))
-                    .title("登录 ChatGPT - Codex Auth Manager")
-                    .inner_size(520.0, 720.0)
-                    .min_inner_size(420.0, 620.0)
-                    .center()
-                    .build()?;
+            let redirect_target = serde_json::to_string(&fallback_url)
+                .unwrap_or_else(|_| "\"about:blank\"".to_string());
+            let redirect_script =
+                format!("window.setTimeout(() => window.location.replace({redirect_target}), 50);");
+            let window = WebviewWindowBuilder::new(
+                &window_app,
+                "codex-login",
+                WebviewUrl::App("login.html".into()),
+            )
+            .title("登录 ChatGPT - Codex Auth Manager")
+            .inner_size(520.0, 720.0)
+            .min_inner_size(420.0, 620.0)
+            .center()
+            .build()?;
             window.show()?;
             window.set_focus()?;
             window.eval(redirect_script)?;
@@ -800,16 +913,16 @@ fn run_login_loop<R: Runtime + 'static>(
                 },
                 "last_refresh": Utc::now().to_rfc3339(),
             });
-            import_value(&app, auth, true)
+            import_value(&app, auth, false)
         }) {
             Ok(_) => {
                 html_response(
                     request,
                     200,
                     "登录成功",
-                    "账户已保存并切换为当前 Codex 身份，此窗口可以关闭了。",
+                    "账户已保存。请回到 Codex Auth Manager 手动切换到此账户。",
                 );
-                emit_login(&app, true, "登录成功，账户已保存并切换");
+                emit_login(&app, true, "登录成功，账户已保存，可手动切换");
                 let _ = app.emit("accounts-changed", ());
                 thread::sleep(Duration::from_millis(850));
                 if let Some(window) = app.get_webview_window("codex-login") {
@@ -857,7 +970,16 @@ fn start_login<R: Runtime + 'static>(
 
     let thread_app = app.clone();
     let thread_cancel = cancel.clone();
-    thread::spawn(move || run_login_loop(thread_app, server, port, oauth_state, verifier, thread_cancel));
+    thread::spawn(move || {
+        run_login_loop(
+            thread_app,
+            server,
+            port,
+            oauth_state,
+            verifier,
+            thread_cancel,
+        )
+    });
 
     if embedded {
         let window_app = app.clone();
@@ -891,6 +1013,7 @@ pub fn run() {
             switch_account,
             delete_account,
             refresh_usage,
+            fetch_reset_credits,
             start_login,
         ])
         .run(tauri::generate_context!())
@@ -941,5 +1064,29 @@ mod tests {
         }));
         assert_eq!(usage.primary.unwrap().remaining_percent, 58.0);
         assert_eq!(usage.secondary.unwrap().window_minutes, Some(10080));
+    }
+
+    #[test]
+    fn returns_only_reset_credit_times() {
+        let summary = parse_reset_credits(&json!({
+            "available_count": 1,
+            "credits": [{
+                "credit_id": "must-not-leave-rust",
+                "status": "available",
+                "granted_at": "2026-06-30T03:04:05Z",
+                "expires_at": "2026-07-30T03:04:05Z"
+            }]
+        }))
+        .unwrap();
+        let serialized = serde_json::to_value(summary).unwrap();
+        assert_eq!(
+            serialized["credits"][0]["issuedAt"],
+            "2026-06-30T03:04:05+00:00"
+        );
+        assert_eq!(
+            serialized["credits"][0]["expiresAt"],
+            "2026-07-30T03:04:05+00:00"
+        );
+        assert!(serialized.to_string().find("must-not-leave-rust").is_none());
     }
 }
