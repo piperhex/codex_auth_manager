@@ -12,7 +12,7 @@ import type {
 } from "../types";
 
 export const isDesktopApp = "__TAURI_INTERNALS__" in window;
-const FLOATING_BUBBLE_PREVIEW_KEY = "codex-auth-manager:floating-bubble";
+const FLOATING_BUBBLE_PREVIEW_KEY = "codex-switch:floating-bubble";
 
 export async function loadDashboard(): Promise<{ accounts: Account[]; info: AppInfo }> {
   if (!isDesktopApp) {

@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Permissions for the main Codex Auth Manager window","local":true,"windows":["main","usage-bubble"],"permissions":["core:default","core:event:default","dialog:allow-open","opener:allow-open-url","opener:allow-default-urls"]}}
+{"default":{"identifier":"default","description":"Permissions for the main Codex Switch window","local":true,"windows":["main","usage-bubble"],"permissions":["core:default","core:event:default","dialog:allow-open","opener:allow-open-url","opener:allow-default-urls"]}}

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Codex Auth Manager",
+  "productName": "Codex Switch",
   "version": "0.1.7",
-  "identifier": "dev.codex.auth-manager",
+  "identifier": "dev.codex.switch",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "Codex Auth Manager",
+        "title": "Codex Switch",
         "width": 1370,
         "height": 760,
         "minWidth": 960,

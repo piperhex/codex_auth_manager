@@ -18,7 +18,7 @@ pub(crate) fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let menu = build_menu(app.handle())?;
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
-        .tooltip("Codex Auth Manager")
+        .tooltip("Codex Switch")
         .show_menu_on_left_click(false)
         .on_menu_event(handle_menu_event)
         .on_tray_icon_event(|tray, event| {

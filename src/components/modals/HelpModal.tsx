@@ -18,7 +18,7 @@ export function HelpModal({ onClose, version, t }: { onClose: () => void; versio
           <div><CalendarClock size={18} /><span><b>{t("help.reset.title")}</b><small>{t("help.reset.description")}</small></span></div>
           <div><ShieldCheck size={18} /><span><b>{t("help.security.title")}</b><small>{t("help.security.description")}</small></span></div>
         </div>
-        <div className="help-version"><span>Codex Auth Manager</span><b>v{version}</b></div>
+        <div className="help-version"><span>Codex Switch</span><b>v{version}</b></div>
       </section>
     </div>
   );

@@ -48,5 +48,5 @@ pub fn run() {
             oauth::start_login,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Codex Auth Manager");
+        .expect("error while running Codex Switch");
 }

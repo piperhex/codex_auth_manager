@@ -1,13 +1,13 @@
 [package]
-name = "codex-auth-manager"
+name = "codex-switch"
 version = "0.1.0"
 description = "Local multi-account manager for Codex auth.json"
-authors = ["Codex Auth Manager"]
+authors = ["Codex Switch"]
 license = "Apache-2.0"
 edition = "2021"
 
 [lib]
-name = "codex_auth_manager_lib"
+name = "codex_switch_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

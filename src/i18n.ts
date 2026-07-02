@@ -1,4 +1,4 @@
-export const LANGUAGE_STORAGE_KEY = "codex-auth-manager:language";
+export const LANGUAGE_STORAGE_KEY = "codex-switch:language";
 
 export const LANGUAGE_OPTIONS = [
   { value: "en", label: "English" },
@@ -98,7 +98,7 @@ const translations = {
     "login.safety": "Tokens are not shown in the UI or written to logs",
     "help.close": "Close help",
     "help.title": "Help",
-    "help.description": "Codex Auth Manager safely manages multiple Codex accounts on this device.",
+    "help.description": "Codex Switch safely manages multiple Codex accounts on this device.",
     "help.multi.title": "Multi-account management",
     "help.multi.description": "Sign in with ChatGPT or import an existing auth.json, then manage all accounts in one place.",
     "help.switch.title": "Fast switching",
@@ -212,7 +212,7 @@ const translations = {
     "login.safety": "Token 不会显示在界面或写入日志",
     "help.close": "关闭使用帮助",
     "help.title": "使用帮助",
-    "help.description": "Codex Auth Manager 用于在本机安全地管理多个 Codex 账户。",
+    "help.description": "Codex Switch 用于在本机安全地管理多个 Codex 账户。",
     "help.multi.title": "多账户管理",
     "help.multi.description": "登录 ChatGPT 或导入已有 auth.json，集中保存多个账户。",
     "help.switch.title": "快速切换",

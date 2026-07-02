@@ -1,6 +1,6 @@
 # Architecture and Data Flow
 
-This document describes the responsibility boundaries, key data flows, and security constraints of Codex Auth Manager.
+This document describes the responsibility boundaries, key data flows, and security constraints of Codex Switch.
 
 ## Overview
 
@@ -63,7 +63,7 @@ The frontend only receives redacted models such as `AccountSummary`, `UsageSumma
 ## Persisted Data Layout
 
 ```text
-OS application data/codex-auth-manager/
+OS application data/codex-switch/
   state.json
   accounts/
     <stable account ID>/

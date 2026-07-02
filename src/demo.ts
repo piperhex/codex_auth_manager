@@ -30,6 +30,6 @@ export const DEMO_ACCOUNTS: Account[] = [
 export const DEMO_INFO: AppInfo = {
   codexHome: "C:\\Users\\you\\.codex",
   authPath: "C:\\Users\\you\\.codex\\auth.json",
-  accountStore: "C:\\Users\\you\\AppData\\Roaming\\codex-auth-manager\\accounts",
+  accountStore: "C:\\Users\\you\\AppData\\Roaming\\codex-switch\\accounts",
   version: "0.1.0",
 };

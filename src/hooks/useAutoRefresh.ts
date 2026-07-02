@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const INTERVAL_KEY = "codex-auth-manager:auto-refresh-seconds";
-const ENABLED_KEY = "codex-auth-manager:auto-refresh-enabled";
-const ACCOUNT_SETTINGS_KEY = "codex-auth-manager:account-auto-refresh-settings";
+const INTERVAL_KEY = "codex-switch:auto-refresh-seconds";
+const ENABLED_KEY = "codex-switch:auto-refresh-enabled";
+const ACCOUNT_SETTINGS_KEY = "codex-switch:account-auto-refresh-settings";
 const DEFAULT_GLOBAL_INTERVAL_SECONDS = 300;
 const DEFAULT_ACCOUNT_INTERVAL_SECONDS = 5;
 

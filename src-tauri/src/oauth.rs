@@ -142,7 +142,7 @@ fn open_embedded_login_window<R: Runtime + 'static>(
                 "codex-login",
                 WebviewUrl::App("login.html".into()),
             )
-            .title("登录 ChatGPT - Codex Auth Manager")
+            .title("登录 ChatGPT - Codex Switch")
             .inner_size(520.0, 720.0)
             .min_inner_size(420.0, 620.0)
             .center()
@@ -202,12 +202,7 @@ fn run_login_loop<R: Runtime + 'static>(
             }
         };
         if parsed.path() != "/auth/callback" {
-            html_response(
-                request,
-                404,
-                "页面不存在",
-                "请回到 Codex Auth Manager 继续操作。",
-            );
+            html_response(request, 404, "页面不存在", "请回到 Codex Switch 继续操作。");
             continue;
         }
         let params: HashMap<String, String> = parsed.query_pairs().into_owned().collect();
@@ -250,7 +245,7 @@ fn run_login_loop<R: Runtime + 'static>(
                     request,
                     200,
                     "登录成功",
-                    "账户已保存。请回到 Codex Auth Manager 手动切换到此账户。",
+                    "账户已保存。请回到 Codex Switch 手动切换到此账户。",
                 );
                 emit_login(&app, true, "登录成功，账户已保存，可手动切换");
                 let _ = app.emit("accounts-changed", ());

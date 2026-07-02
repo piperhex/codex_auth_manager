@@ -17,8 +17,8 @@ import { AccountsPage } from "./pages/AccountsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { formatRefreshTime } from "./utils/format";
 
-const LAST_REFRESH_ALL_KEY = "codex-auth-manager:last-refresh-all-at";
-const REPOSITORY_URL = "https://github.com/piperhex/codex_auth_manager.git";
+const LAST_REFRESH_ALL_KEY = "codex-switch:last-refresh-all-at";
+const REPOSITORY_URL = "https://github.com/piperhex/codex-switch.git";
 
 function storedRefreshAllTime() {
   const value = window.localStorage.getItem(LAST_REFRESH_ALL_KEY);
@@ -82,7 +82,7 @@ function DashboardApp() {
       <div className="app-shell">
         <header className="app-menu">
           <div className="brand"><div className="brand-mark"><Zap size={19} fill="currentColor" /></div>
-            <span>Codex<br /><b>Auth Manager</b></span></div>
+            <span>Codex<br /><b>Switch</b></span></div>
           <nav className="top-tabs" aria-label={t("nav.aria")}>
             <button className={page === "accounts" ? "selected" : ""} onClick={() => setPage("accounts")}>
               <UserRound size={19} />{t("nav.accounts")}</button>

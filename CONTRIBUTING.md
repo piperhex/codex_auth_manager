@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for improving Codex Auth Manager. Because the project handles login credentials, security and reviewability take priority over implementation speed.
+Thank you for improving Codex Switch. Because the project handles login credentials, security and reviewability take priority over implementation speed.
 
 ## Getting Started
 
