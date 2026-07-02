@@ -62,6 +62,8 @@ pub(crate) struct AppSettings {
     #[serde(default)]
     pub(crate) floating_bubble_enabled: bool,
     #[serde(default)]
+    pub(crate) theme_color: Option<String>,
+    #[serde(default)]
     pub(crate) bubble_x: Option<f64>,
     #[serde(default)]
     pub(crate) bubble_y: Option<f64>,

@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type PointerEvent } from "react";
-import { dragFloatingBubble, loadDashboard, resizeFloatingBubble, subscribeToBackendEvents } from "../api/backend";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from "react";
+import {
+  dragFloatingBubble,
+  loadDashboard,
+  resizeFloatingBubble,
+  showDashboardFromBubble,
+  showFloatingBubbleMenu,
+  subscribeToBackendEvents,
+} from "../api/backend";
 import { useLanguage } from "../hooks/useLanguage";
+import { useThemeColor } from "../hooks/useThemeColor";
 import type { Account, UsageWindow } from "../types";
 import { formatUpdated, remainingTone, resetLabel, type UsageResetWindow } from "../utils/format";
 
@@ -8,7 +16,13 @@ function usageColor(remaining: number) {
   const tone = remainingTone(remaining);
   if (tone === "danger") return "#ef6b62";
   if (tone === "warning") return "#e5b84f";
-  return "#35d05b";
+  return "var(--green-highlight)";
+}
+
+const ignoreThemeError = () => undefined;
+
+function clampPercent(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 function DetailRow({ label, usage, language, resetWindow, now }: {
@@ -19,14 +33,29 @@ function DetailRow({ label, usage, language, resetWindow, now }: {
   now: number;
 }) {
   if (!usage) {
-    return <div className={`bubble-detail-row bubble-detail-row-${resetWindow}`}><b>{label}</b><span>--</span></div>;
+    const emptyStyle = {
+      "--bubble-detail-progress": "0%",
+      "--bubble-detail-color": "#6f7d74",
+    } as CSSProperties;
+    return (
+      <div className={`bubble-detail-row bubble-detail-row-${resetWindow}`} style={emptyStyle}>
+        <div className="bubble-detail-row-head"><b>{label}</b><span>--</span></div>
+        <div className="bubble-detail-progress" aria-hidden="true"><i /></div>
+      </div>
+    );
   }
-  const used = Math.round(usage.usedPercent);
-  const remaining = Math.round(usage.remainingPercent);
+  const remaining = clampPercent(usage.remainingPercent);
+  const progressStyle = {
+    "--bubble-detail-progress": `${remaining}%`,
+    "--bubble-detail-color": usageColor(remaining),
+  } as CSSProperties;
   return (
-    <div className={`bubble-detail-row bubble-detail-row-${resetWindow}`}>
-      <b>{label}</b>
-      <span>{language === "zh" ? `已用 ${used}% · 剩余 ${remaining}%` : `${used}% used · ${remaining}% left`}</span>
+    <div className={`bubble-detail-row bubble-detail-row-${resetWindow}`} style={progressStyle}>
+      <div className="bubble-detail-row-head">
+        <b>{label}</b>
+        <span>{language === "zh" ? `剩余 ${remaining}%` : `${remaining}% left`}</span>
+      </div>
+      <div className="bubble-detail-progress" aria-hidden="true"><i /></div>
       <small>{resetLabel(usage.resetsAt, language, resetWindow, now)}</small>
     </div>
   );
@@ -34,9 +63,13 @@ function DetailRow({ label, usage, language, resetWindow, now }: {
 
 export function FloatingUsageBubble() {
   const { language } = useLanguage();
+  useThemeColor(ignoreThemeError);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [expanded, setExpanded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [waterSettling, setWaterSettling] = useState(false);
+  const lastPrimaryPointerDownAt = useRef(0);
+  const previousRemaining = useRef<number | null>(null);
 
   const load = useCallback(() => {
     void loadDashboard().then(({ accounts: nextAccounts }) => setAccounts(nextAccounts));
@@ -49,12 +82,31 @@ export function FloatingUsageBubble() {
 
   const account = useMemo(() => accounts.find((item) => item.active), [accounts]);
   const primary = account?.usage.primary;
+  const secondary = account?.usage.secondary;
   const hasFiveHourReset = Boolean(primary?.resetsAt);
-  const remaining = primary ? Math.round(primary.remainingPercent) : null;
+  const remaining = primary ? clampPercent(primary.remainingPercent) : null;
+  const weeklyRemaining = secondary ? clampPercent(secondary.remainingPercent) : null;
   const ringStyle = {
-    "--bubble-progress": `${remaining ?? 0}%`,
-    "--bubble-color": remaining === null ? "#7b8780" : usageColor(remaining),
+    "--bubble-progress": `${weeklyRemaining ?? 0}%`,
+    "--bubble-color": weeklyRemaining === null ? "#7b8780" : usageColor(weeklyRemaining),
+    "--bubble-water-level": `${remaining ?? 0}%`,
+    "--bubble-water-color": "#43c7ff",
   } as CSSProperties;
+
+  useEffect(() => {
+    if (remaining === null) {
+      previousRemaining.current = null;
+      setWaterSettling(false);
+      return;
+    }
+    const previous = previousRemaining.current;
+    previousRemaining.current = remaining;
+    if (previous !== null && remaining < previous) {
+      setWaterSettling(true);
+      const timer = window.setTimeout(() => setWaterSettling(false), 1100);
+      return () => window.clearTimeout(timer);
+    }
+  }, [remaining]);
 
   useEffect(() => {
     if (!expanded || !hasFiveHourReset) return;
@@ -71,12 +123,28 @@ export function FloatingUsageBubble() {
   const startDrag = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
     event.preventDefault();
+    const now = Date.now();
+    if (now - lastPrimaryPointerDownAt.current < 350) {
+      lastPrimaryPointerDownAt.current = 0;
+      setExpanded(false);
+      void resizeFloatingBubble(false).then(showDashboardFromBubble);
+      return;
+    }
+    lastPrimaryPointerDownAt.current = now;
     setExpanded(false);
     void resizeFloatingBubble(false).then(dragFloatingBubble);
   };
 
+  const openContextMenu = (event: MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setExpanded(false);
+    void resizeFloatingBubble(false).then(showFloatingBubbleMenu);
+  };
+
   return (
     <div className={`floating-usage-window ${expanded ? "is-expanded" : ""}`}
+      onContextMenu={openContextMenu}
       onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)}>
       {expanded && (
         <aside className="bubble-details">
@@ -90,9 +158,10 @@ export function FloatingUsageBubble() {
           <footer>{language === "zh" ? "更新于 " : "Updated "}{formatUpdated(account?.usage.fetchedAt, language)}</footer>
         </aside>
       )}
-      <button type="button" className="floating-bubble" style={ringStyle}
+      <button type="button" className={`floating-bubble ${waterSettling ? "is-water-settling" : ""}`} style={ringStyle}
         aria-label={language === "zh" ? "当前账号 5 小时用量" : "Current account 5-hour usage"}
         onPointerDown={startDrag}>
+        <span className="floating-bubble-water" aria-hidden="true" />
         <span className="floating-bubble-value">{remaining === null ? "--" : `${remaining}%`}</span>
         <small>{language === "zh" ? "5h 剩余" : "5h left"}</small>
       </button>

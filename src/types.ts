@@ -44,6 +44,7 @@ export interface AppInfo {
 
 export interface AppSettings {
   floatingBubbleEnabled: boolean;
+  themeColor?: string | null;
   bubbleX?: number | null;
   bubbleY?: number | null;
 }

@@ -7,7 +7,7 @@ function usageStroke(value: number) {
   const tone = remainingTone(value);
   if (tone === "danger") return "#d2685b";
   if (tone === "warning") return "#d0a340";
-  return "#1f7a51";
+  return "var(--green)";
 }
 
 export function UsageMeter({ window, resetWindow, now, language, t }: {

@@ -43,8 +43,11 @@ pub fn run() {
             commands::fetch_reset_credits,
             floating_bubble::get_app_settings,
             floating_bubble::set_floating_bubble,
+            floating_bubble::set_theme_color,
             floating_bubble::resize_floating_bubble,
             floating_bubble::drag_floating_bubble,
+            floating_bubble::show_floating_bubble_menu,
+            floating_bubble::show_dashboard_from_bubble,
             oauth::start_login,
         ])
         .run(tauri::generate_context!())

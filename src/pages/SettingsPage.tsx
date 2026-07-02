@@ -1,5 +1,5 @@
-import { Button, InputNumber, Segmented, Space, Switch } from "antd";
-import { CircleGauge, FolderKey, KeyRound, Languages, RefreshCw, ShieldCheck } from "lucide-react";
+import { Button, ColorPicker, InputNumber, Segmented, Space, Switch } from "antd";
+import { CircleGauge, FolderKey, KeyRound, Languages, Palette, RefreshCw, ShieldCheck } from "lucide-react";
 import { MAX_AUTO_REFRESH_SECONDS, MIN_AUTO_REFRESH_SECONDS } from "../hooks/useAutoRefresh";
 import { LANGUAGE_OPTIONS, type Language, type Translate } from "../i18n";
 import type { AppInfo } from "../types";
@@ -15,6 +15,9 @@ export function SettingsPage({
   accountAutoRefreshSeconds,
   onAccountAutoRefreshEnabledChange,
   onAccountAutoRefreshSecondsChange,
+  themeColor,
+  themeColorLoading,
+  onThemeColorChange,
   floatingBubbleEnabled,
   floatingBubbleLoading,
   onFloatingBubbleChange,
@@ -32,6 +35,9 @@ export function SettingsPage({
   accountAutoRefreshSeconds: number;
   onAccountAutoRefreshEnabledChange: (enabled: boolean) => void;
   onAccountAutoRefreshSecondsChange: (value: number | string | null) => void;
+  themeColor: string;
+  themeColorLoading: boolean;
+  onThemeColorChange: (color: string) => void;
   floatingBubbleEnabled: boolean;
   floatingBubbleLoading: boolean;
   onFloatingBubbleChange: (enabled: boolean) => void;
@@ -48,6 +54,19 @@ export function SettingsPage({
             <label htmlFor="language-selector">{t("settings.language.label")}</label>
             <Segmented id="language-selector" value={language} options={[...LANGUAGE_OPTIONS]}
               onChange={(value) => onLanguageChange(value as Language)} />
+          </div>
+        </div>
+      </section>
+      <section className="settings-card">
+        <div className="settings-icon"><Palette size={23} /></div>
+        <div><h3>{t("settings.theme.title")}</h3><p>{t("settings.theme.description")}</p>
+          <div className="settings-field">
+            <label htmlFor="theme-color-picker">{t("settings.theme.label")}</label>
+            <span id="theme-color-picker" className="theme-color-picker">
+              <ColorPicker value={themeColor} disabled={themeColorLoading}
+                showText disabledAlpha format="hex"
+                onChangeComplete={(color) => onThemeColorChange(color.toHexString())} />
+            </span>
           </div>
         </div>
       </section>

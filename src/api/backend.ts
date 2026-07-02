@@ -10,9 +10,12 @@ import type {
   LoginStatus,
   ResetCreditsSummary,
 } from "../types";
+import { DEFAULT_THEME_COLOR, normalizeThemeColor } from "../utils/theme";
 
 export const isDesktopApp = "__TAURI_INTERNALS__" in window;
 const FLOATING_BUBBLE_PREVIEW_KEY = "codex-switch:floating-bubble";
+const THEME_COLOR_PREVIEW_KEY = "codex-switch:theme-color";
+const THEME_COLOR_EVENT = "codex-switch:theme-color-changed";
 
 export async function loadDashboard(): Promise<{ accounts: Account[]; info: AppInfo }> {
   if (!isDesktopApp) {
@@ -27,7 +30,10 @@ export async function loadDashboard(): Promise<{ accounts: Account[]; info: AppI
 
 export async function loadAppSettings(): Promise<AppSettings> {
   if (!isDesktopApp) {
-    return { floatingBubbleEnabled: window.localStorage.getItem(FLOATING_BUBBLE_PREVIEW_KEY) === "true" };
+    return {
+      floatingBubbleEnabled: window.localStorage.getItem(FLOATING_BUBBLE_PREVIEW_KEY) === "true",
+      themeColor: normalizeThemeColor(window.localStorage.getItem(THEME_COLOR_PREVIEW_KEY) ?? DEFAULT_THEME_COLOR),
+    };
   }
   return invoke<AppSettings>("get_app_settings");
 }
@@ -35,9 +41,25 @@ export async function loadAppSettings(): Promise<AppSettings> {
 export async function updateFloatingBubble(enabled: boolean): Promise<AppSettings> {
   if (!isDesktopApp) {
     window.localStorage.setItem(FLOATING_BUBBLE_PREVIEW_KEY, String(enabled));
-    return { floatingBubbleEnabled: enabled };
+    return {
+      floatingBubbleEnabled: enabled,
+      themeColor: normalizeThemeColor(window.localStorage.getItem(THEME_COLOR_PREVIEW_KEY) ?? DEFAULT_THEME_COLOR),
+    };
   }
   return invoke<AppSettings>("set_floating_bubble", { enabled });
+}
+
+export async function updateThemeColor(color: string): Promise<AppSettings> {
+  const themeColor = normalizeThemeColor(color);
+  if (!isDesktopApp) {
+    window.localStorage.setItem(THEME_COLOR_PREVIEW_KEY, themeColor);
+    window.dispatchEvent(new CustomEvent<string>(THEME_COLOR_EVENT, { detail: themeColor }));
+    return {
+      floatingBubbleEnabled: window.localStorage.getItem(FLOATING_BUBBLE_PREVIEW_KEY) === "true",
+      themeColor,
+    };
+  }
+  return invoke<AppSettings>("set_theme_color", { color: themeColor });
 }
 
 export async function resizeFloatingBubble(expanded: boolean): Promise<void> {
@@ -46,6 +68,14 @@ export async function resizeFloatingBubble(expanded: boolean): Promise<void> {
 
 export async function dragFloatingBubble(): Promise<void> {
   if (isDesktopApp) await invoke("drag_floating_bubble");
+}
+
+export async function showFloatingBubbleMenu(): Promise<void> {
+  if (isDesktopApp) await invoke("show_floating_bubble_menu");
+}
+
+export async function showDashboardFromBubble(): Promise<void> {
+  if (isDesktopApp) await invoke("show_dashboard_from_bubble");
 }
 
 export async function beginLogin(embedded: boolean): Promise<LoginStart | null> {
@@ -97,4 +127,26 @@ export function subscribeToBackendEvents(
     listen<LoginStatus>("login-status", ({ payload }) => onLoginStatus(payload)),
   ];
   return () => subscriptions.forEach((subscription) => void subscription.then((unlisten) => unlisten()));
+}
+
+export function subscribeToThemeColorChanges(onChange: (color: string) => void): () => void {
+  if (!isDesktopApp) {
+    const handleThemeChange = (event: Event) => {
+      onChange(normalizeThemeColor((event as CustomEvent<string>).detail));
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === THEME_COLOR_PREVIEW_KEY) onChange(normalizeThemeColor(event.newValue));
+    };
+    window.addEventListener(THEME_COLOR_EVENT, handleThemeChange);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(THEME_COLOR_EVENT, handleThemeChange);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }
+
+  const subscription = listen<string>("theme-color-changed", ({ payload }) => {
+    onChange(normalizeThemeColor(payload));
+  });
+  return () => void subscription.then((unlisten) => unlisten());
 }

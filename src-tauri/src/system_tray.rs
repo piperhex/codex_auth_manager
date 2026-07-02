@@ -13,6 +13,7 @@ const TRAY_ID: &str = "main-tray";
 const DASHBOARD_ID: &str = "tray:dashboard";
 const QUIT_ID: &str = "tray:quit";
 const ACCOUNT_PREFIX: &str = "tray:account:";
+const MENU_EMAIL_CHARS: usize = 15;
 
 pub(crate) fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let menu = build_menu(app.handle())?;
@@ -80,7 +81,9 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     }
 }
 
-fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, Box<dyn std::error::Error>> {
+pub(crate) fn build_menu<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<Menu<R>, Box<dyn std::error::Error>> {
     let menu = Menu::new(app)?;
 
     match commands::list_accounts(app.clone()) {
@@ -134,7 +137,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, Box<dyn std::er
 fn account_label(account: &AccountSummary) -> String {
     format!(
         "{} | 5h {} | 1week {}",
-        escape_menu_text(&account.email),
+        escape_menu_text(&truncate_menu_email(&account.email)),
         remaining_label(account.usage.primary.as_ref()),
         remaining_label(account.usage.secondary.as_ref()),
     )
@@ -148,4 +151,14 @@ fn remaining_label(window: Option<&UsageWindow>) -> String {
 
 fn escape_menu_text(text: &str) -> String {
     text.replace('&', "&&")
+}
+
+fn truncate_menu_email(text: &str) -> String {
+    let mut chars = text.chars();
+    let truncated = chars.by_ref().take(MENU_EMAIL_CHARS).collect::<String>();
+    if chars.next().is_some() {
+        format!("{truncated}...")
+    } else {
+        truncated
+    }
 }

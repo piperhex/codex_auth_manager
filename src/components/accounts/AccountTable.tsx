@@ -73,43 +73,40 @@ export function AccountTable({
 
   const columns: ColumnsType<Account> = [
     {
-      title: t("table.account"), dataIndex: "email", width: 300, fixed: "left",
+      title: t("table.account"), dataIndex: "email", width: 200, fixed: "left",
       sorter: (left, right) => left.email.localeCompare(right.email),
       render: (_, account) => (
         <div className="account-cell">
           <div className="table-avatar">{initials(account.email)}</div>
           <div className="account-primary">
             <div className="account-email" title={account.email}>{account.email}</div>
-            <div className="account-meta">{account.active ? <Tag color="success">{t("table.current")}</Tag> : <Tag>{t("table.standby")}</Tag>}</div>
+            <div className="account-meta">{account.active ? <Tag className="current-tag">{t("table.current")}</Tag> : <Tag>{t("table.standby")}</Tag>}</div>
           </div>
         </div>
       ),
     },
     {
-      title: t("table.planId"), width: 190,
+      title: t("table.planId"), width: 50,
       render: (_, account) => (
-        <div className="plan-stack">
+        <Tooltip title={account.accountId ? t("table.workspace", { id: account.accountId }) : t("table.personal")}>
           <Tag className="plan-tag">{account.plan || "ChatGPT"}</Tag>
-          <span className="account-id" title={account.accountId ?? ""}>
-            {account.accountId ? t("table.workspace", { id: account.accountId.slice(0, 12) }) : t("table.personal")}
-          </span>
-        </div>
+        </Tooltip>
       ),
     },
     {
-      title: t("table.fiveHours"), width: 168,
+      title: t("table.fiveHours"), width: 148,
       render: (_, account) => <UsageMeter window={account.usage.primary} resetWindow="fiveHours" now={now} language={language} t={t} />,
     },
     {
-      title: t("table.oneWeek"), width: 238,
+      title: t("table.oneWeek"), width: 148,
       render: (_, account) => <UsageMeter window={account.usage.secondary} resetWindow="oneWeek" now={now} language={language} t={t} />,
     },
     {
-      title: t("table.resetCredits"), width: 150, align: "center",
+      title: t("table.resetCredits"), width: 130, align: "center",
       render: (_, account) => <ResetCreditCount state={resetCredits[account.id]} language={language} t={t} />,
     },
     {
-      title: t("table.updated"), width: 126,
+      title: t("table.updated"), width: 100,
       render: (_, account) => (
         <div className="updated-cell">
           <Clock3 size={13} /><span>{formatUpdated(account.usage.fetchedAt, language)}</span>
@@ -118,7 +115,7 @@ export function AccountTable({
       ),
     },
     {
-      title: t("table.actions"), width: 176, align: "right", fixed: "right",
+      title: t("table.actions"), width: 140, align: "center", fixed: "right",
       render: (_, account) => {
         const waiting = busyAccountId === account.id;
         return (

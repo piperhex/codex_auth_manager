@@ -12,6 +12,7 @@ import { useAccountAutoRefresh, useAutoRefresh } from "./hooks/useAutoRefresh";
 import { useLanguage } from "./hooks/useLanguage";
 import { useFloatingBubble } from "./hooks/useFloatingBubble";
 import { useResetCredits } from "./hooks/useResetCredits";
+import { useThemeColor } from "./hooks/useThemeColor";
 import { useToast } from "./hooks/useToast";
 import { AccountsPage } from "./pages/AccountsPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -33,6 +34,7 @@ function DashboardApp() {
   const { message: toast, notify } = useToast();
   const { language, setLanguage, t } = useLanguage();
   const floatingBubble = useFloatingBubble(notify);
+  const themeColor = useThemeColor(notify);
   const manager = useAccountManager(notify, t);
   const resetCredits = useResetCredits(manager.accounts, notify, t);
   const activeAccount = manager.accounts.find((account) => account.active) ?? null;
@@ -77,7 +79,7 @@ function DashboardApp() {
   return (
     <ConfigProvider locale={language === "zh" ? zhCN : enUS} theme={{
       algorithm: antdTheme.compactAlgorithm,
-      token: { colorPrimary: "#1f7a51", borderRadius: 6, fontFamily: "\"DM Sans\", \"Microsoft YaHei UI\", sans-serif" },
+      token: { colorPrimary: themeColor.color, borderRadius: 6, fontFamily: "\"DM Sans\", \"Microsoft YaHei UI\", sans-serif" },
     }}>
       <div className="app-shell">
         <header className="app-menu">
@@ -132,6 +134,8 @@ function DashboardApp() {
               accountAutoRefreshSeconds={accountAutoRefresh.seconds}
               onAccountAutoRefreshEnabledChange={accountAutoRefresh.setEnabled}
               onAccountAutoRefreshSecondsChange={accountAutoRefresh.updateSeconds}
+              themeColor={themeColor.color} themeColorLoading={themeColor.loading}
+              onThemeColorChange={(color) => void themeColor.setColor(color)}
               floatingBubbleEnabled={floatingBubble.enabled}
               floatingBubbleLoading={floatingBubble.loading} onFloatingBubbleChange={(enabled) => void floatingBubble.setEnabled(enabled)} language={language}
               onLanguageChange={setLanguage} t={t} />

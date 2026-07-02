@@ -23,7 +23,7 @@ function resetCountdownLabel(timestamp: number, language: Language, now: number)
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
   return language === "zh"
-    ? `${hours}小时${padTimePart(minutes)}分${padTimePart(seconds)}秒后重置`
+    ? `${hours}时${padTimePart(minutes)}分${padTimePart(seconds)}秒后重置`
     : `Resets in ${hours}h ${padTimePart(minutes)}m ${padTimePart(seconds)}s`;
 }
 
@@ -57,12 +57,12 @@ export function resetLabel(
   const rest = minutes % 60;
   if (hours < 24) {
     return language === "zh"
-      ? `${hours} 小时${rest ? ` ${rest} 分` : ""}后重置`
+      ? `${hours} 时${rest ? ` ${rest} 分` : ""}后重置`
       : `Resets in ${hours} hr${rest ? ` ${rest} min` : ""}`;
   }
   const days = Math.floor(hours / 24);
   const dayHours = hours % 24;
-  return language === "zh" ? `${days} 天 ${dayHours} 小时后重置` : `Resets in ${days} d ${dayHours} hr`;
+  return language === "zh" ? `${days} 天 ${dayHours} 时后重置` : `Resets in ${days} d ${dayHours} hr`;
 }
 
 export function formatUpdated(timestamp: string | null | undefined, language: Language) {
