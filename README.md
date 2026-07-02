@@ -2,7 +2,7 @@
 
 Codex Auth Manager is a local-first Tauri 2 desktop application for signing in to, storing, and switching between multiple Codex / ChatGPT accounts. It also displays the usage windows for each account.
 
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![Release](https://img.shields.io/github/v/release/piperhex/codex_auth_manager)](https://github.com/piperhex/codex_auth_manager/releases)
 
 ![Codex Auth Manager account dashboard](docs/assets/codex-auth-manager-dashboard.png)
 
