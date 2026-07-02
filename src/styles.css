@@ -215,9 +215,9 @@ h1 { margin: 5px 0 0; font: 700 26px/1.1 Manrope, sans-serif; letter-spacing: -.
   .usage-copy { min-width: 85px; }
 }
 
-html:has(.floating-usage-window),
-html:has(.floating-usage-window) body,
-html:has(.floating-usage-window) #root {
+html.floating-usage-page,
+html.floating-usage-page body,
+html.floating-usage-page #root {
   min-width: 0;
   overflow: hidden;
   background: transparent;

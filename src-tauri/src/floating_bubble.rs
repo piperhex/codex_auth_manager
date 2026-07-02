@@ -1,6 +1,6 @@
 use tauri::{
-    AppHandle, LogicalPosition, LogicalSize, Manager, Runtime, WebviewUrl, WebviewWindowBuilder,
-    Window,
+    webview::Color, AppHandle, LogicalPosition, LogicalSize, Manager, Runtime, WebviewUrl,
+    WebviewWindowBuilder, Window,
 };
 
 use crate::{
@@ -44,6 +44,7 @@ fn create<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> Result<(), 
     .closable(false)
     .decorations(false)
     .transparent(true)
+    .background_color(Color(0, 0, 0, 0))
     .shadow(false)
     .always_on_top(true)
     .skip_taskbar(true)

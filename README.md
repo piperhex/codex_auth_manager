@@ -2,6 +2,10 @@
 
 Codex Auth Manager is a local-first Tauri 2 desktop application for signing in to, storing, and switching between multiple Codex / ChatGPT accounts. It also displays the usage windows for each account.
 
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+![Codex Auth Manager account dashboard](docs/assets/codex-auth-manager-dashboard.png)
+
 ## Features
 
 - Reuses the Codex CLI OAuth 2.0 + PKCE login flow
@@ -118,10 +122,13 @@ More documentation:
 
 Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before getting started, especially the credential-redaction, responsibility-boundary, and local-validation requirements.
 
+## License
+
+Codex Auth Manager is licensed under the [Apache License 2.0](LICENSE), the same license used by the official [OpenAI Codex](https://github.com/openai/codex) repository.
+
 ## Current Limitations
 
 - The OAuth callback first attempts to use local port `1455`, then falls back to `1457`.
 - The application currently targets desktop environments.
 - macOS release builds are ad-hoc signed, but not notarized unless Apple Developer signing/notarization credentials are added to CI.
 - Embedded login depends on WebView and identity-provider policies; use the system browser if it fails.
-- The project does not currently declare an open-source license. Standard copyright restrictions apply until one is added.
