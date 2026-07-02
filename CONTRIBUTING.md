@@ -7,7 +7,7 @@ Thank you for improving Codex Auth Manager. Because the project handles login cr
 1. Search existing issues to avoid duplicates.
 2. Open an issue before implementing a large feature or architectural change. Describe the goal, user value, and security impact.
 3. Create a short-lived branch from the latest main branch.
-4. Keep commits focused and avoid unrelated formatting or generated files.
+4. Keep commits focused and use Conventional Commits, such as `feat: add account import` or `fix(auth): handle expired token`.
 5. Run `npm run check` before opening a pull request.
 
 ## Code Guidelines
@@ -41,6 +41,16 @@ Recommended minimum coverage:
 - Storage: missing target directory, invalid JSON, and atomic replacement failures
 - Authentication: missing fields, malformed JWTs, and different account IDs
 - Network: success, refresh after `401`, unsuccessful status codes, and invalid responses
+
+## Commit Messages
+
+Commit messages are linted with commitlint and Husky after `npm install`. Use the Conventional Commits format:
+
+```text
+type(scope): short imperative summary
+```
+
+The scope is optional. Common types include `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, and `chore`.
 
 ## Pull Request Description
 

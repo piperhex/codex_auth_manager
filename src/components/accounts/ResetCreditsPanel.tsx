@@ -1,13 +1,8 @@
 import { Button } from "antd";
 import { CalendarClock, RefreshCw } from "lucide-react";
 import type { Language, Translate } from "../../i18n";
-import type { ResetCreditsSummary } from "../../types";
+import type { ResetCreditsLoadState } from "../../types";
 import { formatBeijingTime } from "../../utils/format";
-
-export type ResetCreditsLoadState =
-  | { status: "loading" }
-  | { status: "loaded"; data: ResetCreditsSummary }
-  | { status: "error"; error: string };
 
 export function ResetCreditsPanel({ state, onRetry, language, t }: {
   state?: ResetCreditsLoadState;

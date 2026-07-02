@@ -1,12 +1,10 @@
-import { useCallback, useRef, useState } from "react";
 import { Button, Popconfirm, Space, Table, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Check, Clock3, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
-import { fetchResetCredits } from "../../api/backend";
 import type { Language, Translate } from "../../i18n";
-import type { Account } from "../../types";
+import type { Account, ResetCreditsLoadState } from "../../types";
 import { formatUpdated, initials } from "../../utils/format";
-import { ResetCreditsPanel, type ResetCreditsLoadState } from "./ResetCreditsPanel";
+import { ResetCreditsPanel } from "./ResetCreditsPanel";
 import { UsageMeter } from "./UsageMeter";
 
 interface AccountTableProps {
@@ -15,29 +13,36 @@ interface AccountTableProps {
   onSwitch: (id: string) => void;
   onRefresh: (id: string) => void;
   onDelete: (id: string) => void;
+  resetCredits: Record<string, ResetCreditsLoadState>;
+  onLoadResetCredits: (id: string, force?: boolean) => void;
   language: Language;
   t: Translate;
 }
 
-export function AccountTable({ accounts, busyAccountId, onSwitch, onRefresh, onDelete, language, t }: AccountTableProps) {
-  const [resetCredits, setResetCredits] = useState<Record<string, ResetCreditsLoadState>>({});
-  const resetCreditRequests = useRef(new Set<string>());
+function ResetCreditCount({ state, t }: { state?: ResetCreditsLoadState; t: Translate }) {
+  if (!state) {
+    return <Tooltip title={t("table.resetCreditsUnknown")}><span className="reset-count reset-count-muted">-</span></Tooltip>;
+  }
+  if (state.status === "loading") {
+    return <span className="reset-count reset-count-muted"><RefreshCw className="spin" size={13} /></span>;
+  }
+  if (state.status === "error") {
+    return <Tooltip title={state.error || t("table.resetCreditsError")}><Tag color="error">{t("table.error")}</Tag></Tooltip>;
+  }
+  return <span className="reset-count">{state.data.credits.length}</span>;
+}
 
-  const loadResetCredits = useCallback(async (account: Account, force = false) => {
-    if (resetCreditRequests.current.has(account.id)) return;
-    if (!force && resetCredits[account.id]) return;
-    resetCreditRequests.current.add(account.id);
-    setResetCredits((current) => ({ ...current, [account.id]: { status: "loading" } }));
-    try {
-      const data = await fetchResetCredits(account.id);
-      setResetCredits((current) => ({ ...current, [account.id]: { status: "loaded", data } }));
-    } catch (error) {
-      setResetCredits((current) => ({ ...current, [account.id]: { status: "error", error: String(error) } }));
-    } finally {
-      resetCreditRequests.current.delete(account.id);
-    }
-  }, [resetCredits]);
-
+export function AccountTable({
+  accounts,
+  busyAccountId,
+  onSwitch,
+  onRefresh,
+  onDelete,
+  resetCredits,
+  onLoadResetCredits,
+  language,
+  t,
+}: AccountTableProps) {
   const columns: ColumnsType<Account> = [
     {
       title: t("table.account"), dataIndex: "email", width: 300, fixed: "left",
@@ -65,6 +70,10 @@ export function AccountTable({ accounts, busyAccountId, onSwitch, onRefresh, onD
     },
     { title: t("table.fiveHours"), width: 150, render: (_, account) => <UsageMeter window={account.usage.primary} language={language} t={t} /> },
     { title: t("table.oneWeek"), width: 150, render: (_, account) => <UsageMeter window={account.usage.secondary} language={language} t={t} /> },
+    {
+      title: t("table.resetCredits"), width: 104, align: "center",
+      render: (_, account) => <ResetCreditCount state={resetCredits[account.id]} t={t} />,
+    },
     {
       title: t("table.updated"), width: 126,
       render: (_, account) => (
@@ -108,10 +117,10 @@ export function AccountTable({ accounts, busyAccountId, onSwitch, onRefresh, onD
         expandable={{
           columnWidth: 42,
           expandedRowRender: (account) => <ResetCreditsPanel state={resetCredits[account.id]}
-            onRetry={() => void loadResetCredits(account, true)} language={language} t={t} />,
-          onExpand: (expanded, account) => { if (expanded) void loadResetCredits(account); },
+            onRetry={() => onLoadResetCredits(account.id, true)} language={language} t={t} />,
+          onExpand: (expanded, account) => { if (expanded) onLoadResetCredits(account.id); },
         }}
-        scroll={{ x: 1134 }} />
+        scroll={{ x: 1238 }} />
     </div>
   );
 }

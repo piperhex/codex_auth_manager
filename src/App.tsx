@@ -2,13 +2,14 @@ import { useCallback, useState } from "react";
 import { ConfigProvider, Tooltip, theme as antdTheme } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
-import { Check, CircleHelp, Github, Plus, RefreshCw, Settings, ShieldCheck, UserRound, Zap } from "lucide-react";
+import { CalendarClock, Check, CircleHelp, Github, Plus, RefreshCw, Settings, ShieldCheck, UserRound, Zap } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { HelpModal } from "./components/modals/HelpModal";
 import { LoginModal } from "./components/modals/LoginModal";
 import { useAccountManager } from "./hooks/useAccountManager";
 import { useAutoRefresh } from "./hooks/useAutoRefresh";
 import { useLanguage } from "./hooks/useLanguage";
+import { useResetCredits } from "./hooks/useResetCredits";
 import { useToast } from "./hooks/useToast";
 import { AccountsPage } from "./pages/AccountsPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -30,6 +31,7 @@ export default function App() {
   const { message: toast, notify } = useToast();
   const { language, setLanguage, t } = useLanguage();
   const manager = useAccountManager(notify, t);
+  const resetCredits = useResetCredits(manager.accounts, notify, t);
   const markRefreshAll = useCallback(() => {
     const refreshedAt = new Date().toISOString();
     window.localStorage.setItem(LAST_REFRESH_ALL_KEY, refreshedAt);
@@ -106,6 +108,10 @@ export default function App() {
                   </button>
                   <small className="last-auto-refresh">{t("actions.lastUpdated", { time: formatRefreshTime(lastRefreshAllAt, language) })}</small>
                 </div>
+                <button className="refresh-all" onClick={() => void resetCredits.refreshAll()}
+                  disabled={resetCredits.refreshingAll || !manager.accounts.length}>
+                  <CalendarClock className={resetCredits.refreshingAll ? "spin" : ""} size={17} />{t("actions.refreshResetCredits")}
+                </button>
               </div>
             )}
           </header>
@@ -120,7 +126,10 @@ export default function App() {
               busyAccountId={manager.busyAccountId} onAdd={() => setShowLogin(true)}
               onSwitch={(id) => void manager.switchAccount(id)}
               onRefresh={(id) => void manager.refreshUsage(id)}
-              onDelete={(id) => void manager.deleteAccount(id)} language={language} t={t} />
+              onDelete={(id) => void manager.deleteAccount(id)}
+              resetCredits={resetCredits.states}
+              onLoadResetCredits={(id, force) => void resetCredits.refreshAccount(id, force)}
+              language={language} t={t} />
           )}
         </main>
 

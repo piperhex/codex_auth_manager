@@ -30,6 +30,11 @@ export interface ResetCreditsSummary {
   credits: ResetCredit[];
 }
 
+export type ResetCreditsLoadState =
+  | { status: "loading" }
+  | { status: "loaded"; data: ResetCreditsSummary }
+  | { status: "error"; error: string };
+
 export interface AppInfo {
   codexHome: string;
   authPath: string;

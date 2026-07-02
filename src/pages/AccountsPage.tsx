@@ -1,16 +1,30 @@
 import { ArrowRight, LogIn, RefreshCw } from "lucide-react";
 import type { Language, Translate } from "../i18n";
-import type { Account } from "../types";
+import type { Account, ResetCreditsLoadState } from "../types";
 import { AccountTable } from "../components/accounts/AccountTable";
 
-export function AccountsPage({ accounts, loading, busyAccountId, onAdd, onSwitch, onRefresh, onDelete, language, t }: {
+export function AccountsPage({
+  accounts,
+  loading,
+  busyAccountId,
+  resetCredits,
+  onAdd,
+  onSwitch,
+  onRefresh,
+  onDelete,
+  onLoadResetCredits,
+  language,
+  t,
+}: {
   accounts: Account[];
   loading: boolean;
   busyAccountId: string | null;
+  resetCredits: Record<string, ResetCreditsLoadState>;
   onAdd: () => void;
   onSwitch: (id: string) => void;
   onRefresh: (id: string) => void;
   onDelete: (id: string) => void;
+  onLoadResetCredits: (id: string, force?: boolean) => void;
   language: Language;
   t: Translate;
 }) {
@@ -25,5 +39,6 @@ export function AccountsPage({ accounts, loading, busyAccountId, onAdd, onSwitch
     );
   }
   return <AccountTable accounts={accounts} busyAccountId={busyAccountId}
-    onSwitch={onSwitch} onRefresh={onRefresh} onDelete={onDelete} language={language} t={t} />;
+    onSwitch={onSwitch} onRefresh={onRefresh} onDelete={onDelete}
+    resetCredits={resetCredits} onLoadResetCredits={onLoadResetCredits} language={language} t={t} />;
 }

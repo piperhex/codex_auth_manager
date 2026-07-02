@@ -47,7 +47,7 @@ if (existsSync(tauriConfigPath)) versionFiles.push("src-tauri/tauri.conf.json");
 
 if (gitOutput(["status", "--porcelain", "--", ...versionFiles])) {
   run("git", ["add", ...versionFiles]);
-  run("git", ["commit", "-m", `Release ${releaseTag}`]);
+  run("git", ["commit", "-m", `chore(release): ${releaseTag}`]);
 }
 run("git", ["tag", "-a", releaseTag, "-m", `Release ${releaseTag}`]);
 
