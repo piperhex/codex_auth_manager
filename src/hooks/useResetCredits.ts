@@ -29,7 +29,7 @@ export function useResetCredits(accounts: Account[], notify: (message: string) =
     setStates((current) => ({ ...current, [id]: { status: "loading" } }));
     try {
       const data = await fetchResetCredits(id);
-      setStates((current) => ({ ...current, [id]: { status: "loaded", data } }));
+      setStates((current) => ({ ...current, [id]: { status: "loaded", data, fetchedAt: new Date().toISOString() } }));
     } catch (error) {
       setStates((current) => ({ ...current, [id]: { status: "error", error: String(error) } }));
     } finally {

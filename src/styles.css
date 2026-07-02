@@ -100,8 +100,10 @@ h1 { margin: 5px 0 0; font: 700 26px/1.1 Manrope, sans-serif; letter-spacing: -.
 .table-usage-head span, .usage-reset, .usage-missing { color: #839088; font-size: 10px; }
 .account-table-wrap .ant-progress-line { line-height: 1; }
 .account-table-wrap .ant-progress-inner { background-color: #e5ebe5; }
-.reset-count { min-width: 28px; height: 22px; display: inline-flex; align-items: center; justify-content: center; color: #245f42; font: 700 12px Manrope, sans-serif; }
+.reset-count-cell { min-width: 118px; min-height: 34px; display: inline-grid; justify-items: center; align-content: center; gap: 2px; }
+.reset-count { min-width: 28px; height: 18px; display: inline-flex; align-items: center; justify-content: center; color: #245f42; font: 700 12px Manrope, sans-serif; }
 .reset-count-muted { color: #8c9991; }
+.reset-count-updated { max-width: 118px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #839088; font-size: 9px; line-height: 1.2; }
 .updated-cell { min-width: 0; display: flex; align-items: center; gap: 5px; color: #718078; font-size: 10px; }
 .updated-cell .ant-tag { margin-left: 3px; font-size: 10px; line-height: 16px; }
 .table-actions { justify-content: flex-end; }

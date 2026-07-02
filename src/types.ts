@@ -32,7 +32,7 @@ export interface ResetCreditsSummary {
 
 export type ResetCreditsLoadState =
   | { status: "loading" }
-  | { status: "loaded"; data: ResetCreditsSummary }
+  | { status: "loaded"; data: ResetCreditsSummary; fetchedAt: string }
   | { status: "error"; error: string };
 
 export interface AppInfo {

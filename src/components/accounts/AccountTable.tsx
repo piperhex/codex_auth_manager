@@ -19,17 +19,34 @@ interface AccountTableProps {
   t: Translate;
 }
 
-function ResetCreditCount({ state, t }: { state?: ResetCreditsLoadState; t: Translate }) {
+function ResetCreditCount({ state, language, t }: { state?: ResetCreditsLoadState; language: Language; t: Translate }) {
   if (!state) {
-    return <Tooltip title={t("table.resetCreditsUnknown")}><span className="reset-count reset-count-muted">-</span></Tooltip>;
+    return (
+      <Tooltip title={t("table.resetCreditsUnknown")}>
+        <span className="reset-count-cell">
+          <span className="reset-count reset-count-muted">-</span>
+          <span className="reset-count-updated">{t("table.resetCreditsUpdated", { time: formatUpdated(null, language) })}</span>
+        </span>
+      </Tooltip>
+    );
   }
   if (state.status === "loading") {
-    return <span className="reset-count reset-count-muted"><RefreshCw className="spin" size={13} /></span>;
+    return (
+      <span className="reset-count-cell">
+        <span className="reset-count reset-count-muted"><RefreshCw className="spin" size={13} /></span>
+        <span className="reset-count-updated">{t("table.resetCreditsRefreshing")}</span>
+      </span>
+    );
   }
   if (state.status === "error") {
     return <Tooltip title={state.error || t("table.resetCreditsError")}><Tag color="error">{t("table.error")}</Tag></Tooltip>;
   }
-  return <span className="reset-count">{state.data.credits.length}</span>;
+  return (
+    <span className="reset-count-cell">
+      <span className="reset-count">{state.data.credits.length}</span>
+      <span className="reset-count-updated">{t("table.resetCreditsUpdated", { time: formatUpdated(state.fetchedAt, language) })}</span>
+    </span>
+  );
 }
 
 export function AccountTable({
@@ -71,8 +88,8 @@ export function AccountTable({
     { title: t("table.fiveHours"), width: 150, render: (_, account) => <UsageMeter window={account.usage.primary} language={language} t={t} /> },
     { title: t("table.oneWeek"), width: 150, render: (_, account) => <UsageMeter window={account.usage.secondary} language={language} t={t} /> },
     {
-      title: t("table.resetCredits"), width: 104, align: "center",
-      render: (_, account) => <ResetCreditCount state={resetCredits[account.id]} t={t} />,
+      title: t("table.resetCredits"), width: 150, align: "center",
+      render: (_, account) => <ResetCreditCount state={resetCredits[account.id]} language={language} t={t} />,
     },
     {
       title: t("table.updated"), width: 126,
@@ -120,7 +137,7 @@ export function AccountTable({
             onRetry={() => onLoadResetCredits(account.id, true)} language={language} t={t} />,
           onExpand: (expanded, account) => { if (expanded) onLoadResetCredits(account.id); },
         }}
-        scroll={{ x: 1238 }} />
+        scroll={{ x: 1284 }} />
     </div>
   );
 }
