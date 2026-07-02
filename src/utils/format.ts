@@ -10,8 +10,46 @@ export function remainingTone(value: number) {
   return "good";
 }
 
-export function resetLabel(timestamp: number | null | undefined, language: Language) {
+export type UsageResetWindow = "fiveHours" | "oneWeek";
+
+function padTimePart(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function resetCountdownLabel(timestamp: number, language: Language, now: number) {
+  const distance = Math.max(0, timestamp * 1000 - now);
+  const totalSeconds = Math.ceil(distance / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return language === "zh"
+    ? `${hours}小时${padTimePart(minutes)}分${padTimePart(seconds)}秒后重置`
+    : `Resets in ${hours}h ${padTimePart(minutes)}m ${padTimePart(seconds)}s`;
+}
+
+function resetDateTimeLabel(timestamp: number, language: Language) {
+  const value = new Date(timestamp * 1000);
+  if (Number.isNaN(value.getTime())) return language === "zh" ? "重置时间未知" : "Reset time unknown";
+  const year = value.getFullYear();
+  const month = value.getMonth() + 1;
+  const day = value.getDate();
+  const hour = padTimePart(value.getHours());
+  const minute = padTimePart(value.getMinutes());
+  const second = padTimePart(value.getSeconds());
+  return language === "zh"
+    ? `${year}-${padTimePart(month)}-${padTimePart(day)} ${hour}:${minute}:${second}后重置`
+    : `Resets on ${year}-${padTimePart(month)}-${padTimePart(day)} ${hour}:${minute}:${second}`;
+}
+
+export function resetLabel(
+  timestamp: number | null | undefined,
+  language: Language,
+  windowType?: UsageResetWindow,
+  now = Date.now(),
+) {
   if (!timestamp) return language === "zh" ? "重置时间未知" : "Reset time unknown";
+  if (windowType === "fiveHours") return resetCountdownLabel(timestamp, language, now);
+  if (windowType === "oneWeek") return resetDateTimeLabel(timestamp, language);
   const distance = Math.max(0, timestamp * 1000 - Date.now());
   const minutes = Math.ceil(distance / 60_000);
   if (minutes < 60) return language === "zh" ? `${minutes} 分钟后重置` : `Resets in ${minutes} min`;
@@ -50,12 +88,11 @@ export function formatRefreshTime(timestamp: string | null | undefined, language
   });
 }
 
-export function formatBeijingTime(timestamp: string | null | undefined, language: Language) {
+export function formatSystemTime(timestamp: string | null | undefined, language: Language) {
   if (!timestamp) return language === "zh" ? "时间未知" : "Unknown time";
   const value = new Date(timestamp);
   if (Number.isNaN(value.getTime())) return language === "zh" ? "时间未知" : "Unknown time";
   return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
-    timeZone: "Asia/Shanghai",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

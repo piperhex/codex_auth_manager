@@ -1,6 +1,7 @@
 import { Button, Popconfirm, Space, Table, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Check, Clock3, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { Language, Translate } from "../../i18n";
 import type { Account, ResetCreditsLoadState } from "../../types";
 import { formatUpdated, initials } from "../../utils/format";
@@ -60,6 +61,16 @@ export function AccountTable({
   language,
   t,
 }: AccountTableProps) {
+  const [now, setNow] = useState(() => Date.now());
+  const hasFiveHourReset = accounts.some((account) => Boolean(account.usage.primary?.resetsAt));
+
+  useEffect(() => {
+    if (!hasFiveHourReset) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [hasFiveHourReset]);
+
   const columns: ColumnsType<Account> = [
     {
       title: t("table.account"), dataIndex: "email", width: 300, fixed: "left",
@@ -85,8 +96,14 @@ export function AccountTable({
         </div>
       ),
     },
-    { title: t("table.fiveHours"), width: 150, render: (_, account) => <UsageMeter window={account.usage.primary} language={language} t={t} /> },
-    { title: t("table.oneWeek"), width: 150, render: (_, account) => <UsageMeter window={account.usage.secondary} language={language} t={t} /> },
+    {
+      title: t("table.fiveHours"), width: 168,
+      render: (_, account) => <UsageMeter window={account.usage.primary} resetWindow="fiveHours" now={now} language={language} t={t} />,
+    },
+    {
+      title: t("table.oneWeek"), width: 238,
+      render: (_, account) => <UsageMeter window={account.usage.secondary} resetWindow="oneWeek" now={now} language={language} t={t} />,
+    },
     {
       title: t("table.resetCredits"), width: 150, align: "center",
       render: (_, account) => <ResetCreditCount state={resetCredits[account.id]} language={language} t={t} />,
@@ -137,7 +154,7 @@ export function AccountTable({
             onRetry={() => onLoadResetCredits(account.id, true)} language={language} t={t} />,
           onExpand: (expanded, account) => { if (expanded) onLoadResetCredits(account.id); },
         }}
-        scroll={{ x: 1284 }} />
+        scroll={{ x: 1410 }} />
     </div>
   );
 }
