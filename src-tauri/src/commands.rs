@@ -6,6 +6,9 @@ use std::{
     time::Duration,
 };
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 use chrono::Utc;
 use reqwest::blocking::Client;
 use serde_json::Value;
@@ -26,6 +29,8 @@ use crate::{
 };
 
 const CODEX_COMMAND: &str = "codex";
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[tauri::command]
 pub(crate) fn get_app_info<R: Runtime>(app: tauri::AppHandle<R>) -> Result<AppInfo, String> {
@@ -306,24 +311,16 @@ fn sync_active_auth(paths: &Paths, id: &str, auth: &Value) -> Result<(), String>
 
 #[cfg(target_os = "windows")]
 fn codex_launch_target() -> Option<String> {
-    let output = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            "(Get-Process -Name codex -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Path)",
-        ])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if path.is_empty() {
-        None
-    } else {
-        Some(path)
-    }
+    windows_powershell_line(
+        "(Get-Process -Name codex -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Path)",
+    )
+    .and_then(|path| normalize_windows_codex_target(&path))
+    .or_else(|| {
+        windows_powershell_line(
+            "(Get-Command codex -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)",
+        )
+        .and_then(|path| normalize_windows_codex_target(&path))
+    })
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -333,7 +330,7 @@ fn codex_launch_target() -> Option<String> {
 
 #[cfg(target_os = "windows")]
 fn stop_codex_processes() -> Result<(), String> {
-    let output = Command::new("taskkill")
+    let output = windows_hidden_command("taskkill")
         .args(["/F", "/T", "/FI", "IMAGENAME eq codex.exe"])
         .output()
         .map_err(|error| format!("停止 Codex 失败：{error}"))?;
@@ -368,7 +365,7 @@ fn stop_unix_process(name: &str) -> Result<(), String> {
 #[cfg(target_os = "windows")]
 fn start_codex(target: Option<&str>) -> Result<(), String> {
     let target = target.unwrap_or(CODEX_COMMAND);
-    let mut command = Command::new(target);
+    let mut command = windows_hidden_command(target);
     if let Some(parent) = Path::new(target)
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -379,6 +376,71 @@ fn start_codex(target: Option<&str>) -> Result<(), String> {
         .spawn()
         .map(|_| ())
         .map_err(|error| format!("启动 Codex 失败：{error}"))
+}
+
+#[cfg(target_os = "windows")]
+fn windows_hidden_command(program: &str) -> Command {
+    let mut command = Command::new(program);
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+#[cfg(target_os = "windows")]
+fn windows_powershell_line(script: &str) -> Option<String> {
+    let output = windows_hidden_command("powershell")
+        .args(["-NoProfile", "-Command", script])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_string)
+}
+
+#[cfg(target_os = "windows")]
+fn normalize_windows_codex_target(path: &str) -> Option<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let target = Path::new(trimmed);
+    if is_codex_exe(target) {
+        if let Some(resources) = target
+            .parent()
+            .filter(|parent| is_dir_named(parent, "resources"))
+        {
+            if let Some(app_dir) = resources.parent() {
+                let app_target = app_dir.join("Codex.exe");
+                if app_target.exists() {
+                    return Some(app_target.as_os_str().to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+
+    Some(trimmed.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn is_codex_exe(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.eq_ignore_ascii_case("codex.exe"))
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "windows")]
+fn is_dir_named(path: &Path, expected: &str) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.eq_ignore_ascii_case(expected))
+        .unwrap_or(false)
 }
 
 #[cfg(target_os = "macos")]
