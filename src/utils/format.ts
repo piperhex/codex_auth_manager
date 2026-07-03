@@ -88,6 +88,7 @@ export function formatUpdated(timestamp: string | null | undefined, language: La
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
   });
 }
 

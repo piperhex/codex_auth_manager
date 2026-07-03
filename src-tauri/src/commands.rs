@@ -226,7 +226,16 @@ fn persist_request_auth(paths: &Paths, id: &str, auth: &Value) -> Result<(), Str
 }
 
 #[tauri::command]
-pub(crate) fn refresh_usage<R: Runtime>(
+pub(crate) async fn refresh_usage<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    id: String,
+) -> Result<UsageSummary, String> {
+    tauri::async_runtime::spawn_blocking(move || refresh_usage_blocking(app, id))
+        .await
+        .map_err(|error| format!("刷新用量任务失败：{error}"))?
+}
+
+fn refresh_usage_blocking<R: Runtime>(
     app: tauri::AppHandle<R>,
     id: String,
 ) -> Result<UsageSummary, String> {
@@ -273,7 +282,16 @@ pub(crate) fn refresh_usage<R: Runtime>(
 }
 
 #[tauri::command]
-pub(crate) fn fetch_reset_credits<R: Runtime>(
+pub(crate) async fn fetch_reset_credits<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    id: String,
+) -> Result<ResetCreditsSummary, String> {
+    tauri::async_runtime::spawn_blocking(move || fetch_reset_credits_blocking(app, id))
+        .await
+        .map_err(|error| format!("刷新重置卡任务失败：{error}"))?
+}
+
+fn fetch_reset_credits_blocking<R: Runtime>(
     app: tauri::AppHandle<R>,
     id: String,
 ) -> Result<ResetCreditsSummary, String> {
