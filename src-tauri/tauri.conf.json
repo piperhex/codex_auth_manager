@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Codex Switch",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "identifier": "dev.codex.switch",
   "build": {
     "beforeDevCommand": "npm run dev",
