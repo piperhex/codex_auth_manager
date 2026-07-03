@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { DEMO_ACCOUNTS, DEMO_INFO } from "../demo";
+import { LANGUAGE_STORAGE_KEY, isLanguage, type Language } from "../i18n";
 import type {
   Account,
   AppInfo,
@@ -17,6 +18,7 @@ export const isDesktopApp = "__TAURI_INTERNALS__" in window;
 const FLOATING_BUBBLE_PREVIEW_KEY = "codex-switch:floating-bubble";
 const THEME_COLOR_PREVIEW_KEY = "codex-switch:theme-color";
 const THEME_COLOR_EVENT = "codex-switch:theme-color-changed";
+const LANGUAGE_EVENT = "codex-switch:language-changed";
 let updateCheckPromise: Promise<UpdateInfo | null> | null = null;
 
 export async function loadDashboard(): Promise<{ accounts: Account[]; info: AppInfo }> {
@@ -160,6 +162,40 @@ export function subscribeToThemeColorChanges(onChange: (color: string) => void):
 
   const subscription = listen<string>("theme-color-changed", ({ payload }) => {
     onChange(normalizeThemeColor(payload));
+  });
+  return () => void subscription.then((unlisten) => unlisten());
+}
+
+export async function publishLanguageChange(language: Language): Promise<void> {
+  window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+  if (!isDesktopApp) {
+    window.dispatchEvent(new CustomEvent<Language>(LANGUAGE_EVENT, { detail: language }));
+    return;
+  }
+  await emit(LANGUAGE_EVENT, language);
+}
+
+export function subscribeToLanguageChanges(onChange: (language: Language) => void): () => void {
+  const handleLanguage = (value: unknown) => {
+    if (isLanguage(value)) onChange(value);
+  };
+  if (!isDesktopApp) {
+    const handleLanguageChange = (event: Event) => {
+      handleLanguage((event as CustomEvent<Language>).detail);
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === LANGUAGE_STORAGE_KEY) handleLanguage(event.newValue);
+    };
+    window.addEventListener(LANGUAGE_EVENT, handleLanguageChange);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(LANGUAGE_EVENT, handleLanguageChange);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }
+
+  const subscription = listen<Language>(LANGUAGE_EVENT, ({ payload }) => {
+    handleLanguage(payload);
   });
   return () => void subscription.then((unlisten) => unlisten());
 }
