@@ -96,7 +96,7 @@ The release workflow builds Windows x64 plus macOS Apple Silicon and Intel artif
 
 The Settings page provides language selection, accent color, floating usage bubble control, a global auto-refresh timer for all saved accounts, and an independent timer that refreshes whichever account is currently active.
 
-The system tray menu can show the dashboard, switch accounts, restart Codex, or quit the app. The floating usage bubble shows the active account's 5-hour quota, expands on hover, can be dragged to a new position, and exposes the same quick actions through its context menu.
+The system tray menu can show the dashboard, switch accounts, restart Codex, or quit the app. The floating usage bubble shows the active account's 5-hour quota, refreshes that account on left click, expands on hover, can be dragged to a new position, and exposes the same quick actions through its context menu.
 
 The application honors the `CODEX_HOME` environment variable and falls back to `~/.codex` when it is not set. Managed account copies are stored under `codex-switch/accounts` in the operating system's application data directory.
 

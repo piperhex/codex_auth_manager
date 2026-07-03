@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import {
   dragFloatingBubble,
   loadDashboard,
+  refreshAccountUsage,
   showDashboardFromBubble,
   showFloatingBubbleMenu,
   subscribeToBackendEvents,
@@ -26,6 +27,14 @@ function waterColors(remaining: number | null) {
 }
 
 const ignoreThemeError = () => undefined;
+const DRAG_THRESHOLD_PX = 5;
+
+interface BubblePointerGesture {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  dragging: boolean;
+}
 
 function clampPercent(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -45,16 +54,20 @@ export function FloatingUsageBubble() {
   const { language } = useLanguage();
   useThemeColor(ignoreThemeError);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [waterSettling, setWaterSettling] = useState(false);
   const lastPrimaryPointerDownAt = useRef(0);
+  const pointerGesture = useRef<BubblePointerGesture | null>(null);
+  const refreshingRef = useRef(false);
   const previousRemaining = useRef<number | null>(null);
 
-  const load = useCallback(() => {
-    void loadDashboard().then(({ accounts: nextAccounts }) => setAccounts(nextAccounts));
+  const load = useCallback(async () => {
+    const { accounts: nextAccounts } = await loadDashboard();
+    setAccounts(nextAccounts);
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
     return subscribeToBackendEvents(load, load);
   }, [load]);
 
@@ -64,6 +77,9 @@ export function FloatingUsageBubble() {
   const remaining = primary ? clampPercent(primary.remainingPercent) : null;
   const weeklyRemaining = secondary ? clampPercent(secondary.remainingPercent) : null;
   const water = waterColors(remaining);
+  const bubbleLabel = language === "zh"
+    ? (refreshing ? "正在刷新当前账号额度" : "点击刷新当前账号额度")
+    : (refreshing ? "Refreshing current account quota" : "Click to refresh current account quota");
   const ringStyle = {
     "--bubble-progress": `${weeklyRemaining ?? 0}%`,
     "--bubble-color": weeklyRemaining === null ? "#7b8780" : usageColor(weeklyRemaining),
@@ -88,17 +104,62 @@ export function FloatingUsageBubble() {
     }
   }, [remaining]);
 
-  const startDrag = (event: PointerEvent<HTMLButtonElement>) => {
+  const refreshCurrentAccount = useCallback(async () => {
+    if (!account || refreshingRef.current) return;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    try {
+      await refreshAccountUsage(account.id);
+      await load();
+    } catch {
+      await load().catch(() => undefined);
+    } finally {
+      refreshingRef.current = false;
+      setRefreshing(false);
+    }
+  }, [account, load]);
+
+  const startPointerGesture = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
-    event.preventDefault();
     const now = Date.now();
     if (now - lastPrimaryPointerDownAt.current < 350) {
       lastPrimaryPointerDownAt.current = 0;
+      pointerGesture.current = null;
       void showDashboardFromBubble();
       return;
     }
     lastPrimaryPointerDownAt.current = now;
+    pointerGesture.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      dragging: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const continuePointerGesture = (event: PointerEvent<HTMLButtonElement>) => {
+    const gesture = pointerGesture.current;
+    if (!gesture || gesture.pointerId !== event.pointerId || gesture.dragging || !(event.buttons & 1)) return;
+    if (Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) < DRAG_THRESHOLD_PX) return;
+    gesture.dragging = true;
+    lastPrimaryPointerDownAt.current = 0;
+    event.preventDefault();
     void dragFloatingBubble();
+  };
+
+  const finishPointerGesture = (event: PointerEvent<HTMLButtonElement>) => {
+    const gesture = pointerGesture.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    pointerGesture.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (!gesture.dragging) void refreshCurrentAccount();
+  };
+
+  const cancelPointerGesture = (event: PointerEvent<HTMLButtonElement>) => {
+    if (pointerGesture.current?.pointerId === event.pointerId) pointerGesture.current = null;
   };
 
   const openContextMenu = (event: MouseEvent<HTMLDivElement>) => {
@@ -109,9 +170,15 @@ export function FloatingUsageBubble() {
 
   return (
     <div className="floating-usage-window" onContextMenu={openContextMenu}>
-      <button type="button" className={`floating-bubble ${waterSettling ? "is-water-settling" : ""}`} style={ringStyle}
-        aria-label={language === "zh" ? "当前账号 5 小时用量" : "Current account 5-hour usage"}
-        onPointerDown={startDrag}>
+      <button type="button" className={`floating-bubble ${waterSettling ? "is-water-settling" : ""} ${refreshing ? "is-refreshing" : ""}`} style={ringStyle}
+        aria-label={bubbleLabel}
+        title={bubbleLabel}
+        aria-busy={refreshing}
+        onPointerDown={startPointerGesture}
+        onPointerMove={continuePointerGesture}
+        onPointerUp={finishPointerGesture}
+        onPointerCancel={cancelPointerGesture}
+        onClick={(event) => { if (event.detail === 0) void refreshCurrentAccount(); }}>
         <span className="floating-bubble-water" aria-hidden="true" />
         <span className="floating-bubble-weekly" aria-hidden="true">
           {language === "zh" ? "周" : "W"} {weeklyRemaining === null ? "--" : `${weeklyRemaining}%`}

@@ -281,6 +281,10 @@ html.floating-usage-page #root {
 }
 
 .floating-bubble:active { cursor: grabbing; }
+.floating-bubble.is-refreshing { cursor: progress; }
+.floating-bubble.is-refreshing::before {
+  animation: bubble-refresh-pulse .9s ease-in-out infinite alternate;
+}
 .floating-bubble::before {
   content: "";
   position: absolute;
@@ -389,6 +393,9 @@ html.floating-usage-page #root {
 
 @keyframes bubble-water-drift {
   to { transform: translateX(28px); }
+}
+@keyframes bubble-refresh-pulse {
+  to { filter: brightness(1.22); }
 }
 @keyframes bubble-water-slosh {
   0% { transform: translateY(-1px) rotate(0deg); }
