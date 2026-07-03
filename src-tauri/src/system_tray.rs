@@ -11,6 +11,7 @@ use crate::{
 
 const TRAY_ID: &str = "main-tray";
 const DASHBOARD_ID: &str = "tray:dashboard";
+const RESTART_CODEX_ID: &str = "tray:restart-codex";
 const QUIT_ID: &str = "tray:quit";
 const ACCOUNT_PREFIX: &str = "tray:account:";
 const MENU_EMAIL_CHARS: usize = 15;
@@ -64,10 +65,16 @@ pub(crate) fn show_dashboard<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
+pub(crate) fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     let id = event.id().as_ref();
     if id == DASHBOARD_ID {
         show_dashboard(app);
+        return;
+    }
+    if id == RESTART_CODEX_ID {
+        if let Err(error) = commands::restart_codex() {
+            eprintln!("failed to restart Codex from menu: {error}");
+        }
         return;
     }
     if id == QUIT_ID {
@@ -121,6 +128,13 @@ pub(crate) fn build_menu<R: Runtime>(
         app,
         DASHBOARD_ID,
         "仪表板",
+        true,
+        None::<&str>,
+    )?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        RESTART_CODEX_ID,
+        "重启 Codex",
         true,
         None::<&str>,
     )?)?;

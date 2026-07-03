@@ -19,8 +19,69 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.result }}
+    steps:
+      - name: Create or find release
+        id: release
+        uses: actions/github-script@v9
+        env:
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          RELEASE_NAME: "Codex Auth Manager ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          PRERELEASE: ${{ contains(github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name, '-') }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          result-encoding: string
+          script: |
+            const { owner, repo } = context.repo;
+            const tag = process.env.TAG_NAME;
+            const boilerplate = "Windows and macOS installers are attached below.";
+
+            try {
+              const { data: release } = await github.rest.repos.getReleaseByTag({
+                owner,
+                repo,
+                tag,
+              });
+              if (!release.body?.trim() || release.body.trim() === boilerplate) {
+                const { data: notes } = await github.rest.repos.generateReleaseNotes({
+                  owner,
+                  repo,
+                  tag_name: tag,
+                });
+                await github.rest.repos.updateRelease({
+                  owner,
+                  repo,
+                  release_id: release.id,
+                  body: `${boilerplate}\n\n${notes.body}`,
+                });
+                core.info(`Generated release notes for existing release ${release.id}.`);
+              }
+              core.info(`Using existing release ${release.id} for ${tag}.`);
+              return release.id.toString();
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
+            const { data: release } = await github.rest.repos.createRelease({
+              owner,
+              repo,
+              tag_name: tag,
+              name: process.env.RELEASE_NAME,
+              body: boilerplate,
+              draft: false,
+              prerelease: process.env.PRERELEASE === "true",
+              generate_release_notes: true,
+            });
+            core.info(`Created release ${release.id} for ${tag}.`);
+            return release.id.toString();
+
   release:
     name: Build ${{ matrix.name }}
+    needs: create-release
     runs-on: ${{ matrix.platform }}
     strategy:
       fail-fast: false
@@ -69,10 +130,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           tagName: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-          releaseName: "Codex Auth Manager ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
-          releaseBody: "Windows and macOS installers are attached below."
-          generateReleaseNotes: true
-          releaseDraft: false
-          prerelease: ${{ contains(github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name, '-') }}
           args: ${{ matrix.args }}

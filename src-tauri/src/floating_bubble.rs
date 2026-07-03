@@ -37,7 +37,7 @@ fn create<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> Result<(), 
     }
 
     let (x, y) = restored_or_default_position(app, settings);
-    WebviewWindowBuilder::new(
+    let window = WebviewWindowBuilder::new(
         app,
         BUBBLE_LABEL,
         WebviewUrl::App("index.html?window=bubble".into()),
@@ -58,6 +58,9 @@ fn create<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> Result<(), 
     .focused(false)
     .build()
     .map_err(|error| error.to_string())?;
+    window.on_menu_event(|window, event| {
+        crate::system_tray::handle_menu_event(window.app_handle(), event);
+    });
     Ok(())
 }
 
@@ -278,11 +281,11 @@ fn estimated_floating_menu_size<R: Runtime>(app: &AppHandle<R>) -> (f64, f64) {
     let max_chars = labels
         .iter()
         .map(|label| label.chars().count())
-        .chain([9, 8])
+        .chain([9, 8, 8])
         .max()
         .unwrap_or(20);
     let width = ((max_chars as f64) * 8.8 + 92.0).clamp(230.0, 520.0);
-    let height = ((labels.len() + 2) as f64) * 32.0 + 18.0;
+    let height = ((labels.len() + 3) as f64) * 32.0 + 18.0;
     (width, height)
 }
 
