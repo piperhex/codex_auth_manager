@@ -6,6 +6,7 @@ mod models;
 mod oauth;
 mod storage;
 mod system_tray;
+mod update;
 
 use oauth::AppState;
 
@@ -42,6 +43,7 @@ pub fn run() {
             commands::refresh_usage,
             commands::fetch_reset_credits,
             commands::restart_codex,
+            update::check_for_update,
             floating_bubble::get_app_settings,
             floating_bubble::set_floating_bubble,
             floating_bubble::set_theme_color,

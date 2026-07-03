@@ -1,13 +1,14 @@
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { ConfigProvider, Tooltip, theme as antdTheme } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
 import { CalendarClock, Check, CircleHelp, Github, Plus, RefreshCw, RotateCcw, Settings, ShieldCheck, UserRound, Zap } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { isDesktopApp, restartCodex } from "./api/backend";
+import { checkForUpdate, isDesktopApp, restartCodex } from "./api/backend";
 import { HelpModal } from "./components/modals/HelpModal";
 import { FloatingUsageBubble } from "./components/FloatingUsageBubble";
 import { LoginModal } from "./components/modals/LoginModal";
+import { UpdateModal } from "./components/modals/UpdateModal";
 import { useAccountManager } from "./hooks/useAccountManager";
 import { useAccountAutoRefresh, useAutoRefresh } from "./hooks/useAutoRefresh";
 import { useLanguage } from "./hooks/useLanguage";
@@ -18,6 +19,7 @@ import { useToast } from "./hooks/useToast";
 import { AccountsPage } from "./pages/AccountsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { formatRefreshTime } from "./utils/format";
+import type { UpdateInfo } from "./types";
 
 const LAST_REFRESH_ALL_KEY = "codex-switch:last-refresh-all-at";
 const REPOSITORY_URL = "https://github.com/piperhex/codex-switch.git";
@@ -33,6 +35,7 @@ function DashboardApp() {
   const [page, setPage] = useState<"accounts" | "settings">("accounts");
   const [showLogin, setShowLogin] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [availableUpdate, setAvailableUpdate] = useState<UpdateInfo | null>(null);
   const [lastRefreshAllAt, setLastRefreshAllAt] = useState<string | null>(storedRefreshAllTime);
   const [restartingCodex, setRestartingCodex] = useState(false);
   const { message: toast, notify } = useToast();
@@ -79,6 +82,16 @@ function DashboardApp() {
     void floatingBubble.setEnabled(enabled);
   }, [floatingBubble.setEnabled]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void checkForUpdate()
+      .then((update) => {
+        if (!cancelled) setAvailableUpdate(update);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
   const startLogin = (embedded: boolean) => {
     setShowLogin(false);
     void manager.startLogin(embedded);
@@ -108,6 +121,16 @@ function DashboardApp() {
       return;
     }
     window.open(REPOSITORY_URL, "_blank", "noopener,noreferrer");
+  };
+  const openRelease = () => {
+    if (!availableUpdate) return;
+    const releaseUrl = availableUpdate.releaseUrl;
+    setAvailableUpdate(null);
+    if (isDesktopApp) {
+      void openUrl(releaseUrl).catch((error) => notify(String(error)));
+      return;
+    }
+    window.open(releaseUrl, "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -191,6 +214,8 @@ function DashboardApp() {
 
         {showLogin && <LoginModal onClose={() => setShowLogin(false)} onStart={startLogin} onImport={importAuth} t={t} />}
         {showHelp && <HelpModal onClose={() => setShowHelp(false)} version={manager.info?.version ?? "0.1.0"} t={t} />}
+        {availableUpdate && <UpdateModal update={availableUpdate} onClose={() => setAvailableUpdate(null)}
+          onDownload={openRelease} t={t} />}
         {toast && <div className="toast"><Check size={17} />{toast}</div>}
       </div>
     </ConfigProvider>

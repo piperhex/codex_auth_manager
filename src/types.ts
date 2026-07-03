@@ -42,6 +42,14 @@ export interface AppInfo {
   version: string;
 }
 
+export interface UpdateInfo {
+  currentVersion: string;
+  latestVersion: string;
+  releaseName: string;
+  releaseNotes?: string | null;
+  releaseUrl: string;
+}
+
 export interface AppSettings {
   floatingBubbleEnabled: boolean;
   themeColor?: string | null;

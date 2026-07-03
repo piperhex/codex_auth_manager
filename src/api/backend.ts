@@ -9,6 +9,7 @@ import type {
   LoginStart,
   LoginStatus,
   ResetCreditsSummary,
+  UpdateInfo,
 } from "../types";
 import { DEFAULT_THEME_COLOR, normalizeThemeColor } from "../utils/theme";
 
@@ -16,6 +17,7 @@ export const isDesktopApp = "__TAURI_INTERNALS__" in window;
 const FLOATING_BUBBLE_PREVIEW_KEY = "codex-switch:floating-bubble";
 const THEME_COLOR_PREVIEW_KEY = "codex-switch:theme-color";
 const THEME_COLOR_EVENT = "codex-switch:theme-color-changed";
+let updateCheckPromise: Promise<UpdateInfo | null> | null = null;
 
 export async function loadDashboard(): Promise<{ accounts: Account[]; info: AppInfo }> {
   if (!isDesktopApp) {
@@ -118,6 +120,12 @@ export async function fetchResetCredits(id: string): Promise<ResetCreditsSummary
 
 export async function restartCodex(): Promise<void> {
   if (isDesktopApp) await invoke("restart_codex");
+}
+
+export function checkForUpdate(): Promise<UpdateInfo | null> {
+  if (!isDesktopApp) return Promise.resolve(null);
+  updateCheckPromise ??= invoke<UpdateInfo | null>("check_for_update");
+  return updateCheckPromise;
 }
 
 export function subscribeToBackendEvents(

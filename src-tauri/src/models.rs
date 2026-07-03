@@ -56,6 +56,16 @@ pub(crate) struct AppInfo {
     pub(crate) version: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UpdateInfo {
+    pub(crate) current_version: String,
+    pub(crate) latest_version: String,
+    pub(crate) release_name: String,
+    pub(crate) release_notes: Option<String>,
+    pub(crate) release_url: String,
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppSettings {
