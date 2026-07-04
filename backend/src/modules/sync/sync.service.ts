@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import Redis from 'ioredis';
 import { DataSource, Repository } from 'typeorm';
@@ -49,6 +49,40 @@ export class SyncService {
     });
     await this.redis.del(this.cacheKey(ownerId));
     return { count: dto.accounts.length };
+  }
+
+  async upsert(ownerId: string, accountId: string, account: SyncAccountDto) {
+    if (account.id !== accountId) {
+      throw new BadRequestException('Route account id does not match request body');
+    }
+    await this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(SyncedAccountEntity);
+      if (account.active) {
+        await repo.update({ ownerId }, { active: false });
+      }
+      const existing = await repo.findOne({ where: { ownerId, accountId } });
+      await repo.save(repo.create({
+        id: existing?.id,
+        ownerId,
+        accountId: account.id,
+        email: account.email,
+        note: account.note ?? '',
+        expiresAt: account.expiresAt ?? '',
+        plan: account.plan,
+        codexAccountId: account.accountId ?? null,
+        active: account.active,
+        usage: account.usage ?? {},
+        auth: account.auth,
+      }));
+    });
+    await this.redis.del(this.cacheKey(ownerId));
+    return { id: accountId };
+  }
+
+  async delete(ownerId: string, accountId: string) {
+    await this.accounts.delete({ ownerId, accountId });
+    await this.redis.del(this.cacheKey(ownerId));
+    return { id: accountId };
   }
 
   private toDto(row: SyncedAccountEntity): SyncAccountDto {

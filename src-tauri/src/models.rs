@@ -93,6 +93,8 @@ pub(crate) struct AppSettings {
 pub(crate) struct LoginStatus {
     pub(crate) ok: bool,
     pub(crate) message: String,
+    #[serde(rename = "accountId")]
+    pub(crate) account_id: Option<String>,
 }
 
 #[derive(Serialize)]

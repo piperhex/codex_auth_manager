@@ -5,8 +5,6 @@ services:
       POSTGRES_USER: codex_switch
       POSTGRES_PASSWORD: codex_switch
       POSTGRES_DB: codex_switch
-    ports:
-      - "5432:5432"
     volumes:
       - codex-switch-postgres:/var/lib/postgresql/data
     networks:
@@ -14,8 +12,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     networks:
       - backend-internal
 
@@ -29,8 +25,6 @@ services:
     depends_on:
       - postgres
       - redis
-    ports:
-      - "8080:8080"
     networks:
       backend-internal:
       kong-net:

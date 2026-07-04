@@ -131,6 +131,16 @@ export async function pushCloudAccounts(): Promise<CloudSyncResult> {
   return invoke<CloudSyncResult>("cloud_push_accounts");
 }
 
+export async function pushCloudAccount(id: string): Promise<CloudSyncResult> {
+  if (!isDesktopApp) return { uploaded: 0, downloaded: 0 };
+  return invoke<CloudSyncResult>("cloud_push_account", { id });
+}
+
+export async function deleteCloudAccount(id: string): Promise<CloudSyncResult> {
+  if (!isDesktopApp) return { uploaded: 0, downloaded: 0 };
+  return invoke<CloudSyncResult>("cloud_delete_account", { id });
+}
+
 export async function resizeFloatingBubble(expanded: boolean): Promise<void> {
   if (isDesktopApp) await invoke("resize_floating_bubble", { expanded });
 }
@@ -152,15 +162,20 @@ export async function beginLogin(embedded: boolean): Promise<LoginStart | null> 
   return invoke<LoginStart>("start_login", { embedded });
 }
 
-export async function chooseAndImportAuth(): Promise<"imported" | "cancelled" | "preview"> {
-  if (!isDesktopApp) return "preview";
+export type ImportAuthResult =
+  | { status: "imported"; id: string }
+  | { status: "cancelled" }
+  | { status: "preview" };
+
+export async function chooseAndImportAuth(): Promise<ImportAuthResult> {
+  if (!isDesktopApp) return { status: "preview" };
   const selected = await open({
     multiple: false,
     filters: [{ name: "Codex auth.json", extensions: ["json"] }],
   });
-  if (!selected) return "cancelled";
-  await invoke("import_auth_file", { path: selected });
-  return "imported";
+  if (!selected) return { status: "cancelled" };
+  const id = await invoke<string>("import_auth_file", { path: selected });
+  return { status: "imported", id };
 }
 
 export async function activateAccount(id: string): Promise<void> {

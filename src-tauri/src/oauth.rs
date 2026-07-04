@@ -102,12 +102,18 @@ fn html_response(request: Request, status: u16, title: &str, message: &str) {
     let _ = request.respond(response);
 }
 
-fn emit_login<R: Runtime>(app: &tauri::AppHandle<R>, ok: bool, message: impl Into<String>) {
+fn emit_login<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    ok: bool,
+    message: impl Into<String>,
+    account_id: Option<String>,
+) {
     let _ = app.emit(
         "login-status",
         LoginStatus {
             ok,
             message: message.into(),
+            account_id,
         },
     );
 }
@@ -159,6 +165,7 @@ fn open_embedded_login_window<R: Runtime + 'static>(
                     &window_app,
                     false,
                     format!("应用内登录窗口打开失败，已改用默认浏览器：{error}"),
+                    None,
                 ),
                 Err(open_error) => {
                     cancel.store(true, Ordering::Relaxed);
@@ -166,6 +173,7 @@ fn open_embedded_login_window<R: Runtime + 'static>(
                         &window_app,
                         false,
                         format!("无法打开登录页面：{error}；{open_error}"),
+                        None,
                     );
                 }
             }
@@ -221,33 +229,38 @@ fn run_login_loop<R: Runtime + 'static>(
                 .map(String::as_str)
                 .unwrap_or(error);
             html_response(request, 403, "登录未完成", description);
-            emit_login(&app, false, format!("登录失败：{description}"));
+            emit_login(&app, false, format!("登录失败：{description}"), None);
             break;
         }
         let Some(code) = params.get("code").filter(|value| !value.is_empty()) else {
             html_response(request, 400, "登录未完成", "授权响应中缺少 code。");
-            emit_login(&app, false, "登录失败：授权响应缺少 code");
+            emit_login(&app, false, "登录失败：授权响应缺少 code", None);
             break;
         };
         let client = match Client::builder().timeout(Duration::from_secs(25)).build() {
             Ok(client) => client,
             Err(error) => {
                 html_response(request, 500, "登录失败", "无法创建安全网络连接。");
-                emit_login(&app, false, format!("登录失败：{error}"));
+                emit_login(&app, false, format!("登录失败：{error}"), None);
                 break;
             }
         };
         match exchange_code(&client, port, code, &verifier)
             .and_then(|tokens| persist_login(&app, tokens))
         {
-            Ok(_) => {
+            Ok(account_id) => {
                 html_response(
                     request,
                     200,
                     "登录成功",
                     "账户已保存。请回到 Codex Switch 手动切换到此账户。",
                 );
-                emit_login(&app, true, "登录成功，账户已保存，可手动切换");
+                emit_login(
+                    &app,
+                    true,
+                    "登录成功，账户已保存，可手动切换",
+                    Some(account_id),
+                );
                 let _ = app.emit("accounts-changed", ());
                 crate::system_tray::refresh_menu(&app);
                 thread::sleep(Duration::from_millis(850));
@@ -258,7 +271,7 @@ fn run_login_loop<R: Runtime + 'static>(
             }
             Err(error) => {
                 html_response(request, 500, "登录失败", &error);
-                emit_login(&app, false, error);
+                emit_login(&app, false, error, None);
                 break;
             }
         }
@@ -348,7 +361,7 @@ pub(crate) fn start_login<R: Runtime + 'static>(
                 open_embedded_login_window(&window_app, &window_url, window_cancel.clone())
             {
                 window_cancel.store(true, Ordering::Relaxed);
-                emit_login(&window_app, false, error);
+                emit_login(&window_app, false, error, None);
             }
         });
     } else if let Err(error) = open_login_in_default_browser(&app, &url) {

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfigProvider, Tooltip, theme as antdTheme } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
@@ -52,9 +52,13 @@ function DashboardApp() {
   const { message: toast, notify } = useToast();
   const { language, setLanguage, t } = useLanguage();
   const cloud = useCloudAuth(notify, t);
+  const accountCloudSync = useMemo(() => ({
+    pushAccount: cloud.pushAccountQuietly,
+    deleteAccount: cloud.deleteAccountQuietly,
+  }), [cloud.deleteAccountQuietly, cloud.pushAccountQuietly]);
   const floatingBubble = useFloatingBubble(notify);
   const themeColor = useThemeColor(notify);
-  const manager = useAccountManager(notify, t, cloud.pushQuietly);
+  const manager = useAccountManager(notify, t, accountCloudSync);
   const resetCredits = useResetCredits(manager.accounts, notify, t);
   const activeAccount = manager.accounts.find((account) => account.active) ?? null;
   const markRefreshAll = useCallback(() => {

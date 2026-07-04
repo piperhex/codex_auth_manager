@@ -20,6 +20,8 @@ NestJS backend for Codex Switch cloud login and account synchronization.
 
 The first registered account becomes an admin. For local development without Kong, configure the desktop app Settings cloud Base URL as `http://127.0.0.1:8080`.
 
+The default Docker Compose file does not publish PostgreSQL, Redis, or the backend on host ports. In production, Kong should reach the backend through the external `kong-net` network at `http://codex-switch-backend:8080`. For local host debugging, add a temporary compose override with explicit `ports`.
+
 ## Existing Kong Integration
 
 This backend does not run Kong. Deploy it as an upstream service behind your existing Kong gateway.

@@ -246,6 +246,16 @@ fn collect_local_accounts<R: Runtime>(
     Ok(accounts)
 }
 
+fn collect_local_account<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    id: &str,
+) -> Result<CloudAccountPayload, String> {
+    collect_local_accounts(app)?
+        .into_iter()
+        .find(|account| account.id == id)
+        .ok_or_else(|| format!("Local account {id} does not exist"))
+}
+
 fn apply_remote_account<R: Runtime>(
     app: &tauri::AppHandle<R>,
     account: &CloudAccountPayload,
@@ -318,6 +328,50 @@ fn put_remote_accounts<R: Runtime>(
     }
     settings.cloud_last_sync_at = Some(Utc::now().to_rfc3339());
     Ok(accounts.len())
+}
+
+fn put_remote_account<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    client: &Client,
+    settings: &mut AppSettings,
+    credentials: &mut CloudCredentials,
+    id: &str,
+) -> Result<(), String> {
+    let account = collect_local_account(app, id)?;
+    let response = cloud_request(
+        client,
+        settings,
+        credentials,
+        Method::PUT,
+        &format!("/sync/accounts/{id}"),
+        Some(serde_json::to_value(account).map_err(|error| error.to_string())?),
+    )?;
+    if !response.status().is_success() {
+        return Err(response_error("Cloud account upload", response));
+    }
+    settings.cloud_last_sync_at = Some(Utc::now().to_rfc3339());
+    Ok(())
+}
+
+fn delete_remote_account(
+    client: &Client,
+    settings: &mut AppSettings,
+    credentials: &mut CloudCredentials,
+    id: &str,
+) -> Result<(), String> {
+    let response = cloud_request(
+        client,
+        settings,
+        credentials,
+        Method::DELETE,
+        &format!("/sync/accounts/{id}"),
+        None,
+    )?;
+    if !response.status().is_success() {
+        return Err(response_error("Cloud account delete", response));
+    }
+    settings.cloud_last_sync_at = Some(Utc::now().to_rfc3339());
+    Ok(())
 }
 
 #[tauri::command]
@@ -428,6 +482,48 @@ pub(crate) async fn cloud_push_accounts<R: Runtime>(
     })
     .await
     .map_err(|error| format!("Cloud upload task failed: {error}"))?
+}
+
+#[tauri::command]
+pub(crate) async fn cloud_push_account<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    id: String,
+) -> Result<CloudSyncResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = api_client()?;
+        let mut settings = read_app_settings(&app)?;
+        let mut credentials = read_cloud_credentials(&app);
+        put_remote_account(&app, &client, &mut settings, &mut credentials, &id)?;
+        write_app_settings(&app, &settings)?;
+        write_cloud_credentials(&app, &credentials)?;
+        Ok(CloudSyncResult {
+            uploaded: 1,
+            downloaded: 0,
+        })
+    })
+    .await
+    .map_err(|error| format!("Cloud account upload task failed: {error}"))?
+}
+
+#[tauri::command]
+pub(crate) async fn cloud_delete_account<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    id: String,
+) -> Result<CloudSyncResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = api_client()?;
+        let mut settings = read_app_settings(&app)?;
+        let mut credentials = read_cloud_credentials(&app);
+        delete_remote_account(&client, &mut settings, &mut credentials, &id)?;
+        write_app_settings(&app, &settings)?;
+        write_cloud_credentials(&app, &credentials)?;
+        Ok(CloudSyncResult {
+            uploaded: 0,
+            downloaded: 0,
+        })
+    })
+    .await
+    .map_err(|error| format!("Cloud account delete task failed: {error}"))?
 }
 
 #[tauri::command]

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   loadCloudAuthState,
+  deleteCloudAccount,
   loginCloud,
   logoutCloud,
+  pushCloudAccount,
   pushCloudAccounts,
   syncCloudAccounts,
   updateCloudBaseUrl,
@@ -112,6 +114,26 @@ export function useCloudAuth(notify: (message: string) => void, t: Translate) {
     }
   }, [load, state.authenticated]);
 
+  const pushAccountQuietly = useCallback(async (id: string) => {
+    if (!state.authenticated) return;
+    try {
+      await pushCloudAccount(id);
+      await load();
+    } catch {
+      // Local account operations remain local-first if cloud sync is temporarily unavailable.
+    }
+  }, [load, state.authenticated]);
+
+  const deleteAccountQuietly = useCallback(async (id: string) => {
+    if (!state.authenticated) return;
+    try {
+      await deleteCloudAccount(id);
+      await load();
+    } catch {
+      // Deletion can be retried by manual full sync if the cloud is temporarily unreachable.
+    }
+  }, [load, state.authenticated]);
+
   return {
     state,
     loading,
@@ -122,5 +144,7 @@ export function useCloudAuth(notify: (message: string) => void, t: Translate) {
     logout,
     sync,
     pushQuietly,
+    pushAccountQuietly,
+    deleteAccountQuietly,
   };
 }

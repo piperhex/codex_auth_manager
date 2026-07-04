@@ -18,10 +18,15 @@ interface RefreshAllOptions {
   showSpinner?: boolean;
 }
 
+interface AccountCloudSync {
+  pushAccount?: (id: string) => Promise<void> | void;
+  deleteAccount?: (id: string) => Promise<void> | void;
+}
+
 export function useAccountManager(
   notify: (message: string) => void,
   t: Translate,
-  afterLocalChange?: () => Promise<void> | void,
+  cloudSync?: AccountCloudSync,
 ) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -48,9 +53,9 @@ export function useAccountManager(
     (status) => {
       notify(status.message);
       void load();
-      if (status.ok) void afterLocalChange?.();
+      if (status.ok && status.accountId) void cloudSync?.pushAccount?.(status.accountId);
     },
-  ), [afterLocalChange, load, notify]);
+  ), [cloudSync, load, notify]);
 
   const startLogin = useCallback(async (embedded: boolean) => {
     if (!isDesktopApp) {
@@ -70,15 +75,15 @@ export function useAccountManager(
     notify(isDesktopApp ? t("toast.importPrompt") : t("toast.previewNoFile"));
     try {
       const result = await chooseAndImportAuth();
-      if (result === "imported") {
+      if (result.status === "imported") {
         notify(t("toast.imported"));
         await load();
-        await afterLocalChange?.();
+        await cloudSync?.pushAccount?.(result.id);
       }
     } catch (error) {
       notify(String(error));
     }
-  }, [afterLocalChange, load, notify, t]);
+  }, [cloudSync, load, notify, t]);
 
   const switchAccount = useCallback(async (id: string) => {
     setBusyAccountId(id);
@@ -89,13 +94,13 @@ export function useAccountManager(
       }
       notify(t("toast.switched"));
       if (isDesktopApp) await load();
-      await afterLocalChange?.();
+      await cloudSync?.pushAccount?.(id);
     } catch (error) {
       notify(String(error));
     } finally {
       setBusyAccountId(null);
     }
-  }, [afterLocalChange, load, notify, t]);
+  }, [cloudSync, load, notify, t]);
 
   const refreshUsage = useCallback(async (id: string, quiet = false, showSpinner = true) => {
     if (showSpinner) setBusyAccountId(id);
@@ -109,13 +114,13 @@ export function useAccountManager(
       }
       if (!quiet) notify(t("toast.usageRefreshed"));
       if (isDesktopApp) await load();
-      await afterLocalChange?.();
+      await cloudSync?.pushAccount?.(id);
     } catch (error) {
       if (!quiet) notify(String(error));
     } finally {
       if (showSpinner) setBusyAccountId(null);
     }
-  }, [afterLocalChange, load, notify, t]);
+  }, [cloudSync, load, notify, t]);
 
   const refreshAll = useCallback(async ({ quiet = false, showSpinner = true }: RefreshAllOptions = {}) => {
     if (!accounts.length || refreshingAllRef.current) return;
@@ -129,12 +134,12 @@ export function useAccountManager(
         setAccounts((items) => items.map((item) => ({ ...item, usage: { ...item.usage, fetchedAt } })));
       }
       if (!quiet) notify(t("toast.allUsageRefreshed"));
-      await afterLocalChange?.();
+      await Promise.allSettled(accounts.map((account) => cloudSync?.pushAccount?.(account.id)));
     } finally {
       if (showSpinner) setRefreshingAll(false);
       refreshingAllRef.current = false;
     }
-  }, [accounts, afterLocalChange, load, notify, t]);
+  }, [accounts, cloudSync, load, notify, t]);
 
   const deleteAccount = useCallback(async (id: string) => {
     try {
@@ -142,24 +147,24 @@ export function useAccountManager(
       if (!isDesktopApp) setAccounts((items) => items.filter((item) => item.id !== id));
       notify(t("toast.deleted"));
       if (isDesktopApp) await load();
-      await afterLocalChange?.();
+      await cloudSync?.deleteAccount?.(id);
     } catch (error) {
       notify(String(error));
     }
-  }, [afterLocalChange, load, notify, t]);
+  }, [cloudSync, load, notify, t]);
 
   const saveAccountNote = useCallback(async (id: string, note: string, expiresAt: string) => {
     try {
       await updateAccountNote(id, note, expiresAt);
       setAccounts((items) => items.map((item) => item.id === id ? { ...item, note, expiresAt } : item));
       notify(t("toast.accountDetailsSaved"));
-      await afterLocalChange?.();
+      await cloudSync?.pushAccount?.(id);
       return true;
     } catch (error) {
       notify(String(error));
       return false;
     }
-  }, [afterLocalChange, notify, t]);
+  }, [cloudSync, notify, t]);
 
   return {
     accounts,

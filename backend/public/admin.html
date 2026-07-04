@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Switch Admin</title>
   <style>
-    :root { color: #17211b; background: #f3f5f1; font-family: Inter, "Microsoft YaHei UI", system-ui, sans-serif; }
+    :root { color: #17211b; background: #f3f5f1; font-family: Inter, system-ui, sans-serif; }
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; }
     header { height: 62px; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; color: #eff7ef; background: #17251d; }
@@ -30,50 +30,59 @@
   </style>
 </head>
 <body>
-  <header><b>Codex Switch Admin</b><span class="muted" id="session">未登录</span></header>
+  <header><b>Codex Switch Admin</b><span class="muted" id="session">Signed out</span></header>
   <main>
     <section class="panel">
-      <h1>后台管理</h1>
-      <p class="muted">首个注册用户会自动成为管理员。</p>
+      <h1>Admin</h1>
+      <p class="muted">The first registered user becomes an administrator.</p>
       <form id="login-form">
-        <label>邮箱<input id="login-email" type="email" autocomplete="email" required></label>
-        <label>密码<input id="login-password" type="password" autocomplete="current-password" required></label>
-        <button type="submit">登录</button>
-        <button type="button" class="secondary" id="register-first">注册首个用户</button>
+        <label>Email<input id="login-email" type="email" autocomplete="email" required></label>
+        <label>Password<input id="login-password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Sign in</button>
+        <button type="button" class="secondary" id="register-first">Register first user</button>
+        <button type="button" class="secondary" id="sign-out" disabled>Sign out</button>
       </form>
     </section>
     <section class="panel">
-      <h2>创建用户</h2>
+      <h2>Create user</h2>
       <form id="create-form">
-        <label>邮箱<input id="create-email" type="email" required></label>
-        <label>密码<input id="create-password" type="password" minlength="8" required></label>
-        <label>角色<select id="create-role"><option value="user">user</option><option value="admin">admin</option></select></label>
-        <button type="submit">创建</button>
+        <label>Email<input id="create-email" type="email" required></label>
+        <label>Password<input id="create-password" type="password" minlength="8" required></label>
+        <label>Role<select id="create-role"><option value="user">user</option><option value="admin">admin</option></select></label>
+        <button type="submit">Create</button>
       </form>
     </section>
     <section>
       <table>
-        <thead><tr><th>邮箱</th><th>角色</th><th>状态</th><th>最后登录</th><th>创建时间</th><th>操作</th></tr></thead>
+        <thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Last login</th><th>Created</th><th>Actions</th></tr></thead>
         <tbody id="users"></tbody>
       </table>
     </section>
   </main>
   <div class="toast" id="toast" hidden></div>
   <script>
-    const tokenKey = 'codex-switch-admin-token';
-    let token = localStorage.getItem(tokenKey) || '';
+    let accessToken = '';
+
+    const byId = (id) => document.getElementById(id);
+    const setText = (node, text) => {
+      node.textContent = text == null ? '' : String(text);
+      return node;
+    };
+    const appendTextCell = (row, text) => {
+      row.appendChild(setText(document.createElement('td'), text));
+    };
     const toast = (message) => {
-      const node = document.getElementById('toast');
-      node.textContent = message;
+      const node = byId('toast');
+      setText(node, message);
       node.hidden = false;
-      setTimeout(() => node.hidden = true, 3200);
+      setTimeout(() => { node.hidden = true; }, 3200);
     };
     const api = async (url, options = {}) => {
       const response = await fetch(url, {
         ...options,
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
           ...(options.headers || {}),
         },
       });
@@ -82,99 +91,112 @@
       return data;
     };
     const setSession = (email) => {
-      document.getElementById('session').textContent = email ? `已登录：${email}` : '未登录';
+      setText(byId('session'), email ? `Signed in: ${email}` : 'Signed out');
+      byId('sign-out').disabled = !email;
+    };
+    const createActionButton = (label, action, user) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary';
+      button.dataset.action = action;
+      button.dataset.id = user.id;
+      button.dataset.disabled = String(user.disabled);
+      button.dataset.role = user.role;
+      setText(button, label);
+      return button;
     };
     const loadUsers = async () => {
-      if (!token) return;
+      if (!accessToken) return;
       const users = await api('/admin/api/users');
-      document.getElementById('users').innerHTML = users.map((user) => `
-        <tr>
-          <td>${user.email}</td>
-          <td>${user.role}</td>
-          <td>${user.disabled ? '禁用' : '正常'}</td>
-          <td>${user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '-'}</td>
-          <td>${new Date(user.createdAt).toLocaleString()}</td>
-          <td><div class="actions">
-            <button class="secondary" data-action="toggle" data-id="${user.id}" data-disabled="${user.disabled}">${user.disabled ? '启用' : '禁用'}</button>
-            <button class="secondary" data-action="role" data-id="${user.id}" data-role="${user.role}">${user.role === 'admin' ? '设为 user' : '设为 admin'}</button>
-          </div></td>
-        </tr>
-      `).join('');
+      const tableBody = byId('users');
+      tableBody.replaceChildren();
+      for (const user of users) {
+        const row = document.createElement('tr');
+        appendTextCell(row, user.email);
+        appendTextCell(row, user.role);
+        appendTextCell(row, user.disabled ? 'Disabled' : 'Active');
+        appendTextCell(row, user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '-');
+        appendTextCell(row, user.createdAt ? new Date(user.createdAt).toLocaleString() : '-');
+
+        const actionsCell = document.createElement('td');
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        actions.appendChild(createActionButton(user.disabled ? 'Enable' : 'Disable', 'toggle', user));
+        actions.appendChild(createActionButton(user.role === 'admin' ? 'Set user' : 'Set admin', 'role', user));
+        actionsCell.appendChild(actions);
+        row.appendChild(actionsCell);
+        tableBody.appendChild(row);
+      }
     };
-    document.getElementById('login-form').addEventListener('submit', async (event) => {
+    const handleAuthSuccess = async (email, data) => {
+      accessToken = data.accessToken;
+      setSession(email);
+      toast('Signed in');
+      await loadUsers();
+    };
+
+    byId('login-form').addEventListener('submit', async (event) => {
       event.preventDefault();
       try {
-        const email = document.getElementById('login-email').value;
+        const email = byId('login-email').value;
         const data = await api('/auth/login', {
           method: 'POST',
-          body: JSON.stringify({ email, password: document.getElementById('login-password').value }),
+          body: JSON.stringify({ email, password: byId('login-password').value }),
         });
-        token = data.accessToken;
-        localStorage.setItem(tokenKey, token);
-        setSession(email);
-        toast('登录成功');
-        await loadUsers();
+        await handleAuthSuccess(email, data);
       } catch (error) {
         toast(error.message);
       }
     });
-    document.getElementById('register-first').addEventListener('click', async () => {
+    byId('register-first').addEventListener('click', async () => {
       try {
-        const email = document.getElementById('login-email').value;
+        const email = byId('login-email').value;
         const data = await api('/auth/register', {
           method: 'POST',
-          body: JSON.stringify({ email, password: document.getElementById('login-password').value }),
+          body: JSON.stringify({ email, password: byId('login-password').value }),
         });
-        token = data.accessToken;
-        localStorage.setItem(tokenKey, token);
-        setSession(email);
-        toast('注册成功');
-        await loadUsers();
+        await handleAuthSuccess(email, data);
       } catch (error) {
         toast(error.message);
       }
     });
-    document.getElementById('create-form').addEventListener('submit', async (event) => {
+    byId('sign-out').addEventListener('click', () => {
+      accessToken = '';
+      setSession('');
+      byId('users').replaceChildren();
+      toast('Signed out');
+    });
+    byId('create-form').addEventListener('submit', async (event) => {
       event.preventDefault();
       try {
         await api('/admin/api/users', {
           method: 'POST',
           body: JSON.stringify({
-            email: document.getElementById('create-email').value,
-            password: document.getElementById('create-password').value,
-            role: document.getElementById('create-role').value,
+            email: byId('create-email').value,
+            password: byId('create-password').value,
+            role: byId('create-role').value,
           }),
         });
         event.target.reset();
-        toast('用户已创建');
+        toast('User created');
         await loadUsers();
       } catch (error) {
         toast(error.message);
       }
     });
-    document.getElementById('users').addEventListener('click', async (event) => {
+    byId('users').addEventListener('click', async (event) => {
       const button = event.target.closest('button');
       if (!button) return;
       try {
-        const id = button.dataset.id;
         const body = button.dataset.action === 'toggle'
           ? { disabled: button.dataset.disabled !== 'true' }
           : { role: button.dataset.role === 'admin' ? 'user' : 'admin' };
-        await api(`/admin/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+        await api(`/admin/api/users/${button.dataset.id}`, { method: 'PATCH', body: JSON.stringify(body) });
         await loadUsers();
       } catch (error) {
         toast(error.message);
       }
     });
-    if (token) {
-      api('/auth/me').then((user) => {
-        setSession(user.email);
-        return loadUsers();
-      }).catch(() => {
-        token = '';
-        localStorage.removeItem(tokenKey);
-      });
-    }
   </script>
 </body>
 </html>

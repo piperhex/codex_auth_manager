@@ -68,6 +68,7 @@ export interface LoginStart {
 export interface LoginStatus {
   ok: boolean;
   message: string;
+  accountId?: string | null;
 }
 
 export interface CloudAuthState {

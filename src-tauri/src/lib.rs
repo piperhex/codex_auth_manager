@@ -81,6 +81,8 @@ pub fn run() {
             cloud::cloud_login,
             cloud::cloud_logout,
             cloud::cloud_push_accounts,
+            cloud::cloud_push_account,
+            cloud::cloud_delete_account,
             cloud::cloud_sync_accounts,
         ])
         .run(tauri::generate_context!())
