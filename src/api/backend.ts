@@ -7,6 +7,8 @@ import type {
   Account,
   AppInfo,
   AppSettings,
+  CloudAuthState,
+  CloudSyncResult,
   LoginStart,
   LoginStatus,
   ResetCreditsSummary,
@@ -17,9 +19,24 @@ import { DEFAULT_THEME_COLOR, normalizeThemeColor } from "../utils/theme";
 export const isDesktopApp = "__TAURI_INTERNALS__" in window;
 const FLOATING_BUBBLE_PREVIEW_KEY = "codex-switch:floating-bubble";
 const THEME_COLOR_PREVIEW_KEY = "codex-switch:theme-color";
+const CLOUD_BASE_URL_PREVIEW_KEY = "codex-switch:cloud-base-url";
+const CLOUD_USER_PREVIEW_KEY = "codex-switch:cloud-user-email";
 const THEME_COLOR_EVENT = "codex-switch:theme-color-changed";
 const LANGUAGE_EVENT = "codex-switch:language-changed";
 let updateCheckPromise: Promise<UpdateInfo | null> | null = null;
+
+function previewCloudState(): CloudAuthState {
+  const baseUrl = window.localStorage.getItem(CLOUD_BASE_URL_PREVIEW_KEY)?.trim() ?? "";
+  const userEmail = window.localStorage.getItem(CLOUD_USER_PREVIEW_KEY);
+  return {
+    enabled: baseUrl.length > 0,
+    baseUrl: baseUrl || null,
+    authenticated: Boolean(baseUrl && userEmail),
+    userEmail,
+    userId: userEmail ? "preview" : null,
+    lastSyncAt: null,
+  };
+}
 
 export async function loadDashboard(): Promise<{ accounts: Account[]; info: AppInfo }> {
   if (!isDesktopApp) {
@@ -37,6 +54,7 @@ export async function loadAppSettings(): Promise<AppSettings> {
     return {
       floatingBubbleEnabled: window.localStorage.getItem(FLOATING_BUBBLE_PREVIEW_KEY) === "true",
       themeColor: normalizeThemeColor(window.localStorage.getItem(THEME_COLOR_PREVIEW_KEY) ?? DEFAULT_THEME_COLOR),
+      cloudBaseUrl: window.localStorage.getItem(CLOUD_BASE_URL_PREVIEW_KEY),
     };
   }
   return invoke<AppSettings>("get_app_settings");
@@ -64,6 +82,53 @@ export async function updateThemeColor(color: string): Promise<AppSettings> {
     };
   }
   return invoke<AppSettings>("set_theme_color", { color: themeColor });
+}
+
+export async function loadCloudAuthState(): Promise<CloudAuthState> {
+  if (!isDesktopApp) return previewCloudState();
+  return invoke<CloudAuthState>("get_cloud_auth_state");
+}
+
+export async function updateCloudBaseUrl(baseUrl: string): Promise<CloudAuthState> {
+  if (!isDesktopApp) {
+    const normalized = baseUrl.trim().replace(/\/+$/, "");
+    if (normalized) window.localStorage.setItem(CLOUD_BASE_URL_PREVIEW_KEY, normalized);
+    else {
+      window.localStorage.removeItem(CLOUD_BASE_URL_PREVIEW_KEY);
+      window.localStorage.removeItem(CLOUD_USER_PREVIEW_KEY);
+    }
+    return previewCloudState();
+  }
+  return invoke<CloudAuthState>("set_cloud_base_url", { baseUrl });
+}
+
+export async function loginCloud(email: string, password: string): Promise<CloudAuthState> {
+  if (!isDesktopApp) {
+    const baseUrl = window.localStorage.getItem(CLOUD_BASE_URL_PREVIEW_KEY);
+    if (!baseUrl) throw new Error("Cloud server base URL is not configured");
+    if (!email || !password) throw new Error("Email and password are required");
+    window.localStorage.setItem(CLOUD_USER_PREVIEW_KEY, email);
+    return previewCloudState();
+  }
+  return invoke<CloudAuthState>("cloud_login", { email, password });
+}
+
+export async function logoutCloud(): Promise<CloudAuthState> {
+  if (!isDesktopApp) {
+    window.localStorage.removeItem(CLOUD_USER_PREVIEW_KEY);
+    return previewCloudState();
+  }
+  return invoke<CloudAuthState>("cloud_logout");
+}
+
+export async function syncCloudAccounts(): Promise<CloudSyncResult> {
+  if (!isDesktopApp) return { uploaded: 0, downloaded: 0 };
+  return invoke<CloudSyncResult>("cloud_sync_accounts");
+}
+
+export async function pushCloudAccounts(): Promise<CloudSyncResult> {
+  if (!isDesktopApp) return { uploaded: 0, downloaded: 0 };
+  return invoke<CloudSyncResult>("cloud_push_accounts");
 }
 
 export async function resizeFloatingBubble(expanded: boolean): Promise<void> {

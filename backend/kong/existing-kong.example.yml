@@ -1,0 +1,33 @@
+_format_version: "3.0"
+_transform: true
+
+# Import this into your existing Kong only if you use declarative config.
+# For DB-backed Kong, use the Admin API commands in backend/README.md instead.
+
+services:
+  - name: codex-switch-backend
+    url: http://codex-switch-backend:8080
+    routes:
+      - name: codex-switch-public
+        paths:
+          - /auth
+          - /admin
+        strip_path: false
+      - name: codex-switch-protected
+        paths:
+          - /sync
+          - /admin/api
+        strip_path: false
+        plugins:
+          - name: jwt
+            config:
+              key_claim_name: iss
+              claims_to_verify:
+                - exp
+
+consumers:
+  - username: codex-switch-client
+    jwt_secrets:
+      - key: codex-switch
+        secret: change-me-kong-jwt-secret
+        algorithm: HS256

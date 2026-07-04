@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: codex_switch
+      POSTGRES_PASSWORD: codex_switch
+      POSTGRES_DB: codex_switch
+    ports:
+      - "5432:5432"
+    volumes:
+      - codex-switch-postgres:/var/lib/postgresql/data
+    networks:
+      - backend-internal
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - backend-internal
+
+  backend:
+    build: .
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "8080:8080"
+    networks:
+      backend-internal:
+      kong-net:
+        aliases:
+          - codex-switch-backend
+
+volumes:
+  codex-switch-postgres:
+
+networks:
+  backend-internal:
+  kong-net:
+    external: true

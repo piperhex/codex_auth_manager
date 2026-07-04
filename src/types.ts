@@ -57,6 +57,7 @@ export interface AppSettings {
   themeColor?: string | null;
   bubbleX?: number | null;
   bubbleY?: number | null;
+  cloudBaseUrl?: string | null;
 }
 
 export interface LoginStart {
@@ -67,4 +68,18 @@ export interface LoginStart {
 export interface LoginStatus {
   ok: boolean;
   message: string;
+}
+
+export interface CloudAuthState {
+  enabled: boolean;
+  baseUrl?: string | null;
+  authenticated: boolean;
+  userEmail?: string | null;
+  userId?: string | null;
+  lastSyncAt?: string | null;
+}
+
+export interface CloudSyncResult {
+  uploaded: number;
+  downloaded: number;
 }

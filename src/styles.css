@@ -48,6 +48,17 @@ button:focus-visible { outline: 3px solid rgba(45, 131, 87, .24); outline-offset
 .security-chip span { display: grid; gap: 3px; }
 .security-chip b { font-size: 12px; color: #e8f1e9; }
 .security-chip small { font-size: 10px; color: #829187; }
+.cloud-login-chip, .cloud-chip { min-height: 43px; display: flex; gap: 9px; align-items: flex-start; padding: 8px 10px; border: 1px solid rgba(var(--green-rgb), .24); border-radius: 10px; background: rgba(255,255,255,.04); color: var(--green-highlight); }
+.cloud-login-chip { cursor: pointer; }
+.cloud-login-chip:hover:not(:disabled) { background: rgba(255,255,255,.08); }
+.cloud-login-chip:disabled { opacity: .62; cursor: default; }
+.cloud-login-chip span, .cloud-chip span { display: grid; gap: 3px; min-width: 0; }
+.cloud-login-chip b, .cloud-chip b { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #e8f1e9; }
+.cloud-login-chip small, .cloud-chip small { font-size: 10px; color: #829187; }
+.cloud-chip-actions { margin-left: 2px; display: flex; align-items: center; gap: 3px; }
+.cloud-icon-button { width: 25px; height: 25px; border: 0; border-radius: 7px; display: grid; place-items: center; color: #a7d6aa; background: transparent; cursor: pointer; }
+.cloud-icon-button:hover:not(:disabled) { color: #eff7ef; background: rgba(255,255,255,.08); }
+.cloud-icon-button:disabled { opacity: .5; cursor: default; }
 .help-actions { display: flex; align-items: center; gap: 16px; }
 .help-button { border: 0; color: #819086; display: flex; align-items: center; gap: 9px; background: transparent; cursor: pointer; padding: 8px 11px; font-size: 12px; }
 .help-button:hover { color: #dbe6de; }
@@ -208,6 +219,14 @@ h1 { margin: 5px 0 0; font: 700 26px/1.1 Manrope, sans-serif; letter-spacing: -.
 .import-choice { width: 100%; border: 1px dashed #cdd7cf; border-radius: 9px; padding: 10px; display: flex; align-items: center; justify-content: center; gap: 7px; color: #536159; background: transparent; cursor: pointer; font-size: 11px; }
 .import-choice:hover { color: var(--green); border-color: #87ad94; background: #f4f8f4; }
 .safety-note { margin-top: 16px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #839088; font-size: 9px; }
+.cloud-login-modal { width: min(430px, 95vw); }
+.cloud-login-form { display: grid; gap: 8px; }
+.cloud-login-form label { color: #526259; font-size: 11px; font-weight: 700; }
+.cloud-login-input { height: 39px; display: flex; align-items: center; gap: 8px; padding: 0 11px; border: 1px solid #d7e0d8; border-radius: 9px; color: #6d7a72; background: white; }
+.cloud-login-input:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px rgba(var(--green-rgb), .12); }
+.cloud-login-input input { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--ink); background: transparent; font: 12px "DM Sans", "Microsoft YaHei UI", sans-serif; }
+.cloud-login-input input::placeholder { color: #9aa69f; }
+.cloud-login-submit { width: 100%; margin-top: 10px; }
 .help-modal { width: min(560px, 95vw); }
 .help-features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .help-features > div { min-width: 0; display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid #e0e7e0; border-radius: 10px; background: white; }
@@ -245,6 +264,10 @@ h1 { margin: 5px 0 0; font: 700 26px/1.1 Manrope, sans-serif; letter-spacing: -.
 .settings-card code { display: block; padding: 8px 10px; border-radius: 7px; color: #456052; background: #f0f3ef; font-size: 10px; word-break: break-all; }
 .settings-field { margin-top: 12px; display: flex; align-items: center; gap: 12px; }
 .settings-field label { color: #5d6a62; font-size: 11px; font-weight: 700; }
+.settings-field-wide { align-items: stretch; }
+.settings-field-wide label { align-self: center; flex: 0 0 auto; }
+.settings-field-wide .ant-input-affix-wrapper { max-width: 430px; }
+.cloud-settings-status { display: inline-block; margin-top: 10px !important; padding: 5px 8px; border-radius: 6px; color: #456052 !important; background: #eef4ee; font-weight: 600; }
 .settings-field .ant-space-compact { width: 150px; }
 .settings-field .ant-input-number { width: 108px; }
 .note-card { border-color: #c8dccd; background: #f8fbf7; }

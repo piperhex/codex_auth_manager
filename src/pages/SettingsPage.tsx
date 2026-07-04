@@ -1,5 +1,6 @@
-import { Button, ColorPicker, InputNumber, Segmented, Space, Switch } from "antd";
-import { CircleGauge, FolderKey, FolderOpen, KeyRound, Languages, Palette, RefreshCw, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Button, ColorPicker, Input, InputNumber, Segmented, Space, Switch } from "antd";
+import { CircleGauge, Cloud, FolderKey, FolderOpen, KeyRound, Languages, Palette, RefreshCw, Save, ShieldCheck } from "lucide-react";
 import { MAX_AUTO_REFRESH_SECONDS, MIN_AUTO_REFRESH_SECONDS } from "../hooks/useAutoRefresh";
 import { LANGUAGE_OPTIONS, type Language, type Translate } from "../i18n";
 import type { AppInfo } from "../types";
@@ -18,6 +19,10 @@ export function SettingsPage({
   themeColor,
   themeColorLoading,
   onThemeColorChange,
+  cloudBaseUrl,
+  cloudBaseUrlLoading,
+  cloudAuthenticated,
+  onCloudBaseUrlSave,
   floatingBubbleEnabled,
   floatingBubbleLoading,
   onFloatingBubbleChange,
@@ -40,6 +45,10 @@ export function SettingsPage({
   themeColor: string;
   themeColorLoading: boolean;
   onThemeColorChange: (color: string) => void;
+  cloudBaseUrl: string;
+  cloudBaseUrlLoading: boolean;
+  cloudAuthenticated: boolean;
+  onCloudBaseUrlSave: (baseUrl: string) => Promise<void> | void;
   floatingBubbleEnabled: boolean;
   floatingBubbleLoading: boolean;
   onFloatingBubbleChange: (enabled: boolean) => void;
@@ -49,6 +58,12 @@ export function SettingsPage({
   onLanguageChange: (language: Language) => void;
   t: Translate;
 }) {
+  const [cloudBaseUrlDraft, setCloudBaseUrlDraft] = useState(cloudBaseUrl);
+
+  useEffect(() => {
+    setCloudBaseUrlDraft(cloudBaseUrl);
+  }, [cloudBaseUrl]);
+
   return (
     <div className="settings-page">
       <section className="settings-card">
@@ -59,6 +74,24 @@ export function SettingsPage({
             <Segmented id="language-selector" value={language} options={[...LANGUAGE_OPTIONS]}
               onChange={(value) => onLanguageChange(value as Language)} />
           </div>
+        </div>
+      </section>
+      <section className="settings-card">
+        <div className="settings-icon"><Cloud size={23} /></div>
+        <div><h3>{t("settings.cloud.title")}</h3><p>{t("settings.cloud.description")}</p>
+          <div className="settings-field settings-field-wide">
+            <label htmlFor="cloud-base-url">{t("settings.cloud.label")}</label>
+            <Input id="cloud-base-url" value={cloudBaseUrlDraft} disabled={cloudBaseUrlLoading}
+              allowClear placeholder={t("settings.cloud.placeholder")}
+              onChange={(event) => setCloudBaseUrlDraft(event.target.value)} />
+            <Button type="primary" size="small" icon={<Save size={14} />} loading={cloudBaseUrlLoading}
+              onClick={() => void onCloudBaseUrlSave(cloudBaseUrlDraft)}>{t("settings.cloud.save")}</Button>
+          </div>
+          <p className="cloud-settings-status">
+            {cloudBaseUrl
+              ? cloudAuthenticated ? t("settings.cloud.signedIn") : t("settings.cloud.enabled")
+              : t("settings.cloud.localMode")}
+          </p>
         </div>
       </section>
       <section className="settings-card">

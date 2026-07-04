@@ -18,7 +18,11 @@ interface RefreshAllOptions {
   showSpinner?: boolean;
 }
 
-export function useAccountManager(notify: (message: string) => void, t: Translate) {
+export function useAccountManager(
+  notify: (message: string) => void,
+  t: Translate,
+  afterLocalChange?: () => Promise<void> | void,
+) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,8 +48,9 @@ export function useAccountManager(notify: (message: string) => void, t: Translat
     (status) => {
       notify(status.message);
       void load();
+      if (status.ok) void afterLocalChange?.();
     },
-  ), [load, notify]);
+  ), [afterLocalChange, load, notify]);
 
   const startLogin = useCallback(async (embedded: boolean) => {
     if (!isDesktopApp) {
@@ -68,11 +73,12 @@ export function useAccountManager(notify: (message: string) => void, t: Translat
       if (result === "imported") {
         notify(t("toast.imported"));
         await load();
+        await afterLocalChange?.();
       }
     } catch (error) {
       notify(String(error));
     }
-  }, [load, notify, t]);
+  }, [afterLocalChange, load, notify, t]);
 
   const switchAccount = useCallback(async (id: string) => {
     setBusyAccountId(id);
@@ -83,12 +89,13 @@ export function useAccountManager(notify: (message: string) => void, t: Translat
       }
       notify(t("toast.switched"));
       if (isDesktopApp) await load();
+      await afterLocalChange?.();
     } catch (error) {
       notify(String(error));
     } finally {
       setBusyAccountId(null);
     }
-  }, [load, notify, t]);
+  }, [afterLocalChange, load, notify, t]);
 
   const refreshUsage = useCallback(async (id: string, quiet = false, showSpinner = true) => {
     if (showSpinner) setBusyAccountId(id);
@@ -102,12 +109,13 @@ export function useAccountManager(notify: (message: string) => void, t: Translat
       }
       if (!quiet) notify(t("toast.usageRefreshed"));
       if (isDesktopApp) await load();
+      await afterLocalChange?.();
     } catch (error) {
       if (!quiet) notify(String(error));
     } finally {
       if (showSpinner) setBusyAccountId(null);
     }
-  }, [load, notify, t]);
+  }, [afterLocalChange, load, notify, t]);
 
   const refreshAll = useCallback(async ({ quiet = false, showSpinner = true }: RefreshAllOptions = {}) => {
     if (!accounts.length || refreshingAllRef.current) return;
@@ -121,11 +129,12 @@ export function useAccountManager(notify: (message: string) => void, t: Translat
         setAccounts((items) => items.map((item) => ({ ...item, usage: { ...item.usage, fetchedAt } })));
       }
       if (!quiet) notify(t("toast.allUsageRefreshed"));
+      await afterLocalChange?.();
     } finally {
       if (showSpinner) setRefreshingAll(false);
       refreshingAllRef.current = false;
     }
-  }, [accounts, load, notify, t]);
+  }, [accounts, afterLocalChange, load, notify, t]);
 
   const deleteAccount = useCallback(async (id: string) => {
     try {
@@ -133,22 +142,24 @@ export function useAccountManager(notify: (message: string) => void, t: Translat
       if (!isDesktopApp) setAccounts((items) => items.filter((item) => item.id !== id));
       notify(t("toast.deleted"));
       if (isDesktopApp) await load();
+      await afterLocalChange?.();
     } catch (error) {
       notify(String(error));
     }
-  }, [load, notify, t]);
+  }, [afterLocalChange, load, notify, t]);
 
   const saveAccountNote = useCallback(async (id: string, note: string, expiresAt: string) => {
     try {
       await updateAccountNote(id, note, expiresAt);
       setAccounts((items) => items.map((item) => item.id === id ? { ...item, note, expiresAt } : item));
       notify(t("toast.accountDetailsSaved"));
+      await afterLocalChange?.();
       return true;
     } catch (error) {
       notify(String(error));
       return false;
     }
-  }, [notify, t]);
+  }, [afterLocalChange, notify, t]);
 
   return {
     accounts,
@@ -163,5 +174,6 @@ export function useAccountManager(notify: (message: string) => void, t: Translat
     refreshAll,
     deleteAccount,
     saveAccountNote,
+    reload: load,
   };
 }

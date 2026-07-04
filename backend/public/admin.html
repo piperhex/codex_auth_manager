@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex Switch Admin</title>
+  <style>
+    :root { color: #17211b; background: #f3f5f1; font-family: Inter, "Microsoft YaHei UI", system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; }
+    header { height: 62px; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; color: #eff7ef; background: #17251d; }
+    header b { font-size: 15px; }
+    main { width: min(1120px, calc(100% - 40px)); margin: 28px auto 60px; display: grid; gap: 18px; }
+    section { border: 1px solid #dfe5df; border-radius: 8px; background: #fbfcfa; box-shadow: 0 5px 18px rgba(24,45,31,.035); }
+    .panel { padding: 20px; }
+    h1, h2 { margin: 0; font-size: 20px; }
+    h2 { font-size: 15px; margin-bottom: 14px; }
+    .muted { color: #718078; font-size: 12px; }
+    form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+    label { display: grid; gap: 6px; color: #5d6a62; font-size: 11px; font-weight: 700; }
+    input, select { height: 38px; min-width: 220px; border: 1px solid #d7e0d8; border-radius: 7px; padding: 0 10px; background: white; }
+    button { height: 38px; border: 0; border-radius: 7px; padding: 0 14px; color: white; background: #077809; font-weight: 700; cursor: pointer; }
+    button.secondary { color: #33433a; border: 1px solid #d7e0d8; background: white; }
+    button:disabled { opacity: .55; cursor: default; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 10px 12px; border-top: 1px solid #e7ece7; text-align: left; }
+    th { color: #5d6a62; background: #f6f8f5; }
+    .actions { display: flex; gap: 8px; }
+    .toast { position: fixed; right: 22px; bottom: 22px; max-width: 420px; padding: 11px 14px; border: 1px solid #c2d6c7; border-radius: 8px; color: #244c35; background: rgba(247,252,247,.96); box-shadow: 0 14px 35px rgba(18,41,26,.15); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header><b>Codex Switch Admin</b><span class="muted" id="session">未登录</span></header>
+  <main>
+    <section class="panel">
+      <h1>后台管理</h1>
+      <p class="muted">首个注册用户会自动成为管理员。</p>
+      <form id="login-form">
+        <label>邮箱<input id="login-email" type="email" autocomplete="email" required></label>
+        <label>密码<input id="login-password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">登录</button>
+        <button type="button" class="secondary" id="register-first">注册首个用户</button>
+      </form>
+    </section>
+    <section class="panel">
+      <h2>创建用户</h2>
+      <form id="create-form">
+        <label>邮箱<input id="create-email" type="email" required></label>
+        <label>密码<input id="create-password" type="password" minlength="8" required></label>
+        <label>角色<select id="create-role"><option value="user">user</option><option value="admin">admin</option></select></label>
+        <button type="submit">创建</button>
+      </form>
+    </section>
+    <section>
+      <table>
+        <thead><tr><th>邮箱</th><th>角色</th><th>状态</th><th>最后登录</th><th>创建时间</th><th>操作</th></tr></thead>
+        <tbody id="users"></tbody>
+      </table>
+    </section>
+  </main>
+  <div class="toast" id="toast" hidden></div>
+  <script>
+    const tokenKey = 'codex-switch-admin-token';
+    let token = localStorage.getItem(tokenKey) || '';
+    const toast = (message) => {
+      const node = document.getElementById('toast');
+      node.textContent = message;
+      node.hidden = false;
+      setTimeout(() => node.hidden = true, 3200);
+    };
+    const api = async (url, options = {}) => {
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(options.headers || {}),
+        },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || response.statusText);
+      return data;
+    };
+    const setSession = (email) => {
+      document.getElementById('session').textContent = email ? `已登录：${email}` : '未登录';
+    };
+    const loadUsers = async () => {
+      if (!token) return;
+      const users = await api('/admin/api/users');
+      document.getElementById('users').innerHTML = users.map((user) => `
+        <tr>
+          <td>${user.email}</td>
+          <td>${user.role}</td>
+          <td>${user.disabled ? '禁用' : '正常'}</td>
+          <td>${user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '-'}</td>
+          <td>${new Date(user.createdAt).toLocaleString()}</td>
+          <td><div class="actions">
+            <button class="secondary" data-action="toggle" data-id="${user.id}" data-disabled="${user.disabled}">${user.disabled ? '启用' : '禁用'}</button>
+            <button class="secondary" data-action="role" data-id="${user.id}" data-role="${user.role}">${user.role === 'admin' ? '设为 user' : '设为 admin'}</button>
+          </div></td>
+        </tr>
+      `).join('');
+    };
+    document.getElementById('login-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      try {
+        const email = document.getElementById('login-email').value;
+        const data = await api('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ email, password: document.getElementById('login-password').value }),
+        });
+        token = data.accessToken;
+        localStorage.setItem(tokenKey, token);
+        setSession(email);
+        toast('登录成功');
+        await loadUsers();
+      } catch (error) {
+        toast(error.message);
+      }
+    });
+    document.getElementById('register-first').addEventListener('click', async () => {
+      try {
+        const email = document.getElementById('login-email').value;
+        const data = await api('/auth/register', {
+          method: 'POST',
+          body: JSON.stringify({ email, password: document.getElementById('login-password').value }),
+        });
+        token = data.accessToken;
+        localStorage.setItem(tokenKey, token);
+        setSession(email);
+        toast('注册成功');
+        await loadUsers();
+      } catch (error) {
+        toast(error.message);
+      }
+    });
+    document.getElementById('create-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      try {
+        await api('/admin/api/users', {
+          method: 'POST',
+          body: JSON.stringify({
+            email: document.getElementById('create-email').value,
+            password: document.getElementById('create-password').value,
+            role: document.getElementById('create-role').value,
+          }),
+        });
+        event.target.reset();
+        toast('用户已创建');
+        await loadUsers();
+      } catch (error) {
+        toast(error.message);
+      }
+    });
+    document.getElementById('users').addEventListener('click', async (event) => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      try {
+        const id = button.dataset.id;
+        const body = button.dataset.action === 'toggle'
+          ? { disabled: button.dataset.disabled !== 'true' }
+          : { role: button.dataset.role === 'admin' ? 'user' : 'admin' };
+        await api(`/admin/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+        await loadUsers();
+      } catch (error) {
+        toast(error.message);
+      }
+    });
+    if (token) {
+      api('/auth/me').then((user) => {
+        setSession(user.email);
+        return loadUsers();
+      }).catch(() => {
+        token = '';
+        localStorage.removeItem(tokenKey);
+      });
+    }
+  </script>
+</body>
+</html>

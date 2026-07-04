@@ -2,15 +2,17 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { ConfigProvider, Tooltip, theme as antdTheme } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
-import { CalendarClock, Check, CircleHelp, Github, Plus, RefreshCw, RotateCcw, Settings, ShieldCheck, UserRound } from "lucide-react";
+import { CalendarClock, Check, CircleHelp, Cloud, Github, LogIn, LogOut, Plus, RefreshCw, RotateCcw, Settings, ShieldCheck, UploadCloud, UserRound } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { checkForUpdate, isDesktopApp, openManagedFolder, restartCodex } from "./api/backend";
 import { HelpModal, type HelpVersionState } from "./components/modals/HelpModal";
 import { FloatingUsageBubble } from "./components/FloatingUsageBubble";
+import { CloudLoginModal } from "./components/modals/CloudLoginModal";
 import { LoginModal } from "./components/modals/LoginModal";
 import { UpdateModal } from "./components/modals/UpdateModal";
 import { useAccountManager } from "./hooks/useAccountManager";
 import { useAccountAutoRefresh, useAutoRefresh } from "./hooks/useAutoRefresh";
+import { useCloudAuth } from "./hooks/useCloudAuth";
 import { useLanguage } from "./hooks/useLanguage";
 import { useFloatingBubble } from "./hooks/useFloatingBubble";
 import { useResetCredits } from "./hooks/useResetCredits";
@@ -40,6 +42,7 @@ function shouldShowUpdate(update: UpdateInfo | null) {
 function DashboardApp() {
   const [page, setPage] = useState<"accounts" | "settings">("accounts");
   const [showLogin, setShowLogin] = useState(false);
+  const [showCloudLogin, setShowCloudLogin] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [helpVersionState, setHelpVersionState] = useState<HelpVersionState>({ status: "checking" });
   const [availableUpdate, setAvailableUpdate] = useState<UpdateInfo | null>(null);
@@ -48,9 +51,10 @@ function DashboardApp() {
   const helpVersionRequestId = useRef(0);
   const { message: toast, notify } = useToast();
   const { language, setLanguage, t } = useLanguage();
+  const cloud = useCloudAuth(notify, t);
   const floatingBubble = useFloatingBubble(notify);
   const themeColor = useThemeColor(notify);
-  const manager = useAccountManager(notify, t);
+  const manager = useAccountManager(notify, t, cloud.pushQuietly);
   const resetCredits = useResetCredits(manager.accounts, notify, t);
   const activeAccount = manager.accounts.find((account) => account.active) ?? null;
   const markRefreshAll = useCallback(() => {
@@ -71,6 +75,7 @@ function DashboardApp() {
     (accountId) => manager.refreshUsage(accountId, true, false),
   );
   const openLogin = useCallback(() => setShowLogin(true), []);
+  const openCloudLogin = useCallback(() => setShowCloudLogin(true), []);
   const switchAccount = useCallback((id: string) => {
     void manager.switchAccount(id);
   }, [manager.switchAccount]);
@@ -89,6 +94,18 @@ function DashboardApp() {
   const changeThemeColor = useCallback((color: string) => {
     void themeColor.setColor(color);
   }, [themeColor.setColor]);
+  const saveCloudBaseUrl = useCallback(async (baseUrl: string) => {
+    await cloud.saveBaseUrl(baseUrl);
+  }, [cloud.saveBaseUrl]);
+  const loginCloudAccount = useCallback(async (email: string, password: string) => {
+    const ok = await cloud.login(email, password);
+    if (ok) await manager.reload();
+    return ok;
+  }, [cloud.login, manager.reload]);
+  const syncCloud = useCallback(async () => {
+    const result = await cloud.sync();
+    if (result) await manager.reload();
+  }, [cloud.sync, manager.reload]);
   const changeFloatingBubble = useCallback((enabled: boolean) => {
     void floatingBubble.setEnabled(enabled);
   }, [floatingBubble.setEnabled]);
@@ -193,7 +210,33 @@ function DashboardApp() {
               <Settings size={19} />{t("nav.settings")}</button>
           </nav>
           <div className="menu-tools">
-            <div className="security-chip"><ShieldCheck size={16} /><span><b>{t("chip.title")}</b><small>{t("chip.description")}</small></span></div>
+            {cloud.state.enabled ? (
+              cloud.state.authenticated ? (
+                <div className="cloud-chip">
+                  <Cloud size={16} /><span><b>{cloud.state.userEmail ?? t("cloud.signedIn")}</b><small>{t("cloud.synced")}</small></span>
+                  <div className="cloud-chip-actions">
+                    <Tooltip title={t("cloud.sync")}>
+                      <button type="button" className="cloud-icon-button" aria-label={t("cloud.sync")}
+                        disabled={cloud.syncing} onClick={() => void syncCloud()}>
+                        <UploadCloud className={cloud.syncing ? "spin" : ""} size={16} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip title={t("cloud.logout")}>
+                      <button type="button" className="cloud-icon-button" aria-label={t("cloud.logout")}
+                        disabled={cloud.loading} onClick={() => void cloud.logout()}>
+                        <LogOut size={16} />
+                      </button>
+                    </Tooltip>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" className="cloud-login-chip" disabled={cloud.loading} onClick={openCloudLogin}>
+                  <LogIn size={16} /><span><b>{t("cloud.login")}</b><small>{t("cloud.loginDescription")}</small></span>
+                </button>
+              )
+            ) : (
+              <div className="security-chip"><ShieldCheck size={16} /><span><b>{t("chip.title")}</b><small>{t("chip.description")}</small></span></div>
+            )}
             <div className="help-actions">
               <button className="help-button" onClick={openHelp}><CircleHelp size={17} />{t("help.open")}</button>
               <Tooltip title={t("help.github")}>
@@ -240,6 +283,10 @@ function DashboardApp() {
               onAccountAutoRefreshSecondsChange={accountAutoRefresh.updateSeconds}
               themeColor={themeColor.color} themeColorLoading={themeColor.loading}
               onThemeColorChange={changeThemeColor}
+              cloudBaseUrl={cloud.state.baseUrl ?? ""}
+              cloudBaseUrlLoading={cloud.loading}
+              cloudAuthenticated={cloud.state.authenticated}
+              onCloudBaseUrlSave={saveCloudBaseUrl}
               floatingBubbleEnabled={floatingBubble.enabled}
               floatingBubbleLoading={floatingBubble.loading} onFloatingBubbleChange={changeFloatingBubble}
               onOpenCodexHome={openCodexHome} onOpenAccountStore={openAccountStore} language={language}
@@ -259,6 +306,8 @@ function DashboardApp() {
         </main>
 
         {showLogin && <LoginModal onClose={() => setShowLogin(false)} onStart={startLogin} onImport={importAuth} t={t} />}
+        {showCloudLogin && <CloudLoginModal loading={cloud.loading} onClose={() => setShowCloudLogin(false)}
+          onLogin={loginCloudAccount} t={t} />}
         {showHelp && <HelpModal onClose={() => setShowHelp(false)} version={manager.info?.version ?? "0.1.0"}
           versionState={helpVersionState} t={t} />}
         {availableUpdate && <UpdateModal update={availableUpdate} onClose={() => setAvailableUpdate(null)}

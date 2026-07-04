@@ -1,4 +1,5 @@
 mod auth;
+mod cloud;
 mod codex_api;
 mod commands;
 mod floating_bubble;
@@ -75,6 +76,12 @@ pub fn run() {
             floating_bubble::show_floating_bubble_menu,
             floating_bubble::show_dashboard_from_bubble,
             oauth::start_login,
+            cloud::get_cloud_auth_state,
+            cloud::set_cloud_base_url,
+            cloud::cloud_login,
+            cloud::cloud_logout,
+            cloud::cloud_push_accounts,
+            cloud::cloud_sync_accounts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Codex Switch");

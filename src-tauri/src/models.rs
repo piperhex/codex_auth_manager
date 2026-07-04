@@ -79,6 +79,14 @@ pub(crate) struct AppSettings {
     pub(crate) bubble_x: Option<f64>,
     #[serde(default)]
     pub(crate) bubble_y: Option<f64>,
+    #[serde(default)]
+    pub(crate) cloud_base_url: Option<String>,
+    #[serde(default)]
+    pub(crate) cloud_user_email: Option<String>,
+    #[serde(default)]
+    pub(crate) cloud_user_id: Option<String>,
+    #[serde(default)]
+    pub(crate) cloud_last_sync_at: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -91,4 +99,36 @@ pub(crate) struct LoginStatus {
 pub(crate) struct LoginStart {
     pub(crate) url: String,
     pub(crate) embedded: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CloudAuthState {
+    pub(crate) enabled: bool,
+    pub(crate) base_url: Option<String>,
+    pub(crate) authenticated: bool,
+    pub(crate) user_email: Option<String>,
+    pub(crate) user_id: Option<String>,
+    pub(crate) last_sync_at: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CloudSyncResult {
+    pub(crate) uploaded: usize,
+    pub(crate) downloaded: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CloudAccountPayload {
+    pub(crate) id: String,
+    pub(crate) email: String,
+    pub(crate) note: String,
+    pub(crate) expires_at: String,
+    pub(crate) plan: String,
+    pub(crate) account_id: Option<String>,
+    pub(crate) active: bool,
+    pub(crate) usage: UsageSummary,
+    pub(crate) auth: serde_json::Value,
 }
