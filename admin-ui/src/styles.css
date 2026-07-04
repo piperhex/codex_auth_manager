@@ -1,0 +1,222 @@
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #edf2f7;
+}
+
+.admin-shell {
+  min-height: 100vh;
+}
+
+.login-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background:
+    radial-gradient(circle at top left, rgba(10, 132, 255, 0.16), transparent 32%),
+    linear-gradient(135deg, #eef4f8 0%, #f8faf9 48%, #f1f5f9 100%);
+}
+
+.login-card {
+  width: min(440px, 100%);
+  border-radius: 8px;
+  box-shadow: 0 22px 58px rgba(15, 31, 46, 0.14);
+}
+
+.login-brand {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.login-brand h1 {
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: 0;
+}
+
+.login-brand span {
+  color: #627083;
+  font-size: 13px;
+}
+
+.app-header {
+  height: 58px;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(132, 145, 162, 0.18);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(14px);
+}
+
+.dark .app-header {
+  background: rgba(18, 25, 36, 0.82);
+}
+
+.brand-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.brand-mark {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #1769e0, #0b8f6f);
+  font-weight: 800;
+}
+
+.brand-copy {
+  display: grid;
+  line-height: 1.1;
+}
+
+.brand-copy strong {
+  font-size: 15px;
+}
+
+.brand-copy span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.content-wrap {
+  padding: 20px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.toolbar-left,
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.page-title {
+  margin: 0 0 14px;
+  font-size: 21px;
+  letter-spacing: 0;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.metric {
+  padding: 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(126, 144, 161, 0.2);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.dark .metric {
+  background: rgba(21, 30, 43, 0.8);
+}
+
+.metric span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.metric strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 24px;
+}
+
+.panel {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(126, 144, 161, 0.2);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.dark .panel {
+  background: rgba(17, 24, 39, 0.9);
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.table-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.token-box {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.token-box code {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.08);
+}
+
+@media (max-width: 860px) {
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .content-wrap {
+    padding: 14px;
+  }
+}
+
+@media (max-width: 620px) {
+  .brand-copy span {
+    display: none;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .app-header {
+    padding: 0 12px;
+  }
+}

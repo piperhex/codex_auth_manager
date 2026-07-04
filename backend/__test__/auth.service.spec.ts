@@ -4,6 +4,7 @@ import type { JwtService } from '@nestjs/jwt';
 import type { Repository } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthService } from '@/modules/auth/auth.service';
+import type { AdminService } from '@/modules/admin/admin.service';
 import type { RefreshTokenEntity } from '@/modules/auth/entities/refresh-token.entity';
 import type { UserService } from '@/modules/user/user.service';
 import { makeUser } from './fixtures';
@@ -19,6 +20,10 @@ describe('AuthService', () => {
     findActiveById: ReturnType<typeof vi.fn>;
   };
   let jwt: { signAsync: ReturnType<typeof vi.fn>; verifyAsync: ReturnType<typeof vi.fn> };
+  let admin: {
+    validateInvitation: ReturnType<typeof vi.fn>;
+    acceptInvitation: ReturnType<typeof vi.fn>;
+  };
   let tokens: {
     create: ReturnType<typeof vi.fn>;
     save: ReturnType<typeof vi.fn>;
@@ -34,6 +39,10 @@ describe('AuthService', () => {
       createUser: vi.fn(), findByEmailWithPassword: vi.fn(), validatePassword: vi.fn(),
       markLogin: vi.fn(), findActiveById: vi.fn(),
     };
+    admin = {
+      validateInvitation: vi.fn(),
+      acceptInvitation: vi.fn(),
+    };
     jwt = { signAsync: vi.fn(), verifyAsync: vi.fn() };
     tokens = {
       create: vi.fn((value) => ({ id: 'refresh-id', ...value })),
@@ -41,6 +50,7 @@ describe('AuthService', () => {
     };
     service = new AuthService(
       users as unknown as UserService,
+      admin as unknown as AdminService,
       jwt as unknown as JwtService,
       tokens as unknown as Repository<RefreshTokenEntity>,
       {
@@ -82,6 +92,23 @@ describe('AuthService', () => {
     }, { secret: 'refresh-secret', expiresIn: 120 });
     expect(tokens.save).toHaveBeenCalledWith(expect.objectContaining({ tokenHash: hash('refresh-token') }));
     expect(tokens.save.mock.calls[0][0].tokenHash).not.toBe('refresh-token');
+  });
+
+  it('registers with an invitation role and marks the invitation accepted', async () => {
+    const user = makeUser({ role: 'admin' });
+    admin.validateInvitation.mockResolvedValue({
+      id: 'invitation-1', email: user.email, role: 'admin',
+    });
+    users.createUser.mockResolvedValue(user);
+    prepareIssuance();
+
+    await service.register(user.email, 'password', 'invite-token');
+
+    expect(admin.validateInvitation).toHaveBeenCalledWith('invite-token', user.email);
+    expect(users.createUser).toHaveBeenCalledWith({
+      email: user.email, password: 'password', role: 'admin',
+    });
+    expect(admin.acceptInvitation).toHaveBeenCalledWith('invitation-1', user);
   });
 
   it.each([
@@ -174,6 +201,7 @@ describe('AuthService', () => {
     const user = makeUser();
     service = new AuthService(
       users as unknown as UserService,
+      admin as unknown as AdminService,
       jwt as unknown as JwtService,
       tokens as unknown as Repository<RefreshTokenEntity>,
       {},

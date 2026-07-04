@@ -39,11 +39,11 @@ button:focus-visible { outline: 3px solid rgba(45, 131, 87, .24); outline-offset
 .brand-logo { width: 40px; height: 40px; object-fit: contain; flex: 0 0 auto; filter: drop-shadow(0 6px 12px rgba(9, 24, 13, .24)); }
 .brand span { font-size: 15px; color: #aab8ae; }
 .brand b { color: white; font-weight: 700; }
-.top-tabs { height: 40px; display: inline-flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid rgba(var(--green-rgb), .22); border-radius: 10px; background: rgba(255,255,255,.05); }
+.top-tabs { height: 40px; margin-left: auto; display: inline-flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid rgba(var(--green-rgb), .22); border-radius: 10px; background: rgba(255,255,255,.05); }
 .top-tabs button { height: 30px; border: 0; display: inline-flex; gap: 8px; align-items: center; padding: 0 13px; border-radius: 7px; color: #b5c2ba; background: transparent; cursor: pointer; transition: .18s ease; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .top-tabs button:hover { color: white; background: rgba(255,255,255,.06); }
 .top-tabs button.selected { color: #17251d; background: var(--green-highlight); box-shadow: 0 7px 18px rgba(var(--green-rgb), .18); }
-.menu-tools { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.menu-tools { display: flex; align-items: center; gap: 10px; }
 .security-chip { display: flex; gap: 9px; align-items: flex-start; padding: 8px 10px; border: 1px solid rgba(var(--green-rgb), .22); border-radius: 10px; background: rgba(255,255,255,.04); color: var(--green-highlight); }
 .security-chip span { display: grid; gap: 3px; }
 .security-chip b { font-size: 12px; color: #e8f1e9; }

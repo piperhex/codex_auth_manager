@@ -6,7 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:admin": "vite --config admin-ui/vite.config.ts",
     "build": "tsc && vite build",
+    "build:admin": "vite build --config admin-ui/vite.config.ts",
+    "check:admin": "tsc --noEmit -p admin-ui/tsconfig.json && npm run build:admin",
     "check:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check && cargo test --manifest-path src-tauri/Cargo.toml",
     "check": "npm run build && npm run check:rust",
     "commitlint": "commitlint",

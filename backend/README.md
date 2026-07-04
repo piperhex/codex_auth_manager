@@ -9,7 +9,7 @@ NestJS backend for Codex Switch cloud login and account synchronization.
 - Redis for cached profiles and account lists
 - JWT dual token authentication
 - Access tokens compatible with your existing Kong JWT plugin
-- Built-in admin page at `/admin`
+- React + Ant Design admin console at `/admin`
 
 ## Local Run
 
@@ -21,6 +21,8 @@ NestJS backend for Codex Switch cloud login and account synchronization.
 The first registered account becomes an admin. For local development without Kong, configure the desktop app Settings cloud Base URL as `http://127.0.0.1:8080`.
 
 The default Docker Compose file does not publish PostgreSQL, Redis, or the backend on host ports. In production, Kong should reach the backend through the external `kong-net` network at `http://codex-switch-backend:8080`. For local host debugging, add a temporary compose override with explicit `ports`.
+
+If production uses `POSTGRES_DB_SYNCHRONIZE=false`, apply `sql/20260704-admin-management.sql` before using the expanded admin console.
 
 ## Existing Kong Integration
 
@@ -90,6 +92,23 @@ In production, configure the desktop app Settings cloud Base URL to the public K
 - `GET /auth/me`
 - `GET /sync/accounts`
 - `PUT /sync/accounts`
+- `PUT /sync/accounts/:id`
+- `DELETE /sync/accounts/:id`
 - `GET /admin`
+- `GET /admin/api/users`
+- `POST /admin/api/users`
+- `PATCH /admin/api/users/:id`
+- `DELETE /admin/api/users/:id`
+- `PATCH /admin/api/profile/password`
+- `GET /admin/api/users/:id/accounts`
+- `PATCH /admin/api/users/:id/accounts/:accountId`
+- `DELETE /admin/api/users/:id/accounts/:accountId`
+- `GET /admin/api/audit-logs`
+- `GET /admin/api/invitations`
+- `POST /admin/api/invitations`
+- `DELETE /admin/api/invitations/:id`
+- `GET /admin/api/approvals`
+- `POST /admin/api/approvals`
+- `POST /admin/api/approvals/:id/review`
 
 Kong JWT plugin validation uses the access token `iss` claim. Keep `KONG_JWT_KEY` and `KONG_JWT_SECRET` aligned with the JWT credential in your existing Kong.

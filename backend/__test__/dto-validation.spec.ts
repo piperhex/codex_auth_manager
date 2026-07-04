@@ -2,6 +2,12 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
 import { CreateAdminUserDto, UpdateAdminUserDto } from '@/modules/admin/dto/admin-user.dto';
+import {
+  CreateApprovalRequestDto,
+  CreateInvitationDto,
+  ReviewApprovalRequestDto,
+  UpdateAdminSyncedAccountDto,
+} from '@/modules/admin/dto/admin-management.dto';
 import { LoginDto } from '@/modules/auth/dto/login.dto';
 import { RefreshDto } from '@/modules/auth/dto/refresh.dto';
 import { RegisterDto } from '@/modules/auth/dto/register.dto';
@@ -38,7 +44,37 @@ describe('request DTO validation', () => {
         'disabled must be a boolean value',
         'role must be one of the following values: user, admin',
       ]));
+    await expect(messages(UpdateAdminUserDto, { email: 'bad', password: 'short' }))
+      .resolves.toEqual(expect.arrayContaining([
+        'email must be an email',
+        'password must be longer than or equal to 8 characters',
+      ]));
     await expect(messages(UpdateAdminUserDto, {})).resolves.toEqual([]);
+  });
+
+  it('validates management invitations, approvals and admin account edits', async () => {
+    await expect(messages(CreateInvitationDto, {
+      email: 'bad', role: 'owner', expiresInHours: 0,
+    })).resolves.toEqual(expect.arrayContaining([
+      'email must be an email',
+      'role must be one of the following values: user, admin',
+      'expiresInHours must not be less than 1',
+    ]));
+    await expect(messages(CreateApprovalRequestDto, {
+      type: 'delete_everything', targetUserId: 123,
+    })).resolves.toEqual(expect.arrayContaining([
+      'type must be one of the following values: promote_user_to_admin',
+      'targetUserId must be a string',
+    ]));
+    await expect(messages(ReviewApprovalRequestDto, { decision: 'maybe' }))
+      .resolves.toContain('decision must be one of the following values: approved, rejected');
+    await expect(messages(UpdateAdminSyncedAccountDto, {
+      email: 'x'.repeat(241), active: 'yes', usage: 'none',
+    })).resolves.toEqual(expect.arrayContaining([
+      'email must be shorter than or equal to 240 characters',
+      'active must be a boolean value',
+      'usage must be an object',
+    ]));
   });
 
   it('validates nested sync accounts and accepts a complete valid payload', async () => {

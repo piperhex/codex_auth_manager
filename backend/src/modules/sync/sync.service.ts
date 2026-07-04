@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import Redis from 'ioredis';
 import { DataSource, Repository } from 'typeorm';
@@ -83,6 +83,29 @@ export class SyncService {
     await this.accounts.delete({ ownerId, accountId });
     await this.redis.del(this.cacheKey(ownerId));
     return { id: accountId };
+  }
+
+  async updateForAdmin(
+    ownerId: string,
+    accountId: string,
+    patch: Partial<SyncAccountDto>,
+  ) {
+    const account = await this.accounts.findOne({ where: { ownerId, accountId } });
+    if (!account) throw new NotFoundException('Synced account not found');
+    if (patch.active === true) {
+      await this.accounts.update({ ownerId }, { active: false });
+    }
+    if (patch.email !== undefined) account.email = patch.email;
+    if (patch.note !== undefined) account.note = patch.note ?? '';
+    if (patch.expiresAt !== undefined) account.expiresAt = patch.expiresAt ?? '';
+    if (patch.plan !== undefined) account.plan = patch.plan;
+    if (patch.accountId !== undefined) account.codexAccountId = patch.accountId ?? null;
+    if (patch.active !== undefined) account.active = patch.active;
+    if (patch.usage !== undefined) account.usage = patch.usage ?? {};
+    if (patch.auth !== undefined) account.auth = patch.auth;
+    const saved = await this.accounts.save(account);
+    await this.redis.del(this.cacheKey(ownerId));
+    return this.toDto(saved);
   }
 
   private toDto(row: SyncedAccountEntity): SyncAccountDto {

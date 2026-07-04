@@ -1,11 +1,11 @@
 import type { Response } from 'express';
 import { describe, expect, it, vi } from 'vitest';
 import { AdminController } from '@/modules/admin/admin.controller';
+import type { AdminService } from '@/modules/admin/admin.service';
 import { AuthController } from '@/modules/auth/auth.controller';
 import { SyncController } from '@/modules/sync/sync.controller';
 import type { AuthService } from '@/modules/auth/auth.service';
 import type { SyncService } from '@/modules/sync/sync.service';
-import type { UserService } from '@/modules/user/user.service';
 import type { AuthUser } from '@/common/decorators/user.decorator';
 import { makeAccount } from './fixtures';
 
@@ -29,7 +29,7 @@ describe('HTTP controllers', () => {
     const user: AuthUser = { id: 'user-1', email: 'a@example.com', role: 'user' };
     await expect(controller.me(user)).resolves.toBe('profile');
 
-    expect(auth.register).toHaveBeenCalledWith('a@example.com', 'password');
+    expect(auth.register).toHaveBeenCalledWith('a@example.com', 'password', undefined);
     expect(auth.login).toHaveBeenCalledWith('a@example.com', 'secret');
     expect(auth.refresh).toHaveBeenCalledWith('refresh');
     expect(auth.logout).toHaveBeenCalledWith('refresh');
@@ -57,22 +57,55 @@ describe('HTTP controllers', () => {
   });
 
   it('AdminController serves the page and delegates protected user management', async () => {
-    const users = {
+    const admin = {
       listUsers: vi.fn().mockResolvedValue('users'), createUser: vi.fn().mockResolvedValue('created'),
-      updateUser: vi.fn().mockResolvedValue('updated'),
+      updateUser: vi.fn().mockResolvedValue('updated'), deleteUser: vi.fn().mockResolvedValue('deleted'),
+      changePassword: vi.fn().mockResolvedValue({ ok: true }),
+      listUserAccounts: vi.fn().mockResolvedValue('accounts'),
+      updateUserAccount: vi.fn().mockResolvedValue('account-updated'),
+      deleteUserAccount: vi.fn().mockResolvedValue('account-deleted'),
+      listAuditLogs: vi.fn().mockResolvedValue('logs'),
+      listInvitations: vi.fn().mockResolvedValue('invitations'),
+      createInvitation: vi.fn().mockResolvedValue('invitation'),
+      revokeInvitation: vi.fn().mockResolvedValue('revoked'),
+      listApprovalRequests: vi.fn().mockResolvedValue('approvals'),
+      createApprovalRequest: vi.fn().mockResolvedValue('approval'),
+      reviewApprovalRequest: vi.fn().mockResolvedValue('reviewed'),
     };
-    const controller = new AdminController(users as unknown as UserService);
+    const controller = new AdminController(admin as unknown as AdminService);
     const response = { sendFile: vi.fn().mockReturnValue('sent') };
+    const actor: AuthUser = { id: 'admin-1', email: 'admin@example.com', role: 'admin' };
 
     expect(controller.page(response as unknown as Response)).toBe('sent');
     expect(response.sendFile).toHaveBeenCalledWith(expect.stringMatching(/[\\/]public[\\/]admin\.html$/));
-    await expect(controller.listUsers()).resolves.toBe('users');
-    await expect(controller.createUser({ email: 'admin@example.com', password: 'password', role: 'admin' }))
+    await expect(controller.listUsers({ page: 1 })).resolves.toBe('users');
+    await expect(controller.createUser(actor, { email: 'new@example.com', password: 'password', role: 'admin' }))
       .resolves.toBe('created');
-    await expect(controller.updateUser('user-1', { disabled: true })).resolves.toBe('updated');
-    expect(users.createUser).toHaveBeenCalledWith({
-      email: 'admin@example.com', password: 'password', role: 'admin',
+    await expect(controller.updateUser(actor, 'user-1', { disabled: true })).resolves.toBe('updated');
+    await expect(controller.deleteUser(actor, 'user-1')).resolves.toBe('deleted');
+    await expect(controller.changePassword(actor, {
+      currentPassword: 'old-pass', newPassword: 'new-password',
+    })).resolves.toEqual({ ok: true });
+    await expect(controller.listUserAccounts('user-1')).resolves.toBe('accounts');
+    await expect(controller.updateUserAccount(actor, 'user-1', 'account-1', { active: false }))
+      .resolves.toBe('account-updated');
+    await expect(controller.deleteUserAccount(actor, 'user-1', 'account-1'))
+      .resolves.toBe('account-deleted');
+    await expect(controller.listAuditLogs({ page: 1 })).resolves.toBe('logs');
+    await expect(controller.listInvitations({ page: 1 })).resolves.toBe('invitations');
+    await expect(controller.createInvitation(actor, { email: 'invite@example.com' }))
+      .resolves.toBe('invitation');
+    await expect(controller.revokeInvitation(actor, 'invitation-1')).resolves.toBe('revoked');
+    await expect(controller.listApprovalRequests({ page: 1 })).resolves.toBe('approvals');
+    await expect(controller.createApprovalRequest(actor, {
+      type: 'promote_user_to_admin', targetUserId: 'user-1',
+    })).resolves.toBe('approval');
+    await expect(controller.reviewApprovalRequest(actor, 'approval-1', { decision: 'approved' }))
+      .resolves.toBe('reviewed');
+
+    expect(admin.createUser).toHaveBeenCalledWith(actor, {
+      email: 'new@example.com', password: 'password', role: 'admin',
     });
-    expect(users.updateUser).toHaveBeenCalledWith('user-1', { disabled: true });
+    expect(admin.updateUser).toHaveBeenCalledWith(actor, 'user-1', { disabled: true });
   });
 });

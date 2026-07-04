@@ -7,7 +7,10 @@ import type { SyncedAccountEntity } from '@/modules/sync/entities/synced-account
 import { makeAccount } from './fixtures';
 
 describe('SyncService', () => {
-  let accounts: { find: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
+  let accounts: {
+    find: ReturnType<typeof vi.fn>; findOne: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>;
+    save: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn>;
+  };
   let transactionRepository: {
     delete: ReturnType<typeof vi.fn>; save: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; findOne: ReturnType<typeof vi.fn>;
@@ -17,7 +20,10 @@ describe('SyncService', () => {
   let service: SyncService;
 
   beforeEach(() => {
-    accounts = { find: vi.fn(), delete: vi.fn() };
+    accounts = {
+      find: vi.fn(), findOne: vi.fn(), update: vi.fn(),
+      save: vi.fn(async (value) => value), delete: vi.fn(),
+    };
     transactionRepository = {
       delete: vi.fn(), save: vi.fn(), create: vi.fn((value) => value),
       update: vi.fn(), findOne: vi.fn(),
@@ -127,6 +133,40 @@ describe('SyncService', () => {
   it('deletes only the owner-scoped account and invalidates that owner cache', async () => {
     await expect(service.delete('owner-1', 'account-1')).resolves.toEqual({ id: 'account-1' });
     expect(accounts.delete).toHaveBeenCalledWith({ ownerId: 'owner-1', accountId: 'account-1' });
+    expect(redis.del).toHaveBeenCalledWith('sync:accounts:owner-1');
+  });
+
+  it('updates owner-scoped accounts for admin management and deactivates siblings when needed', async () => {
+    accounts.findOne.mockResolvedValue({
+      ownerId: 'owner-1',
+      accountId: 'account-1',
+      email: 'old@example.com',
+      note: '',
+      expiresAt: '',
+      plan: 'Plus',
+      codexAccountId: null,
+      active: false,
+      usage: {},
+      auth: { token: 'old' },
+    });
+
+    await expect(service.updateForAdmin('owner-1', 'account-1', {
+      email: 'new@example.com',
+      active: true,
+      note: 'updated',
+    })).resolves.toMatchObject({
+      id: 'account-1',
+      email: 'new@example.com',
+      active: true,
+      note: 'updated',
+    });
+
+    expect(accounts.findOne).toHaveBeenCalledWith({ where: { ownerId: 'owner-1', accountId: 'account-1' } });
+    expect(accounts.update).toHaveBeenCalledWith({ ownerId: 'owner-1' }, { active: false });
+    expect(accounts.save).toHaveBeenCalledWith(expect.objectContaining({
+      email: 'new@example.com',
+      active: true,
+    }));
     expect(redis.del).toHaveBeenCalledWith('sync:accounts:owner-1');
   });
 });

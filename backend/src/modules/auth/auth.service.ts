@@ -6,6 +6,7 @@ import { IsNull, Repository } from 'typeorm';
 import { MODULE_OPTIONS_TOKEN } from '@/config/configurable';
 import { getKongJwtSecret, getRefreshSecret } from '@/config/auth-secrets';
 import type { ConfigModuleOptions } from '@/config/config.types';
+import { AdminService } from '@/modules/admin/admin.service';
 import { UserService } from '@/modules/user/user.service';
 import { UserEntity } from '@/modules/user/entities/user.entity';
 import { RefreshTokenEntity } from './entities/refresh-token.entity';
@@ -20,6 +21,7 @@ interface RefreshPayload {
 export class AuthService {
   constructor(
     private readonly users: UserService,
+    private readonly admin: AdminService,
     private readonly jwt: JwtService,
     @InjectRepository(RefreshTokenEntity)
     private readonly refreshTokens: Repository<RefreshTokenEntity>,
@@ -27,8 +29,14 @@ export class AuthService {
     private readonly config: ConfigModuleOptions,
   ) {}
 
-  async register(email: string, password: string) {
-    const user = await this.users.createUser({ email, password });
+  async register(email: string, password: string, inviteToken?: string) {
+    const invitation = inviteToken
+      ? await this.admin.validateInvitation(inviteToken, email)
+      : undefined;
+    const user = await this.users.createUser(
+      invitation ? { email, password, role: invitation.role } : { email, password },
+    );
+    if (invitation) await this.admin.acceptInvitation(invitation.id, user);
     return this.issueTokens(user);
   }
 

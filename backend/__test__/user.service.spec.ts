@@ -14,6 +14,8 @@ describe('UserService', () => {
     findOne: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     find: ReturnType<typeof vi.fn>;
+    findAndCount: ReturnType<typeof vi.fn>;
+    delete: ReturnType<typeof vi.fn>;
   };
   let service: UserService;
 
@@ -21,6 +23,7 @@ describe('UserService', () => {
     repository = {
       exists: vi.fn(), count: vi.fn(), create: vi.fn((value) => value),
       save: vi.fn(async (value) => value), findOne: vi.fn(), update: vi.fn(), find: vi.fn(),
+      findAndCount: vi.fn(), delete: vi.fn(),
     };
     service = new UserService(repository as unknown as Repository<UserEntity>);
   });
@@ -80,12 +83,32 @@ describe('UserService', () => {
     expect(repository.find).toHaveBeenCalledWith({ order: { createdAt: 'DESC' } });
   });
 
+  it('lists users with pagination, search and filters', async () => {
+    repository.findAndCount.mockResolvedValue([[makeUser()], 1]);
+    await expect(service.listUsers({
+      search: 'EXAMPLE', role: 'admin', status: 'active', page: 2, pageSize: 10,
+    })).resolves.toMatchObject({ total: 1, page: 2, pageSize: 10 });
+    expect(repository.findAndCount).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        role: 'admin',
+        disabled: false,
+        email: expect.any(Object),
+      }),
+      skip: 10,
+      take: 10,
+      order: { createdAt: 'DESC' },
+    }));
+  });
+
   it('updates only supplied mutable fields', async () => {
     const user = makeUser();
     repository.findOne.mockResolvedValue(user);
-    await expect(service.updateUser(user.id, { disabled: true, role: 'admin' }))
-      .resolves.toMatchObject({ disabled: true, role: 'admin' });
+    repository.exists.mockResolvedValue(false);
+    await expect(service.updateUser(user.id, {
+      disabled: true, role: 'admin', email: ' Changed@Example.COM ', password: 'new-password',
+    })).resolves.toMatchObject({ disabled: true, role: 'admin', email: 'changed@example.com' });
     expect(repository.save).toHaveBeenCalledWith(user);
+    await expect(service.validatePassword(user, 'new-password')).resolves.toBe(true);
 
     const unchanged = makeUser({ id: 'user-2' });
     repository.findOne.mockResolvedValue(unchanged);
@@ -97,5 +120,33 @@ describe('UserService', () => {
     repository.findOne.mockResolvedValue(null);
     await expect(service.updateUser('missing', { disabled: true }))
       .rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('rejects duplicate emails when updating a user', async () => {
+    repository.findOne.mockResolvedValue(makeUser());
+    repository.exists.mockResolvedValue(true);
+    await expect(service.updateUser('user-1', { email: 'taken@example.com' }))
+      .rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('changes a password only when the current password is valid', async () => {
+    const user = makeUser({ passwordHash: await import('bcryptjs').then((bcrypt) => bcrypt.hash('old-pass', 12)) });
+    repository.findOne.mockResolvedValue(user);
+    await expect(service.changePassword(user.id, 'old-pass', 'new-password')).resolves.toEqual({ ok: true });
+    await expect(service.validatePassword(user, 'new-password')).resolves.toBe(true);
+
+    repository.findOne.mockResolvedValue(user);
+    await expect(service.changePassword(user.id, 'wrong-pass', 'newer-password'))
+      .rejects.toThrow('Current password is invalid');
+  });
+
+  it('deletes users but preserves the last active administrator', async () => {
+    repository.findOne.mockResolvedValue(makeUser({ id: 'admin-1', role: 'admin' }));
+    repository.count.mockResolvedValue(1);
+    await expect(service.deleteUser('admin-1')).rejects.toThrow('At least one active admin must remain');
+
+    repository.findOne.mockResolvedValue(makeUser({ id: 'user-1', email: 'u@example.com' }));
+    await expect(service.deleteUser('user-1')).resolves.toEqual({ id: 'user-1', email: 'u@example.com' });
+    expect(repository.delete).toHaveBeenCalledWith({ id: 'user-1' });
   });
 });
