@@ -29,6 +29,7 @@ Codex Switch is a local-first Tauri 2 desktop application for signing in to, sto
 - Frontend: React 18, TypeScript, Vite, and Ant Design
 - Desktop runtime: Tauri 2
 - Backend: Rust, Reqwest, and Serde
+- Monorepo: npm workspaces, Lerna, and Nx
 
 ## Getting Started
 
@@ -52,6 +53,13 @@ Start the browser-only preview with demo data and no access to real credentials:
 
 ```powershell
 npm run dev
+```
+
+Start the admin console or cloud backend:
+
+```powershell
+npm run dev:admin
+npm run dev:backend
 ```
 
 Build the desktop installer:
@@ -81,7 +89,7 @@ npm run release
 npm run release-beta
 ```
 
-`npm run release` reads `package.json`, bumps the patch version by 1, updates `package.json`, `package-lock.json`, and `src-tauri/tauri.conf.json`, commits the version bump, creates an annotated tag such as `v0.1.1`, then pushes both the branch and tag to `origin`. `npm run release-beta` creates a prerelease tag such as `v0.1.1-beta.0`, or increments the beta number if the current version is already beta, and also pushes automatically.
+`npm run release` reads `package.json`, bumps the patch version by 1, updates `package.json`, `package-lock.json`, `apps/desktop/package.json`, and `apps/desktop/src-tauri/tauri.conf.json`, commits the version bump, creates an annotated tag such as `v0.1.1`, then pushes both the branch and tag to `origin`. `npm run release-beta` creates a prerelease tag such as `v0.1.1-beta.0`, or increments the beta number if the current version is already beta, and also pushes automatically.
 
 You can pass an exact version or tag with `npm run release -- v0.2.0` or `npm run release-beta -- v0.2.0-beta.1`. Explicit versions are also synced into the version files before the tag is created.
 
@@ -103,13 +111,14 @@ The application honors the `CODEX_HOME` environment variable and falls back to `
 ## Project Structure
 
 ```text
-src/                 React frontend
+apps/desktop/        Tauri desktop application workspace
+  src/               React frontend
   api/               Tauri command and browser-preview adapter
   components/        Reusable presentation components
   hooks/             Account, notification, and auto-refresh state
   pages/             Page-level composition
   utils/             Side-effect-free formatting helpers
-src-tauri/src/       Rust backend
+  src-tauri/src/     Rust backend
   auth.rs            Credential validation and account identity parsing
   codex_api.rs       Token refresh and Codex HTTP API access
   commands.rs        Tauri command boundary and use-case orchestration
@@ -118,6 +127,8 @@ src-tauri/src/       Rust backend
   storage.rs         Paths, atomic writes, and the account store
   system_tray.rs     Tray menu, account quick switching, and restart action
   models.rs          Frontend/backend transfer models
+apps/admin-ui/       React admin console workspace
+apps/backend/        NestJS cloud backend workspace
 docs/                Architecture and development documentation
 ```
 

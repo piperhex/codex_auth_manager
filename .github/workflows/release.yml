@@ -117,7 +117,7 @@ jobs:
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: "./src-tauri -> target"
+          workspaces: "./apps/desktop/src-tauri -> target"
 
       - name: Install frontend dependencies
         run: npm ci
@@ -130,6 +130,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          projectPath: apps/desktop
           releaseId: ${{ needs.create-release.outputs.release_id }}
           tagName: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
           args: ${{ matrix.args }}

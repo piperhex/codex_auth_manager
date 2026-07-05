@@ -22,13 +22,13 @@ The frontend only receives redacted models such as `AccountSummary`, `UsageSumma
 
 ## Frontend Responsibilities
 
-- `src/api/backend.ts` is the only entry point for Tauri IPC and file selection. It also provides browser-preview behavior.
-- `src/hooks/useAccountManager.ts` orchestrates loading, login, import, switching, deletion, and usage refreshes.
-- `src/hooks/useAutoRefresh.ts` persists the global refresh timer plus the current-account timer and owns their lifecycles.
-- `src/hooks/useFloatingBubble.ts`, `src/hooks/useThemeColor.ts`, and `src/hooks/useLanguage.ts` manage local UI preferences.
-- `src/pages/` composes page-level layouts and does not call the backend directly.
-- `src/components/` contains presentation and local interactions. The account table loads reset credits through the API adapter, and `FloatingUsageBubble.tsx` renders the standalone usage bubble window.
-- `src/utils/` contains pure formatting helpers for dates, quotas, and display text.
+- `apps/desktop/src/api/backend.ts` is the only entry point for Tauri IPC and file selection. It also provides browser-preview behavior.
+- `apps/desktop/src/hooks/useAccountManager.ts` orchestrates loading, login, import, switching, deletion, and usage refreshes.
+- `apps/desktop/src/hooks/useAutoRefresh.ts` persists the global refresh timer plus the current-account timer and owns their lifecycles.
+- `apps/desktop/src/hooks/useFloatingBubble.ts`, `apps/desktop/src/hooks/useThemeColor.ts`, and `apps/desktop/src/hooks/useLanguage.ts` manage local UI preferences.
+- `apps/desktop/src/pages/` composes page-level layouts and does not call the backend directly.
+- `apps/desktop/src/components/` contains presentation and local interactions. The account table loads reset credits through the API adapter, and `FloatingUsageBubble.tsx` renders the standalone usage bubble window.
+- `apps/desktop/src/utils/` contains pure formatting helpers for dates, quotas, and display text.
 
 ## Backend Responsibilities
 

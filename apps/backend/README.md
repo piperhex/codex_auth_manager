@@ -15,8 +15,8 @@ NestJS backend for Codex Switch cloud login and account synchronization.
 
 1. Copy `.env.example` to `.env`.
 2. Start local dependencies with `docker compose up postgres redis`.
-3. Run `npm install`.
-4. Run `npm run dev`.
+3. From the repository root, run `npm install`.
+4. From the repository root, run `npm run dev:backend`.
 
 The first registered account becomes an admin. For local development without Kong, configure the desktop app Settings cloud Base URL as `http://127.0.0.1:8080`.
 

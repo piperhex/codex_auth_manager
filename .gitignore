@@ -1,7 +1,9 @@
 node_modules/
+.nx/
 dist/
-backend/coverage/
-src-tauri/target/
+apps/*/dist/
+apps/backend/coverage/
+apps/desktop/src-tauri/target/
 .DS_Store
 *.log
 auth.json

@@ -9,6 +9,7 @@
     "dev": "nest start --watch -r tsconfig-paths/register",
     "start:prod": "node dist/main",
     "lint": "eslint \"src/**/*.ts\" --fix",
+    "check": "npm run test:typecheck && npm run test",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

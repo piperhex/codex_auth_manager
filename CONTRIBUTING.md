@@ -12,7 +12,7 @@ Thank you for improving Codex Switch. Because the project handles login credenti
 
 ## Code Guidelines
 
-- Frontend pages and components must not call `invoke` directly. Keep all IPC in `src/api/backend.ts`.
+- Frontend pages and components must not call `invoke` directly. Keep all IPC in `apps/desktop/src/api/backend.ts`.
 - Put business state in hooks, presentation logic in components, and pure formatting helpers in `utils`.
 - Tauri commands should only define the input boundary and orchestrate use cases. Authentication, storage, and HTTP logic belong in their respective Rust modules.
 - IPC models must expose only the fields required by the UI. Never add tokens or complete backend responses.

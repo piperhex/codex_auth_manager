@@ -9,7 +9,10 @@ const requested = userArgs[0];
 const cwd = process.cwd();
 const packageJsonPath = join(cwd, "package.json");
 const packageLockPath = join(cwd, "package-lock.json");
-const tauriConfigPath = join(cwd, "src-tauri", "tauri.conf.json");
+const desktopPackageRelativePath = "apps/desktop/package.json";
+const tauriConfigRelativePath = "apps/desktop/src-tauri/tauri.conf.json";
+const desktopPackageJsonPath = join(cwd, ...desktopPackageRelativePath.split("/"));
+const tauriConfigPath = join(cwd, ...tauriConfigRelativePath.split("/"));
 const packageJson = readJson(packageJsonPath);
 const currentVersion = parseVersion(packageJson.version, "package.json version");
 const branch = gitOutput(["branch", "--show-current"]);
@@ -43,7 +46,8 @@ syncVersionFiles(nextVersion);
 
 const versionFiles = ["package.json"];
 if (existsSync(packageLockPath)) versionFiles.push("package-lock.json");
-if (existsSync(tauriConfigPath)) versionFiles.push("src-tauri/tauri.conf.json");
+if (existsSync(desktopPackageJsonPath)) versionFiles.push(desktopPackageRelativePath);
+if (existsSync(tauriConfigPath)) versionFiles.push(tauriConfigRelativePath);
 
 if (gitOutput(["status", "--porcelain", "--", ...versionFiles])) {
   run("git", ["add", ...versionFiles]);
@@ -121,11 +125,20 @@ function syncVersionFiles(version) {
   packageJson.version = versionText;
   writeJson(packageJsonPath, packageJson);
 
+  if (existsSync(desktopPackageJsonPath)) {
+    const desktopPackageJson = readJson(desktopPackageJsonPath);
+    desktopPackageJson.version = versionText;
+    writeJson(desktopPackageJsonPath, desktopPackageJson);
+  }
+
   if (existsSync(packageLockPath)) {
     const lock = readJson(packageLockPath);
     lock.version = versionText;
     if (lock.packages?.[""]) {
       lock.packages[""].version = versionText;
+    }
+    if (lock.packages?.[desktopPackageRelativePath]) {
+      lock.packages[desktopPackageRelativePath].version = versionText;
     }
     writeJson(packageLockPath, lock);
   }
