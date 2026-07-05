@@ -16,7 +16,9 @@ services:
       - backend-internal
 
   backend:
-    build: .
+    build:
+      context: ../..
+      dockerfile: apps/admin/Dockerfile
     env_file:
       - .env
     environment:
