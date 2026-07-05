@@ -8,7 +8,7 @@ use tauri::{Emitter, Manager, Runtime};
 
 use crate::{
     auth::{account_fields, should_replace_auth_by_refresh_time, validate_auth},
-    models::{AppSettings, CloudAccountPayload, CloudAuthState, CloudSyncResult, ManagerStateFile},
+    models::{AppSettings, CloudAccountPayload, CloudAuthState, CloudSyncResult},
     storage::{
         expiration_path, load_expiration, load_note, load_usage, managed_auth_path, note_path,
         read_app_settings, read_json, read_state, resolve_paths, save_expiration, save_note,
@@ -287,12 +287,13 @@ fn apply_remote_account<R: Runtime>(
         write_json_if_changed(&paths.current_auth, &account_auth)?;
     } else if account.active && active_account_id.is_none() {
         write_json_if_changed(&paths.current_auth, &account_auth)?;
-        write_state(
-            &paths,
-            &ManagerStateFile {
-                active_account_id: Some(account.id.clone()),
-            },
-        )?;
+        let mut state = read_state(&paths);
+        if state.active_provider_id.is_some() {
+            crate::providers::restore_official_config(&paths)?;
+        }
+        state.active_account_id = Some(account.id.clone());
+        state.active_provider_id = None;
+        write_state(&paths, &state)?;
     }
     Ok(())
 }

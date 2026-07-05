@@ -22,7 +22,7 @@ use crate::{
         parse_reset_credits, parse_usage, refresh_tokens, reset_credits_request, token_expiring,
         usage_request,
     },
-    models::{AccountSummary, AppInfo, ManagerStateFile, ResetCreditsSummary, UsageSummary},
+    models::{AccountSummary, AppInfo, ResetCreditsSummary, UsageSummary},
     storage::{
         account_dir, expiration_path, import_value, load_expiration, load_note, load_usage,
         managed_auth_path, note_path, read_json, read_state, resolve_paths, save_expiration,
@@ -48,7 +48,9 @@ pub(crate) fn get_app_info<R: Runtime>(app: tauri::AppHandle<R>) -> Result<AppIn
     Ok(AppInfo {
         codex_home: paths.codex_home.display().to_string(),
         auth_path: paths.current_auth.display().to_string(),
+        config_path: paths.current_config.display().to_string(),
         account_store: paths.accounts.display().to_string(),
+        provider_store: paths.providers.display().to_string(),
         version: app.package_info().version.to_string(),
     })
 }
@@ -131,14 +133,17 @@ pub(crate) fn switch_account<R: Runtime>(
     let paths = resolve_paths(&app)?;
     let selected = read_json(&managed_auth_path(&paths, &id))?;
     validate_auth(&selected)?;
+    let mut state = read_state(&paths);
+    if state.active_provider_id.is_some() {
+        crate::providers::restore_official_config(&paths)?;
+        state.active_provider_id = None;
+    }
     write_json_atomic(&paths.current_auth, &selected)?;
-    write_state(
-        &paths,
-        &ManagerStateFile {
-            active_account_id: Some(id),
-        },
-    )?;
+    state.active_account_id = Some(id);
+    write_state(&paths, &state)?;
     app.emit("accounts-changed", ())
+        .map_err(|error| error.to_string())?;
+    app.emit("providers-changed", ())
         .map_err(|error| error.to_string())?;
     crate::system_tray::refresh_menu(&app);
     Ok(())

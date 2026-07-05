@@ -12,6 +12,8 @@ import type {
   CloudSyncResult,
   LoginStart,
   LoginStatus,
+  Provider,
+  ProviderInput,
   ResetCreditsSummary,
   UpdateInfo,
 } from "../types";
@@ -22,8 +24,10 @@ const FLOATING_BUBBLE_PREVIEW_KEY = "codex-switch:floating-bubble";
 const THEME_COLOR_PREVIEW_KEY = "codex-switch:theme-color";
 const CLOUD_BASE_URL_PREVIEW_KEY = "codex-switch:cloud-base-url";
 const CLOUD_USER_PREVIEW_KEY = "codex-switch:cloud-user-email";
+const PROVIDERS_PREVIEW_KEY = "codex-switch:providers";
 const THEME_COLOR_EVENT = "codex-switch:theme-color-changed";
 const LANGUAGE_EVENT = "codex-switch:language-changed";
+const PROVIDERS_EVENT = "codex-switch:providers-changed";
 let updateCheckPromise: Promise<UpdateInfo | null> | null = null;
 
 function previewCloudState(): CloudAuthState {
@@ -37,6 +41,33 @@ function previewCloudState(): CloudAuthState {
     userId: userEmail ? "preview" : null,
     lastSyncAt: null,
   };
+}
+
+function readPreviewProviders(): Provider[] {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(PROVIDERS_PREVIEW_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((provider): provider is Provider => Boolean(
+      provider
+      && typeof provider === "object"
+      && "id" in provider
+      && "name" in provider
+      && "baseUrl" in provider
+      && "model" in provider,
+    ));
+  } catch {
+    return [];
+  }
+}
+
+function writePreviewProviders(providers: Provider[]) {
+  window.localStorage.setItem(PROVIDERS_PREVIEW_KEY, JSON.stringify(providers));
+  window.dispatchEvent(new CustomEvent(PROVIDERS_EVENT));
+}
+
+function previewProviderId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `provider-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export async function loadDashboard(): Promise<{ accounts: Account[]; info: AppInfo }> {
@@ -59,6 +90,64 @@ export async function loadAppSettings(): Promise<AppSettings> {
     };
   }
   return invoke<AppSettings>("get_app_settings");
+}
+
+export async function loadProviders(): Promise<Provider[]> {
+  if (!isDesktopApp) return readPreviewProviders();
+  return invoke<Provider[]>("list_providers");
+}
+
+export async function saveProviderProfile(provider: ProviderInput): Promise<Provider> {
+  if (!isDesktopApp) {
+    const providers = readPreviewProviders();
+    const index = provider.id ? providers.findIndex((item) => item.id === provider.id) : -1;
+    const existing = index >= 0 ? providers[index] : null;
+    const hasApiKey = Boolean(provider.apiKey?.trim() || existing?.hasApiKey);
+    if (!hasApiKey) throw new Error("API key is required for a new provider");
+    const next: Provider = {
+      id: existing?.id ?? provider.id ?? previewProviderId(),
+      name: provider.name.trim(),
+      baseUrl: provider.baseUrl.trim().replace(/\/+$/, ""),
+      model: provider.model.trim(),
+      apiFormat: provider.apiFormat,
+      active: existing?.active ?? false,
+      hasApiKey,
+      supportsDirectSwitch: provider.apiFormat === "openaiResponses",
+    };
+    if (index >= 0) providers[index] = next;
+    else providers.push(next);
+    writePreviewProviders(providers);
+    return next;
+  }
+  return invoke<Provider>("save_provider", { provider });
+}
+
+export async function activateProvider(id: string): Promise<void> {
+  if (!isDesktopApp) {
+    const providers = readPreviewProviders();
+    const selected = providers.find((provider) => provider.id === id);
+    if (!selected) throw new Error("Provider does not exist");
+    if (!selected.supportsDirectSwitch) throw new Error("Chat Completions providers need a local Responses bridge");
+    writePreviewProviders(providers.map((provider) => ({ ...provider, active: provider.id === id })));
+    return;
+  }
+  await invoke("switch_provider", { id });
+}
+
+export async function deactivateProvider(): Promise<void> {
+  if (!isDesktopApp) {
+    writePreviewProviders(readPreviewProviders().map((provider) => ({ ...provider, active: false })));
+    return;
+  }
+  await invoke("disable_provider");
+}
+
+export async function removeProvider(id: string): Promise<void> {
+  if (!isDesktopApp) {
+    writePreviewProviders(readPreviewProviders().filter((provider) => provider.id !== id));
+    return;
+  }
+  await invoke("delete_provider", { id });
 }
 
 export async function updateFloatingBubble(enabled: boolean): Promise<AppSettings> {
@@ -284,6 +373,15 @@ export function subscribeToThemeColorChanges(onChange: (color: string) => void):
   const subscription = listen<string>("theme-color-changed", ({ payload }) => {
     onChange(normalizeThemeColor(payload));
   });
+  return () => void subscription.then((unlisten) => unlisten());
+}
+
+export function subscribeToProviderEvents(onProvidersChanged: () => void): () => void {
+  if (!isDesktopApp) {
+    window.addEventListener(PROVIDERS_EVENT, onProvidersChanged);
+    return () => window.removeEventListener(PROVIDERS_EVENT, onProvidersChanged);
+  }
+  const subscription = listen("providers-changed", onProvidersChanged);
   return () => void subscription.then((unlisten) => unlisten());
 }
 

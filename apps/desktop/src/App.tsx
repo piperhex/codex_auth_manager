@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfigProvider, Tooltip, theme as antdTheme } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
-import { CalendarClock, Check, CircleHelp, Cloud, Download, Github, LogIn, LogOut, Plus, RefreshCw, RotateCcw, Settings, ShieldCheck, Upload, UploadCloud, UserRound } from "lucide-react";
+import { CalendarClock, Check, CircleHelp, Cloud, Download, Github, LogIn, LogOut, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Upload, UploadCloud, UserRound } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { checkForUpdate, isDesktopApp, openManagedFolder, restartCodex } from "./api/backend";
 import { HelpModal, type HelpVersionState } from "./components/modals/HelpModal";
@@ -15,10 +15,12 @@ import { useAccountAutoRefresh, useAutoRefresh } from "./hooks/useAutoRefresh";
 import { useCloudAuth } from "./hooks/useCloudAuth";
 import { useLanguage } from "./hooks/useLanguage";
 import { useFloatingBubble } from "./hooks/useFloatingBubble";
+import { useProviderManager } from "./hooks/useProviderManager";
 import { useResetCredits } from "./hooks/useResetCredits";
 import { useThemeColor } from "./hooks/useThemeColor";
 import { useToast } from "./hooks/useToast";
 import { AccountsPage } from "./pages/AccountsPage";
+import { ProvidersPage } from "./pages/ProvidersPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { formatRefreshTime } from "./utils/format";
 import type { UpdateInfo } from "./types";
@@ -28,6 +30,7 @@ const IGNORED_UPDATE_VERSION_KEY = "codex-switch:ignored-update-version";
 const REPOSITORY_URL = "https://github.com/piperhex/codex-switch.git";
 const APP_LOGO_URL = new URL("../src-tauri/icons/128x128.png", import.meta.url).href;
 const MemoAccountsPage = memo(AccountsPage);
+const MemoProvidersPage = memo(ProvidersPage);
 const MemoSettingsPage = memo(SettingsPage);
 
 function storedRefreshAllTime() {
@@ -40,7 +43,7 @@ function shouldShowUpdate(update: UpdateInfo | null) {
 }
 
 function DashboardApp() {
-  const [page, setPage] = useState<"accounts" | "settings">("accounts");
+  const [page, setPage] = useState<"accounts" | "providers" | "settings">("accounts");
   const [showLogin, setShowLogin] = useState(false);
   const [showCloudLogin, setShowCloudLogin] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -59,6 +62,7 @@ function DashboardApp() {
   const floatingBubble = useFloatingBubble(notify);
   const themeColor = useThemeColor(notify);
   const manager = useAccountManager(notify, t, accountCloudSync);
+  const providerManager = useProviderManager(notify, t);
   const resetCredits = useResetCredits(manager.accounts, notify, t);
   const activeAccount = manager.accounts.find((account) => account.active) ?? null;
   const markRefreshAll = useCallback(() => {
@@ -92,6 +96,15 @@ function DashboardApp() {
   const saveAccountNote = useCallback((id: string, note: string, expiresAt: string) => (
     manager.saveAccountNote(id, note, expiresAt)
   ), [manager.saveAccountNote]);
+  const switchProvider = useCallback((id: string) => {
+    void providerManager.switchProvider(id);
+  }, [providerManager.switchProvider]);
+  const useOfficialProvider = useCallback(() => {
+    void providerManager.useOfficialProvider();
+  }, [providerManager.useOfficialProvider]);
+  const deleteProvider = useCallback((id: string) => {
+    void providerManager.deleteProvider(id);
+  }, [providerManager.deleteProvider]);
   const loadResetCredits = useCallback((id: string, force?: boolean) => {
     void resetCredits.refreshAccount(id, force);
   }, [resetCredits.refreshAccount]);
@@ -210,6 +223,8 @@ function DashboardApp() {
           <nav className="top-tabs" aria-label={t("nav.aria")}>
             <button className={page === "accounts" ? "selected" : ""} onClick={() => setPage("accounts")}>
               <UserRound size={19} />{t("nav.accounts")}</button>
+            <button className={page === "providers" ? "selected" : ""} onClick={() => setPage("providers")}>
+              <Server size={19} />{t("nav.providers")}</button>
             <button className={page === "settings" ? "selected" : ""} onClick={() => setPage("settings")}>
               <Settings size={19} />{t("nav.settings")}</button>
           </nav>
@@ -254,8 +269,12 @@ function DashboardApp() {
 
         <main>
           <header className="topbar">
-            <div><span className="eyebrow">{t("topbar.eyebrow")}</span>
-              <h1>{page === "settings" ? t("topbar.settings") : t("topbar.accounts", { count: manager.accounts.length })}</h1></div>
+            <div><span className="eyebrow">{page === "providers" ? t("topbar.providersEyebrow") : t("topbar.eyebrow")}</span>
+              <h1>{page === "settings"
+                ? t("topbar.settings")
+                : page === "providers"
+                  ? t("topbar.providers", { count: providerManager.providers.length })
+                  : t("topbar.accounts", { count: manager.accounts.length })}</h1></div>
             {page === "accounts" && (
               <div className="topbar-actions">
                 <button className="primary-button" onClick={openLogin}><Plus size={18} />{t("actions.addAccount")}</button>
@@ -291,6 +310,13 @@ function DashboardApp() {
                 </button>
               </div>
             )}
+            {page === "providers" && (
+              <div className="topbar-actions">
+                <button className="refresh-all" onClick={() => void restartCodexProcess()} disabled={restartingCodex}>
+                  <RotateCcw className={restartingCodex ? "spin" : ""} size={17} />{t("actions.restartCodex")}
+                </button>
+              </div>
+            )}
           </header>
 
           <section className="page-panel" hidden={page !== "settings"}>
@@ -311,6 +337,12 @@ function DashboardApp() {
               floatingBubbleLoading={floatingBubble.loading} onFloatingBubbleChange={changeFloatingBubble}
               onOpenCodexHome={openCodexHome} onOpenAccountStore={openAccountStore} language={language}
               onLanguageChange={setLanguage} t={t} />
+          </section>
+          <section className="page-panel" hidden={page !== "providers"}>
+            <MemoProvidersPage providers={providerManager.providers} loading={providerManager.loading}
+              busyProviderId={providerManager.busyProviderId} saving={providerManager.saving}
+              info={manager.info} onSave={providerManager.saveProvider}
+              onSwitch={switchProvider} onDisable={useOfficialProvider} onDelete={deleteProvider} t={t} />
           </section>
           <section className="page-panel" hidden={page !== "accounts"}>
             <MemoAccountsPage accounts={manager.accounts} loading={manager.loading}

@@ -34,6 +34,8 @@ export const DEMO_ACCOUNTS: Account[] = [
 export const DEMO_INFO: AppInfo = {
   codexHome: "~/.codex",
   authPath: "~/.codex/auth.json",
+  configPath: "~/.codex/config.toml",
   accountStore: "~/.local/share/codex-switch/accounts",
+  providerStore: "~/.local/share/codex-switch/providers",
   version: "0.1.0",
 };

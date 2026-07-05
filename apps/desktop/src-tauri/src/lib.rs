@@ -6,6 +6,7 @@ mod commands;
 mod floating_bubble;
 mod models;
 mod oauth;
+mod providers;
 mod storage;
 mod system_tray;
 mod update;
@@ -70,6 +71,11 @@ pub fn run() {
             commands::refresh_usage,
             commands::fetch_reset_credits,
             commands::restart_codex,
+            providers::list_providers,
+            providers::save_provider,
+            providers::switch_provider,
+            providers::disable_provider,
+            providers::delete_provider,
             update::check_for_update,
             floating_bubble::get_app_settings,
             floating_bubble::set_floating_bubble,

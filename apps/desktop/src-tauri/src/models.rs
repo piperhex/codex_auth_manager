@@ -47,6 +47,7 @@ pub(crate) struct ResetCreditsSummary {
 #[derive(Default, Serialize, Deserialize)]
 pub(crate) struct ManagerStateFile {
     pub(crate) active_account_id: Option<String>,
+    pub(crate) active_provider_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -54,8 +55,41 @@ pub(crate) struct ManagerStateFile {
 pub(crate) struct AppInfo {
     pub(crate) codex_home: String,
     pub(crate) auth_path: String,
+    pub(crate) config_path: String,
     pub(crate) account_store: String,
+    pub(crate) provider_store: String,
     pub(crate) version: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ProviderApiFormat {
+    OpenaiResponses,
+    OpenaiChat,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProviderProfile {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) base_url: String,
+    pub(crate) api_key: String,
+    pub(crate) model: String,
+    pub(crate) api_format: ProviderApiFormat,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProviderSummary {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) base_url: String,
+    pub(crate) model: String,
+    pub(crate) api_format: ProviderApiFormat,
+    pub(crate) active: bool,
+    pub(crate) has_api_key: bool,
+    pub(crate) supports_direct_switch: bool,
 }
 
 #[derive(Debug, Serialize)]

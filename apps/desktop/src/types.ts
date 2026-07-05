@@ -40,8 +40,32 @@ export type ResetCreditsLoadState =
 export interface AppInfo {
   codexHome: string;
   authPath: string;
+  configPath: string;
   accountStore: string;
+  providerStore: string;
   version: string;
+}
+
+export type ProviderApiFormat = "openaiResponses" | "openaiChat";
+
+export interface Provider {
+  id: string;
+  name: string;
+  baseUrl: string;
+  model: string;
+  apiFormat: ProviderApiFormat;
+  active: boolean;
+  hasApiKey: boolean;
+  supportsDirectSwitch: boolean;
+}
+
+export interface ProviderInput {
+  id?: string;
+  name: string;
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+  apiFormat: ProviderApiFormat;
 }
 
 export interface UpdateInfo {

@@ -17,7 +17,7 @@ use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::{
     auth::{account_fields, should_replace_auth_by_refresh_time, validate_auth},
-    models::{ManagerStateFile, UsageSummary},
+    models::UsageSummary,
     storage::{
         expiration_path, load_expiration, load_note, load_usage, managed_auth_path, note_path,
         read_json, read_state, resolve_paths, save_expiration, save_note, save_usage,
@@ -192,12 +192,13 @@ fn apply_archive<R: Runtime>(
 
     let active_account_id = if let Some((id, auth)) = active_account {
         write_json_if_changed(&paths.current_auth, &auth)?;
-        write_state(
-            &paths,
-            &ManagerStateFile {
-                active_account_id: Some(id.clone()),
-            },
-        )?;
+        let mut state = read_state(&paths);
+        if state.active_provider_id.is_some() {
+            crate::providers::restore_official_config(&paths)?;
+        }
+        state.active_account_id = Some(id.clone());
+        state.active_provider_id = None;
+        write_state(&paths, &state)?;
         Some(id)
     } else {
         None

@@ -15,7 +15,10 @@ use crate::{
 pub(crate) struct Paths {
     pub(crate) codex_home: PathBuf,
     pub(crate) current_auth: PathBuf,
+    pub(crate) current_config: PathBuf,
     pub(crate) accounts: PathBuf,
+    pub(crate) providers: PathBuf,
+    pub(crate) config_backup: PathBuf,
     pub(crate) state_file: PathBuf,
 }
 
@@ -30,11 +33,15 @@ pub(crate) fn resolve_paths<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<Pat
         .app_data_dir()
         .map_err(|error| format!("无法定位应用数据目录：{error}"))?;
     let accounts = app_data.join("accounts");
+    let providers = app_data.join("providers");
     Ok(Paths {
         current_auth: codex_home.join("auth.json"),
+        current_config: codex_home.join("config.toml"),
         codex_home,
+        config_backup: app_data.join("config-before-provider.toml"),
         state_file: app_data.join("state.json"),
         accounts,
+        providers,
     })
 }
 
@@ -55,6 +62,18 @@ pub(crate) fn write_json_atomic(path: &Path, value: &Value) -> Result<(), String
     let temp = path.with_extension(format!("tmp-{}", std::process::id()));
     fs::write(&temp, bytes).map_err(|error| format!("写入临时文件失败：{error}"))?;
     replace_file(&temp, path).map_err(|error| format!("提交 {} 失败：{error}", path.display()))
+}
+
+pub(crate) fn write_text_atomic(path: &Path, value: &str) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Target path has no parent directory".to_string())?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
+    let temp = path.with_extension(format!("tmp-{}", std::process::id()));
+    fs::write(&temp, value.as_bytes())
+        .map_err(|error| format!("Failed to write temporary file: {error}"))?;
+    replace_file(&temp, path).map_err(|error| format!("Failed to save {}: {error}", path.display()))
 }
 
 pub(crate) fn write_json_if_changed(path: &Path, value: &Value) -> Result<bool, String> {
@@ -200,12 +219,13 @@ pub(crate) fn import_value<R: Runtime>(
     write_json_if_changed(&managed_auth_path(&paths, &id), &auth)?;
     if activate {
         write_json_if_changed(&paths.current_auth, &auth)?;
-        write_state(
-            &paths,
-            &ManagerStateFile {
-                active_account_id: Some(id.clone()),
-            },
-        )?;
+        let mut state = read_state(&paths);
+        if state.active_provider_id.is_some() {
+            crate::providers::restore_official_config(&paths)?;
+        }
+        state.active_account_id = Some(id.clone());
+        state.active_provider_id = None;
+        write_state(&paths, &state)?;
     }
     Ok(id)
 }

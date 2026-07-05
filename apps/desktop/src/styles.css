@@ -274,6 +274,40 @@ h1 { margin: 5px 0 0; font: 700 26px/1.1 Manrope, sans-serif; letter-spacing: -.
 .settings-field .ant-space-compact { width: 150px; }
 .settings-field .ant-input-number { width: 108px; }
 .note-card { border-color: #c8dccd; background: #f8fbf7; }
+
+.provider-page { margin: 30px var(--page-x); display: grid; gap: 14px; max-width: 980px; }
+.provider-official { min-height: 72px; padding: 15px 18px; border: 1px solid var(--line); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--panel); box-shadow: 0 5px 18px rgba(24,45,31,.035); }
+.provider-official.active { border-color: #b9d0bf; background: var(--green-selection); }
+.provider-official-main, .provider-official-actions { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.provider-official-main > div:last-child, .provider-toolbar > div { min-width: 0; display: grid; gap: 3px; }
+.provider-official strong, .provider-toolbar strong { color: var(--ink); font: 700 13px Manrope, sans-serif; }
+.provider-official span, .provider-toolbar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #718078; font-size: 10px; }
+.provider-avatar { width: 30px; height: 30px; flex: 0 0 auto; border-radius: 8px; display: grid; place-items: center; color: var(--green-dark); background: var(--green-soft); }
+.provider-avatar.official { color: #234f34; background: #dcebdd; }
+.provider-toolbar { min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.provider-table-wrap { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: white; box-shadow: 0 5px 18px rgba(24,45,31,.035); }
+.provider-table-wrap .ant-table { color: var(--ink); font-size: 12px; }
+.provider-table-wrap .ant-table-thead > tr > th { background: #f6f8f5; color: #5d6a62; font-size: 11px; font-weight: 700; }
+.provider-table-wrap .ant-table-tbody > tr > td { background: #fff; }
+.provider-table-wrap .ant-table-tbody > tr.active-row > td { background: var(--green-selection); }
+.provider-table-wrap .ant-table-tbody > tr.active-row:hover > td { background: var(--green-selection-hover); }
+.provider-table-wrap .ant-table-tbody > tr.active-row > td:first-child { box-shadow: inset 4px 0 0 var(--green-accent); }
+.provider-table-wrap .ant-table-tbody > tr:hover > td { background: #f6faf7; }
+.provider-table-wrap .ant-table-cell { padding: 8px 16px !important; }
+.provider-cell { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.provider-cell > div:last-child { min-width: 0; display: grid; gap: 2px; }
+.provider-cell strong { max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-size: 12px; }
+.provider-cell span { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #718078; font-size: 10px; }
+.provider-model-code { display: inline-block; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 6px; border-radius: 5px; color: #456052; background: #f0f3ef; font-size: 10px; }
+.provider-empty { min-height: 170px; border: 1px dashed #ced8d0; border-radius: 8px; display: grid; place-items: center; align-content: center; gap: 9px; color: #718078; background: rgba(255,255,255,.45); font-size: 12px; }
+.provider-empty svg { color: var(--green); }
+.provider-empty strong { color: var(--ink); font: 700 13px Manrope, sans-serif; }
+.provider-modal { width: min(560px, 95vw); }
+.provider-form { display: grid; gap: 8px; }
+.provider-form label { color: #526259; font-size: 11px; font-weight: 700; }
+.provider-form .ant-segmented { justify-self: start; }
+.provider-modal-footer { margin-top: 16px; display: flex; justify-content: flex-end; gap: 9px; }
+
 .loading-state, .empty-state { margin: 30px var(--page-x) 0; min-height: 260px; border: 1px dashed #ced8d0; border-radius: 14px; display: flex; align-items: center; justify-content: center; gap: 10px; color: #718078; background: rgba(255,255,255,.45); font-size: 12px; }
 .empty-state { flex-direction: column; text-align: center; }
 .empty-state > div { width: 52px; height: 52px; border-radius: 15px; display: grid; place-items: center; color: var(--green); background: var(--green-soft); }
