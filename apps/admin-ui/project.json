@@ -7,7 +7,7 @@
     "build": {
       "executor": "nx:run-commands",
       "outputs": [
-        "{workspaceRoot}/apps/backend/public"
+        "{workspaceRoot}/apps/admin/public"
       ],
       "options": {
         "command": "npm run build -w @codex-switch/admin-ui"
@@ -16,7 +16,7 @@
     "check": {
       "executor": "nx:run-commands",
       "outputs": [
-        "{workspaceRoot}/apps/backend/public"
+        "{workspaceRoot}/apps/admin/public"
       ],
       "options": {
         "command": "npm run check -w @codex-switch/admin-ui"

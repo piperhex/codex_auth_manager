@@ -2,7 +2,7 @@ _format_version: "3.0"
 _transform: true
 
 # Import this into your existing Kong only if you use declarative config.
-# For DB-backed Kong, use the Admin API commands in backend/README.md instead.
+# For DB-backed Kong, use the Admin API commands in ../README.md instead.
 
 services:
   - name: codex-switch-backend

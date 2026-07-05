@@ -128,7 +128,7 @@ apps/desktop/        Tauri desktop application workspace
   system_tray.rs     Tray menu, account quick switching, and restart action
   models.rs          Frontend/backend transfer models
 apps/admin-ui/       React admin console workspace
-apps/backend/        NestJS cloud backend workspace
+apps/admin/          NestJS cloud backend workspace
 docs/                Architecture and development documentation
 ```
 

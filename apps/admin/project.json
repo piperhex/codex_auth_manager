@@ -2,7 +2,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "name": "@codex-switch/backend",
   "projectType": "application",
-  "sourceRoot": "apps/backend/src",
+  "sourceRoot": "apps/admin/src",
   "targets": {
     "build": {
       "executor": "nx:run-commands",

@@ -20,7 +20,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "../backend/public",
+    outDir: "../admin/public",
     emptyOutDir: false,
     assetsDir: "admin-assets",
     chunkSizeWarningLimit: 1200,
