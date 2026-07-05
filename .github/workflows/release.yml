@@ -30,7 +30,7 @@ jobs:
         uses: actions/github-script@v9
         env:
           TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-          RELEASE_NAME: "Codex Auth Manager ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          RELEASE_NAME: "Codex Switch ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
           PRERELEASE: ${{ contains(github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name, '-') }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -46,19 +46,26 @@ jobs:
                 repo,
                 tag,
               });
+              const update = {};
+              if (release.name !== process.env.RELEASE_NAME) {
+                update.name = process.env.RELEASE_NAME;
+              }
               if (!release.body?.trim() || release.body.trim() === boilerplate) {
                 const { data: notes } = await github.rest.repos.generateReleaseNotes({
                   owner,
                   repo,
                   tag_name: tag,
                 });
+                update.body = `${boilerplate}\n\n${notes.body}`;
+              }
+              if (Object.keys(update).length > 0) {
                 await github.rest.repos.updateRelease({
                   owner,
                   repo,
                   release_id: release.id,
-                  body: `${boilerplate}\n\n${notes.body}`,
+                  ...update,
                 });
-                core.info(`Generated release notes for existing release ${release.id}.`);
+                core.info(`Updated existing release ${release.id}.`);
               }
               core.info(`Using existing release ${release.id} for ${tag}.`);
               return release.id.toString();
