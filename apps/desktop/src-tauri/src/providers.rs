@@ -6,6 +6,7 @@ use tauri::{Emitter, Runtime};
 use url::Url;
 
 use crate::{
+    auth::validate_auth,
     models::{ProviderApiFormat, ProviderProfile, ProviderSummary},
     storage::{
         read_json, read_state, resolve_paths, sync_current_into_store, write_json_atomic,
@@ -129,6 +130,7 @@ pub(crate) fn switch_provider<R: Runtime>(
     let _ = sync_current_into_store(&app);
     let paths = resolve_paths(&app)?;
     let provider = read_provider(&paths, &id)?;
+    ensure_not_local_proxy_base_url(&provider.base_url)?;
     let proxy_running = crate::local_proxy::is_running();
     if !proxy_running && provider.api_format != ProviderApiFormat::OpenaiResponses {
         return Err(
@@ -205,8 +207,10 @@ pub(crate) fn apply_local_proxy_config_for_state<R: Runtime>(
     backup_codex_config_if_needed(&paths, state.active_provider_id.is_none())?;
     if let Some(id) = state.active_provider_id.as_deref() {
         let provider = read_provider(&paths, id)?;
+        ensure_not_local_proxy_base_url(&provider.base_url)?;
         write_provider_local_proxy_config(&paths, &provider)
     } else {
+        ensure_official_auth_for_local_proxy(&paths)?;
         write_official_local_proxy_config(&paths)
     }
 }
@@ -312,7 +316,37 @@ fn normalize_base_url(value: &str) -> Result<String, String> {
     if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
         return Err("Base URL must be an http:// or https:// URL with a host".to_string());
     }
+    if is_local_proxy_url(&url) {
+        return Err("Provider Base URL must be an upstream API endpoint, not the Codex Switch local proxy endpoint".to_string());
+    }
     Ok(trimmed.to_string())
+}
+
+pub(crate) fn ensure_not_local_proxy_base_url(base_url: &str) -> Result<(), String> {
+    let url = Url::parse(base_url).map_err(|error| format!("Base URL is invalid: {error}"))?;
+    if is_local_proxy_url(&url) {
+        Err("Provider Base URL must be an upstream API endpoint, not the Codex Switch local proxy endpoint".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+fn is_local_proxy_url(url: &Url) -> bool {
+    if url.scheme() != "http" {
+        return false;
+    }
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    matches!(host.as_str(), LOCAL_PROXY_HOST | "localhost" | "::1")
+        && url.port_or_known_default() == Some(LOCAL_PROXY_PORT)
+}
+
+fn ensure_official_auth_for_local_proxy(paths: &Paths) -> Result<(), String> {
+    let auth = read_json(&paths.current_auth)?;
+    validate_auth(&auth).map_err(|error| {
+        format!(
+            "Official Codex local proxy requires a ChatGPT auth.json with tokens.access_token. Activate a third-party Provider or switch to a signed-in official Codex account before starting proxy: {error}"
+        )
+    })
 }
 
 fn validate_provider_id(id: &str) -> Result<(), String> {
@@ -688,5 +722,16 @@ sandbox_mode = "workspace-write"
     #[test]
     fn toml_string_escapes_secret_characters() {
         assert_eq!(toml_string("a\"b\\c"), "\"a\\\"b\\\\c\"");
+    }
+
+    #[test]
+    fn provider_base_url_rejects_local_proxy_endpoint() {
+        assert!(normalize_base_url("http://127.0.0.1:15722/v1")
+            .unwrap_err()
+            .contains("local proxy"));
+        assert!(normalize_base_url("http://localhost:15722/v1")
+            .unwrap_err()
+            .contains("local proxy"));
+        assert!(normalize_base_url("https://api.deepseek.com/v1").is_ok());
     }
 }

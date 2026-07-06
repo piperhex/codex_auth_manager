@@ -1,7 +1,8 @@
 use std::{
+    io::{self, BufRead, BufReader, Read},
     sync::{Arc, Mutex, OnceLock},
     thread::{self, JoinHandle},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use reqwest::blocking::{Client, Response as ReqwestResponse};
@@ -21,6 +22,8 @@ use crate::{
 };
 
 const OFFICIAL_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
+const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(600);
+const UPSTREAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 
 struct ProxyRuntime {
     server: Arc<Server>,
@@ -30,7 +33,12 @@ struct ProxyRuntime {
 struct UpstreamPayload {
     status: u16,
     content_type: Option<String>,
-    body: Vec<u8>,
+    body: UpstreamBody,
+}
+
+enum UpstreamBody {
+    Buffered(Vec<u8>),
+    Streaming(Box<dyn Read + Send>),
 }
 
 enum ActiveTarget {
@@ -114,7 +122,10 @@ fn start_server<R: Runtime>(app: tauri::AppHandle<R>) -> Result<bool, String> {
         .name("codex-switch-local-proxy".to_string())
         .spawn(move || {
             for request in server_for_thread.incoming_requests() {
-                handle_request(app.clone(), request);
+                let request_app = app.clone();
+                let _ = thread::Builder::new()
+                    .name("codex-switch-local-proxy-request".to_string())
+                    .spawn(move || handle_request(request_app, request));
             }
         })
         .map_err(|error| format!("Failed to spawn local proxy thread: {error}"))?;
@@ -197,7 +208,9 @@ fn handle_proxy_request<R: Runtime>(
 fn active_target<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<ActiveTarget, String> {
     let paths = resolve_paths(app)?;
     if let Some(id) = read_state(&paths).active_provider_id {
-        return providers::read_provider(&paths, &id).map(ActiveTarget::Provider);
+        let provider = providers::read_provider(&paths, &id)?;
+        providers::ensure_not_local_proxy_base_url(&provider.base_url)?;
+        return Ok(ActiveTarget::Provider(provider));
     }
     Ok(ActiveTarget::Official)
 }
@@ -239,7 +252,7 @@ fn forward_official<R: Runtime>(
         request = request.header("ChatGPT-Account-Id", account_id);
     }
     request = apply_forward_headers(request, headers, true);
-    collect_response(
+    stream_response(
         request
             .body(body)
             .send()
@@ -260,7 +273,7 @@ fn forward_provider(
         .request(reqwest_method(method)?, upstream_url)
         .bearer_auth(provider.api_key.trim());
     let request = apply_forward_headers(request, headers, true);
-    collect_response(
+    stream_response(
         request
             .body(body)
             .send()
@@ -298,22 +311,37 @@ fn forward_chat_bridge(
         .send()
         .map_err(|error| format!("Chat bridge request failed: {error}"))?;
     let status = response.status().as_u16();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    if stream && status_ok(status) && is_event_stream(content_type.as_deref()) {
+        return Ok(UpstreamPayload {
+            status,
+            content_type: Some("text/event-stream; charset=utf-8".to_string()),
+            body: UpstreamBody::Streaming(Box::new(ChatSseReader::new(
+                BufReader::new(response),
+                provider.model.clone(),
+            ))),
+        });
+    }
+
     let body = response
         .bytes()
         .map_err(|error| format!("Failed to read chat bridge response: {error}"))?;
-
-    if !stream || !status_ok(status) {
-        let json: Value = serde_json::from_slice(&body)
-            .map_err(|_| "Chat bridge upstream returned non-JSON response".to_string())?;
-        return Ok(json_payload(status, chat_to_responses_json(&json)));
+    if !status_ok(status) {
+        return Ok(UpstreamPayload {
+            status,
+            content_type: content_type
+                .or_else(|| Some("application/json; charset=utf-8".to_string())),
+            body: UpstreamBody::Buffered(body.to_vec()),
+        });
     }
 
-    let text = String::from_utf8_lossy(&body);
-    Ok(UpstreamPayload {
-        status,
-        content_type: Some("text/event-stream; charset=utf-8".to_string()),
-        body: chat_sse_to_responses_sse(&text, &provider.model).into_bytes(),
-    })
+    let json: Value = serde_json::from_slice(&body)
+        .map_err(|_| "Chat bridge upstream returned non-JSON response".to_string())?;
+    Ok(json_payload(status, chat_to_responses_json(&json)))
 }
 
 fn official_token<R: Runtime>(
@@ -376,7 +404,8 @@ fn should_skip_header(name: &str, skip_auth: bool) -> bool {
 
 fn http_client() -> Result<Client, String> {
     Client::builder()
-        .timeout(std::time::Duration::from_secs(600))
+        .timeout(UPSTREAM_TIMEOUT)
+        .connect_timeout(UPSTREAM_CONNECT_TIMEOUT)
         .build()
         .map_err(|error| format!("Failed to create proxy HTTP client: {error}"))
 }
@@ -386,21 +415,17 @@ fn reqwest_method(method: &Method) -> Result<reqwest::Method, String> {
         .map_err(|error| format!("Unsupported HTTP method {}: {error}", method.as_str()))
 }
 
-fn collect_response(response: ReqwestResponse) -> Result<UpstreamPayload, String> {
+fn stream_response(response: ReqwestResponse) -> Result<UpstreamPayload, String> {
     let status = response.status().as_u16();
     let content_type = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
-    let body = response
-        .bytes()
-        .map_err(|error| format!("Failed to read upstream response: {error}"))?
-        .to_vec();
     Ok(UpstreamPayload {
         status,
         content_type,
-        body,
+        body: UpstreamBody::Streaming(Box::new(response)),
     })
 }
 
@@ -451,23 +476,43 @@ fn status_ok(status: u16) -> bool {
     (200..300).contains(&status)
 }
 
+fn is_event_stream(content_type: Option<&str>) -> bool {
+    content_type
+        .map(|value| value.to_ascii_lowercase().contains("text/event-stream"))
+        .unwrap_or(false)
+}
+
 fn json_payload(status: u16, value: Value) -> UpstreamPayload {
     UpstreamPayload {
         status,
         content_type: Some("application/json; charset=utf-8".to_string()),
-        body: serde_json::to_vec(&value).unwrap_or_else(|_| b"{}".to_vec()),
+        body: UpstreamBody::Buffered(serde_json::to_vec(&value).unwrap_or_else(|_| b"{}".to_vec())),
     }
 }
 
 fn respond_payload(request: Request, payload: UpstreamPayload) {
-    let mut response =
-        Response::from_data(payload.body).with_status_code(StatusCode(payload.status));
-    if let Some(content_type) = payload.content_type {
+    match payload.body {
+        UpstreamBody::Buffered(body) => {
+            let mut response =
+                Response::from_data(body).with_status_code(StatusCode(payload.status));
+            add_content_type(&mut response, payload.content_type.as_deref());
+            let _ = request.respond(response);
+        }
+        UpstreamBody::Streaming(reader) => {
+            let mut response =
+                Response::new(StatusCode(payload.status), Vec::new(), reader, None, None);
+            add_content_type(&mut response, payload.content_type.as_deref());
+            let _ = request.respond(response);
+        }
+    }
+}
+
+fn add_content_type<R: Read>(response: &mut Response<R>, content_type: Option<&str>) {
+    if let Some(content_type) = content_type {
         if let Ok(header) = Header::from_bytes("Content-Type", content_type.as_bytes()) {
             response.add_header(header);
         }
     }
-    let _ = request.respond(response);
 }
 
 fn respond_error(request: Request, status: u16, message: String) {
@@ -585,7 +630,14 @@ fn value_to_text(value: &Value) -> Option<String> {
             (!parts.is_empty()).then(|| parts.join("\n"))
         }
         Value::Object(map) => {
-            for key in ["text", "input_text", "output_text", "content", "output"] {
+            for key in [
+                "text",
+                "input_text",
+                "output_text",
+                "content",
+                "reasoning_content",
+                "output",
+            ] {
                 if let Some(text) = map.get(key).and_then(value_to_text) {
                     return Some(text);
                 }
@@ -681,9 +733,190 @@ fn chat_to_responses_json(chat: &Value) -> Value {
     })
 }
 
+struct ChatSseReader<R> {
+    upstream: R,
+    model: String,
+    response_id: String,
+    message_id: String,
+    pending: Vec<u8>,
+    pending_offset: usize,
+    data_lines: Vec<String>,
+    text: String,
+    completed: bool,
+}
+
+impl<R: BufRead> ChatSseReader<R> {
+    fn new(upstream: R, model: String) -> Self {
+        let response_id = response_id();
+        let message_id = format!("msg_{response_id}");
+        let pending = response_start_sse(&response_id, &message_id, &model).into_bytes();
+        Self {
+            upstream,
+            model,
+            response_id: response_id.clone(),
+            message_id: message_id.clone(),
+            pending,
+            pending_offset: 0,
+            data_lines: Vec::new(),
+            text: String::new(),
+            completed: false,
+        }
+    }
+
+    fn has_pending(&self) -> bool {
+        self.pending_offset < self.pending.len()
+    }
+
+    fn drain_pending(&mut self, target: &mut [u8]) -> usize {
+        if target.is_empty() || !self.has_pending() {
+            return 0;
+        }
+        let count = target
+            .len()
+            .min(self.pending.len().saturating_sub(self.pending_offset));
+        target[..count]
+            .copy_from_slice(&self.pending[self.pending_offset..self.pending_offset + count]);
+        self.pending_offset += count;
+        if !self.has_pending() {
+            self.pending.clear();
+            self.pending_offset = 0;
+        }
+        count
+    }
+
+    fn push_pending(&mut self, value: String) {
+        if self.pending_offset > 0 {
+            self.pending.drain(0..self.pending_offset);
+            self.pending_offset = 0;
+        }
+        self.pending.extend_from_slice(value.as_bytes());
+    }
+
+    fn process_line(&mut self, line: &str) {
+        let line = line.trim_end_matches(&['\r', '\n'][..]);
+        if line.is_empty() {
+            self.process_event_block();
+            return;
+        }
+        if let Some(data) = line.trim_start().strip_prefix("data:") {
+            self.data_lines.push(data.trim_start().to_string());
+        }
+    }
+
+    fn process_event_block(&mut self) {
+        if self.data_lines.is_empty() || self.completed {
+            self.data_lines.clear();
+            return;
+        }
+        let data = self.data_lines.join("\n");
+        self.data_lines.clear();
+        if data.trim() == "[DONE]" {
+            self.finish();
+            return;
+        }
+        let Ok(value) = serde_json::from_str::<Value>(&data) else {
+            return;
+        };
+        if let Some(delta) = chat_stream_delta_text(&value) {
+            if !delta.is_empty() {
+                self.text.push_str(delta);
+                self.push_pending(response_text_delta_sse(&self.message_id, delta));
+            }
+        }
+    }
+
+    fn finish(&mut self) {
+        if self.completed {
+            return;
+        }
+        self.push_pending(response_done_sse(
+            &self.response_id,
+            &self.message_id,
+            &self.model,
+            &self.text,
+        ));
+        self.completed = true;
+    }
+
+    fn fail(&mut self, message: String) {
+        if self.completed {
+            return;
+        }
+        self.push_pending(response_failed_sse(
+            &self.response_id,
+            &self.model,
+            &message,
+        ));
+        self.completed = true;
+    }
+}
+
+impl<R: BufRead> Read for ChatSseReader<R> {
+    fn read(&mut self, target: &mut [u8]) -> io::Result<usize> {
+        if target.is_empty() {
+            return Ok(0);
+        }
+        let copied = self.drain_pending(target);
+        if copied > 0 {
+            return Ok(copied);
+        }
+
+        while !self.completed && !self.has_pending() {
+            let mut line = String::new();
+            match self.upstream.read_line(&mut line) {
+                Ok(0) => {
+                    self.process_event_block();
+                    self.finish();
+                }
+                Ok(_) => self.process_line(&line),
+                Err(error) => self.fail(format!("Chat bridge upstream stream failed: {error}")),
+            }
+        }
+        Ok(self.drain_pending(target))
+    }
+}
+
+#[cfg(test)]
 fn chat_sse_to_responses_sse(sse: &str, model: &str) -> String {
     let response_id = response_id();
     let message_id = format!("msg_{response_id}");
+    let mut output = response_start_sse(&response_id, &message_id, model);
+    let mut text = String::new();
+    for block in sse.split("\n\n") {
+        for line in block.lines() {
+            let Some(data) = line.trim_start().strip_prefix("data:") else {
+                continue;
+            };
+            let data = data.trim();
+            if data == "[DONE]" {
+                continue;
+            }
+            let Ok(value) = serde_json::from_str::<Value>(data) else {
+                continue;
+            };
+            if let Some(delta) = chat_stream_delta_text(&value) {
+                text.push_str(delta);
+                output.push_str(&response_text_delta_sse(&message_id, delta));
+            }
+        }
+    }
+
+    output.push_str(&response_done_sse(&response_id, &message_id, model, &text));
+    output
+}
+
+fn chat_stream_delta_text(value: &Value) -> Option<&str> {
+    value
+        .pointer("/choices/0/delta/content")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            value
+                .pointer("/choices/0/delta/reasoning_content")
+                .and_then(Value::as_str)
+        })
+}
+
+fn response_start_sse(response_id: &str, message_id: &str, model: &str) -> String {
     let mut output = String::new();
     push_sse(
         &mut output,
@@ -691,7 +924,7 @@ fn chat_sse_to_responses_sse(sse: &str, model: &str) -> String {
         json!({
             "type": "response.created",
             "response": {
-                "id": response_id.clone(),
+                "id": response_id,
                 "object": "response",
                 "created_at": unix_now(),
                 "status": "in_progress",
@@ -707,7 +940,7 @@ fn chat_sse_to_responses_sse(sse: &str, model: &str) -> String {
             "type": "response.output_item.added",
             "output_index": 0,
             "item": {
-                "id": message_id.clone(),
+                "id": message_id,
                 "type": "message",
                 "status": "in_progress",
                 "role": "assistant",
@@ -720,55 +953,42 @@ fn chat_sse_to_responses_sse(sse: &str, model: &str) -> String {
         "response.content_part.added",
         json!({
             "type": "response.content_part.added",
-            "item_id": message_id.clone(),
+            "item_id": message_id,
             "output_index": 0,
             "content_index": 0,
             "part": { "type": "output_text", "text": "" }
         }),
     );
+    output
+}
 
-    let mut text = String::new();
-    for block in sse.split("\n\n") {
-        for line in block.lines() {
-            let Some(data) = line.trim_start().strip_prefix("data:") else {
-                continue;
-            };
-            let data = data.trim();
-            if data == "[DONE]" {
-                continue;
-            }
-            let Ok(value) = serde_json::from_str::<Value>(data) else {
-                continue;
-            };
-            if let Some(delta) = value
-                .pointer("/choices/0/delta/content")
-                .and_then(Value::as_str)
-            {
-                text.push_str(delta);
-                push_sse(
-                    &mut output,
-                    "response.output_text.delta",
-                    json!({
-                        "type": "response.output_text.delta",
-                        "item_id": message_id.clone(),
-                        "output_index": 0,
-                        "content_index": 0,
-                        "delta": delta
-                    }),
-                );
-            }
-        }
-    }
+fn response_text_delta_sse(message_id: &str, delta: &str) -> String {
+    let mut output = String::new();
+    push_sse(
+        &mut output,
+        "response.output_text.delta",
+        json!({
+            "type": "response.output_text.delta",
+            "item_id": message_id,
+            "output_index": 0,
+            "content_index": 0,
+            "delta": delta
+        }),
+    );
+    output
+}
 
+fn response_done_sse(response_id: &str, message_id: &str, model: &str, text: &str) -> String {
+    let mut output = String::new();
     push_sse(
         &mut output,
         "response.output_text.done",
         json!({
             "type": "response.output_text.done",
-            "item_id": message_id.clone(),
+            "item_id": message_id,
             "output_index": 0,
             "content_index": 0,
-            "text": text.clone()
+            "text": text
         }),
     );
     push_sse(
@@ -776,10 +996,10 @@ fn chat_sse_to_responses_sse(sse: &str, model: &str) -> String {
         "response.content_part.done",
         json!({
             "type": "response.content_part.done",
-            "item_id": message_id.clone(),
+            "item_id": message_id,
             "output_index": 0,
             "content_index": 0,
-            "part": { "type": "output_text", "text": text.clone() }
+            "part": { "type": "output_text", "text": text }
         }),
     );
     push_sse(
@@ -789,11 +1009,11 @@ fn chat_sse_to_responses_sse(sse: &str, model: &str) -> String {
             "type": "response.output_item.done",
             "output_index": 0,
             "item": {
-                "id": message_id.clone(),
+                "id": message_id,
                 "type": "message",
                 "status": "completed",
                 "role": "assistant",
-                "content": [{ "type": "output_text", "text": text.clone(), "annotations": [] }]
+                "content": [{ "type": "output_text", "text": text, "annotations": [] }]
             }
         }),
     );
@@ -803,18 +1023,39 @@ fn chat_sse_to_responses_sse(sse: &str, model: &str) -> String {
         json!({
             "type": "response.completed",
             "response": {
-                "id": response_id.clone(),
+                "id": response_id,
                 "object": "response",
                 "created_at": unix_now(),
                 "status": "completed",
                 "model": model,
                 "output": [{
-                    "id": message_id.clone(),
+                    "id": message_id,
                     "type": "message",
                     "status": "completed",
                     "role": "assistant",
                     "content": [{ "type": "output_text", "text": text, "annotations": [] }]
                 }]
+            }
+        }),
+    );
+    output.push_str("data: [DONE]\n\n");
+    output
+}
+
+fn response_failed_sse(response_id: &str, model: &str, message: &str) -> String {
+    let mut output = String::new();
+    push_sse(
+        &mut output,
+        "response.failed",
+        json!({
+            "type": "response.failed",
+            "response": {
+                "id": response_id,
+                "object": "response",
+                "created_at": unix_now(),
+                "status": "failed",
+                "model": model,
+                "error": { "message": message }
             }
         }),
     );
@@ -845,6 +1086,8 @@ fn unix_now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Cursor, Read};
+    use std::sync::mpsc;
 
     #[test]
     fn upstream_url_avoids_duplicate_v1() {
@@ -871,5 +1114,120 @@ mod tests {
         assert_eq!(chat["messages"][0]["role"], "system");
         assert_eq!(chat["messages"][1]["content"], "Hi");
         assert_eq!(chat["stream_options"]["include_usage"], true);
+    }
+
+    #[test]
+    fn chat_sse_reader_emits_incremental_response_events() {
+        let sse = concat!(
+            "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\" done\"}}]}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let mut reader = ChatSseReader::new(
+            BufReader::new(Cursor::new(sse.as_bytes().to_vec())),
+            "deepseek-chat".to_string(),
+        );
+        let mut output = String::new();
+        reader.read_to_string(&mut output).unwrap();
+
+        assert!(output.contains("response.created"));
+        assert!(output.contains("response.output_text.delta"));
+        assert!(output.contains("thinking"));
+        assert!(output.contains(" done"));
+        assert!(output.contains("response.completed"));
+        assert!(output.ends_with("data: [DONE]\n\n"));
+    }
+
+    #[test]
+    fn buffered_chat_sse_conversion_keeps_reasoning_content() {
+        let output = chat_sse_to_responses_sse(
+            "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"why\"}}]}\n\n",
+            "deepseek-chat",
+        );
+
+        assert!(output.contains("why"));
+        assert!(output.contains("response.completed"));
+    }
+
+    #[test]
+    fn chat_bridge_uses_provider_key_and_chat_endpoint() {
+        let server = Server::http("127.0.0.1:0").unwrap();
+        let addr = server.server_addr().to_ip().unwrap();
+        let base_url = format!("http://{addr}");
+        let (tx, rx) = mpsc::channel();
+
+        let handle = thread::spawn(move || {
+            let mut request = server.recv().unwrap();
+            let path = request.url().to_string();
+            let authorization = request
+                .headers()
+                .iter()
+                .find(|header| {
+                    header
+                        .field
+                        .as_str()
+                        .as_str()
+                        .eq_ignore_ascii_case("authorization")
+                })
+                .map(|header| header.value.as_str().to_string());
+            let mut body = String::new();
+            request.as_reader().read_to_string(&mut body).unwrap();
+            tx.send((path, authorization, body)).unwrap();
+
+            let response = Response::from_string(
+                json!({
+                    "id": "chatcmpl_test",
+                    "object": "chat.completion",
+                    "model": "deepseek-v4-flash",
+                    "choices": [{
+                        "index": 0,
+                        "message": { "role": "assistant", "content": "ok" },
+                        "finish_reason": "stop"
+                    }],
+                    "usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 1,
+                        "total_tokens": 2
+                    }
+                })
+                .to_string(),
+            )
+            .with_header(Header::from_bytes("Content-Type", "application/json").unwrap());
+            request.respond(response).unwrap();
+        });
+
+        let provider = ProviderProfile {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url,
+            api_key: "sk-provider-test".to_string(),
+            model: "deepseek-v4-flash".to_string(),
+            api_format: ProviderApiFormat::OpenaiChat,
+        };
+        let body = serde_json::to_vec(&json!({
+            "model": "client-placeholder",
+            "input": "ping",
+            "stream": false
+        }))
+        .unwrap();
+
+        let payload = forward_chat_bridge(&Method::Post, "/v1/responses", &[], body, &provider)
+            .expect("chat bridge request should succeed");
+
+        let (path, authorization, upstream_body) = rx.recv().unwrap();
+        handle.join().unwrap();
+        assert_eq!(path, "/v1/chat/completions");
+        assert_eq!(authorization.as_deref(), Some("Bearer sk-provider-test"));
+        let upstream_json: Value = serde_json::from_str(&upstream_body).unwrap();
+        assert_eq!(upstream_json["model"], "deepseek-v4-flash");
+        assert_eq!(upstream_json["messages"][0]["content"], "ping");
+
+        assert_eq!(payload.status, 200);
+        let response_body = match payload.body {
+            UpstreamBody::Buffered(body) => body,
+            UpstreamBody::Streaming(_) => panic!("non-stream chat bridge should be buffered"),
+        };
+        let response_json: Value = serde_json::from_slice(&response_body).unwrap();
+        assert_eq!(response_json["output"][0]["content"][0]["text"], "ok");
     }
 }

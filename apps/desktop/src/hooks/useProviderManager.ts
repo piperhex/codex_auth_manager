@@ -27,6 +27,10 @@ function providerErrorMessage(error: unknown, t: Translate) {
   if (message.includes("Base URL must be an http:// or https:// URL with a host")) {
     return t("providers.error.baseUrlHttp");
   }
+  if (message.includes("Provider Base URL must be an upstream API endpoint")) {
+    return t("providers.error.baseUrlLocalProxy");
+  }
+  if (message.includes("Official Codex local proxy requires")) return t("providers.error.officialProxyAuthRequired");
   if (message.includes("Provider id is invalid")) return t("providers.error.providerIdInvalid");
   if (message.startsWith("Base URL is invalid:")) {
     return t("providers.error.baseUrlInvalid", { error: message.slice("Base URL is invalid:".length).trim() });

@@ -282,7 +282,7 @@ h1 { margin: 5px 0 0; font: 700 26px/1.1 Manrope, sans-serif; letter-spacing: -.
 .provider-official-main, .provider-official-actions { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .provider-official-main > div:last-child, .provider-toolbar > div { min-width: 0; display: grid; gap: 3px; }
 .provider-official strong, .provider-proxy strong, .provider-toolbar strong { color: var(--ink); font: 700 13px Manrope, sans-serif; }
-.provider-official span, .provider-proxy span, .provider-toolbar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #718078; font-size: 10px; }
+.provider-official-main > div:last-child > span, .provider-toolbar > div > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #718078; font-size: 10px; }
 .provider-avatar { width: 30px; height: 30px; flex: 0 0 auto; border-radius: 8px; display: grid; place-items: center; color: var(--green-dark); background: var(--green-soft); }
 .provider-avatar.official { color: #234f34; background: #dcebdd; }
 .provider-avatar.proxy { color: #334a62; background: #e7edf3; }
