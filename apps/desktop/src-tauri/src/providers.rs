@@ -567,14 +567,21 @@ fn config_contains_local_proxy(config: &str) -> bool {
 }
 
 fn preferred_official_model(paths: &Paths) -> String {
-    [
-        paths.current_config.as_path(),
-        paths.config_backup.as_path(),
-    ]
-    .into_iter()
-    .filter_map(|path| fs::read_to_string(path).ok())
-    .find_map(|config| extract_root_model(&config))
-    .unwrap_or_else(|| DEFAULT_OFFICIAL_MODEL.to_string())
+    let current = fs::read_to_string(&paths.current_config).ok();
+    let backup = fs::read_to_string(&paths.config_backup).ok();
+    preferred_official_model_from_configs(current.as_deref(), backup.as_deref())
+}
+
+fn preferred_official_model_from_configs(current: Option<&str>, backup: Option<&str>) -> String {
+    backup
+        .and_then(extract_root_model)
+        .or_else(|| {
+            current.and_then(|config| {
+                let cleaned = remove_marked_blocks(config);
+                extract_root_model(&cleaned)
+            })
+        })
+        .unwrap_or_else(|| DEFAULT_OFFICIAL_MODEL.to_string())
 }
 
 fn extract_root_model(config: &str) -> Option<String> {
@@ -733,5 +740,54 @@ sandbox_mode = "workspace-write"
             .unwrap_err()
             .contains("local proxy"));
         assert!(normalize_base_url("https://api.deepseek.com/v1").is_ok());
+    }
+
+    #[test]
+    fn official_local_proxy_uses_backed_up_official_model_after_provider() {
+        let backup = r#"
+model = "gpt-5.5"
+model_reasoning_effort = "xhigh"
+"#;
+        let provider_proxy =
+            merge_local_proxy_config(backup, "DeepSeek", Some("deepseek-v4-flash"));
+
+        assert_eq!(
+            preferred_official_model_from_configs(Some(&provider_proxy), Some(backup)),
+            "gpt-5.5"
+        );
+
+        let official_model =
+            preferred_official_model_from_configs(Some(&provider_proxy), Some(backup));
+        let official_proxy = merge_local_proxy_config(
+            &provider_proxy,
+            LOCAL_PROXY_PROVIDER_NAME,
+            Some(&official_model),
+        );
+        let first_model = extract_root_model(&official_proxy).unwrap();
+
+        assert_eq!(first_model, "gpt-5.5");
+        assert!(!official_proxy.contains("deepseek-v4-flash"));
+    }
+
+    #[test]
+    fn official_model_does_not_reuse_managed_provider_model_without_backup() {
+        let provider_proxy = merge_local_proxy_config(
+            r#"model = "gpt-5.5""#,
+            "DeepSeek",
+            Some("deepseek-v4-flash"),
+        );
+
+        assert_eq!(
+            preferred_official_model_from_configs(Some(&provider_proxy), None),
+            DEFAULT_OFFICIAL_MODEL
+        );
+    }
+
+    #[test]
+    fn official_model_uses_plain_current_config_without_backup() {
+        assert_eq!(
+            preferred_official_model_from_configs(Some(r#"model = "gpt-5.5""#), None),
+            "gpt-5.5"
+        );
     }
 }
