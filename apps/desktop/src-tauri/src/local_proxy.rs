@@ -5,19 +5,19 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
     thread::{self, JoinHandle},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use reqwest::blocking::{Client, Response as ReqwestResponse};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use tauri::{Emitter, Manager, Runtime};
+use tauri::{Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 use crate::{
     auth::{account_fields, token_string, validate_auth},
     codex_api::{refresh_tokens, token_expiring, ORIGINATOR},
-    models::{LocalProxyStatus, ProviderApiFormat, ProviderProfile},
+    models::{LocalProxyStatus, ProviderApiFormat, ProviderProfile, TokenUsageEntry},
     providers::{self, LOCAL_PROXY_BASE_URL, LOCAL_PROXY_HOST, LOCAL_PROXY_PORT},
     storage::{
         managed_auth_path, read_json, read_state, resolve_paths, write_json_atomic,
@@ -33,6 +33,11 @@ const CUSTOM_TOOL_INPUT_FIELD: &str = "input";
 const CHAT_TOOL_NAME_MAX_LEN: usize = 64;
 const DIAGNOSTIC_LOG_MAX_BYTES: u64 = 2 * 1024 * 1024;
 const DIAGNOSTIC_LOG_FILE_NAME: &str = "local-proxy-diagnostics.jsonl";
+const TOKEN_USAGE_LOG_FILE_NAME: &str = "token-usage.jsonl";
+const TOKEN_USAGE_LOG_MAX_BYTES: u64 = 4 * 1024 * 1024;
+const TOKEN_USAGE_LIST_LIMIT: usize = 500;
+const TOKEN_USAGE_CAPTURE_MAX_BYTES: usize = 4 * 1024 * 1024;
+const TOKEN_USAGE_WINDOW_LABEL: &str = "token-usage";
 const CUSTOM_TOOL_INPUT_DESCRIPTION: &str =
     "Raw string input for the original custom tool. Preserve formatting exactly.";
 const CUSTOM_TOOL_PRESERVED_METADATA_HEADING: &str = "Original tool definition:";
@@ -56,6 +61,25 @@ enum UpstreamBody {
 enum ActiveTarget {
     Official,
     Provider(ProviderProfile),
+}
+
+#[derive(Debug, Clone, Default)]
+struct TokenUsageValues {
+    input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+    reasoning_tokens: Option<u64>,
+    cached_tokens: Option<u64>,
+    total_tokens: Option<u64>,
+}
+
+#[derive(Clone)]
+struct TokenUsageContext {
+    ts: u64,
+    provider: String,
+    model: String,
+    request_hash: String,
+    started_at: Instant,
+    content_type: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -338,6 +362,56 @@ pub(crate) fn export_diagnostic_logs<R: Runtime>(
     Ok(destination.display().to_string())
 }
 
+#[tauri::command]
+pub(crate) fn list_token_usage_entries<R: Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<Vec<TokenUsageEntry>, String> {
+    let path = token_usage_log_path(&app)?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let file = fs::File::open(&path)
+        .map_err(|error| format!("Failed to open {}: {error}", path.display()))?;
+    let reader = BufReader::new(file);
+    let mut entries = Vec::new();
+    for line in reader.lines() {
+        let line = line.map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(entry) = serde_json::from_str::<TokenUsageEntry>(trimmed) {
+            entries.push(entry);
+        }
+    }
+    entries.sort_by(|left, right| right.ts.cmp(&left.ts).then_with(|| right.id.cmp(&left.id)));
+    entries.truncate(TOKEN_USAGE_LIST_LIMIT);
+    Ok(entries)
+}
+
+#[tauri::command]
+pub(crate) fn show_token_usage_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(TOKEN_USAGE_WINDOW_LABEL) {
+        window.show().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    WebviewWindowBuilder::new(
+        &app,
+        TOKEN_USAGE_WINDOW_LABEL,
+        WebviewUrl::App("index.html?window=token-usage".into()),
+    )
+    .title("Token Usage")
+    .inner_size(980.0, 560.0)
+    .min_inner_size(780.0, 420.0)
+    .resizable(true)
+    .maximizable(true)
+    .build()
+    .map(|_| ())
+    .map_err(|error| error.to_string())
+}
+
 pub(crate) fn restore_local_proxy_if_enabled<R: Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Result<bool, String> {
@@ -486,6 +560,7 @@ fn handle_proxy_request<R: Runtime>(
     body: Vec<u8>,
 ) -> Result<UpstreamPayload, String> {
     let path = request_path(url);
+    let started_at = Instant::now();
     if *method == Method::Get && path == "/health" {
         let diagnostic = proxy_diagnostic_entry(
             method,
@@ -496,7 +571,7 @@ fn handle_proxy_request<R: Runtime>(
             ProxyDiagnosticRoute::LocalHealth,
         );
         let result = Ok(json_payload(200, json!({ "status": "ok" })));
-        append_proxy_diagnostic_result(app, diagnostic, &result);
+        append_proxy_diagnostic_result(app, diagnostic, &result, started_at.elapsed());
         return result;
     }
     if *method == Method::Get && matches!(path, "/models" | "/v1/models") {
@@ -512,7 +587,7 @@ fn handle_proxy_request<R: Runtime>(
                     ProxyDiagnosticRoute::LocalModels,
                 );
                 let result = Err(error);
-                append_proxy_diagnostic_result(app, diagnostic, &result);
+                append_proxy_diagnostic_result(app, diagnostic, &result, started_at.elapsed());
                 return result;
             }
         };
@@ -525,7 +600,7 @@ fn handle_proxy_request<R: Runtime>(
             ProxyDiagnosticRoute::LocalModels,
         );
         let result = Ok(json_payload(200, models_response_for_target(&target)));
-        append_proxy_diagnostic_result(app, diagnostic, &result);
+        append_proxy_diagnostic_result(app, diagnostic, &result, started_at.elapsed());
         return result;
     }
 
@@ -541,12 +616,13 @@ fn handle_proxy_request<R: Runtime>(
                 ProxyDiagnosticRoute::TargetResolutionError,
             );
             let result = Err(error);
-            append_proxy_diagnostic_result(app, diagnostic, &result);
+            append_proxy_diagnostic_result(app, diagnostic, &result, started_at.elapsed());
             return result;
         }
     };
     let route = proxy_diagnostic_route(path, &target);
     let diagnostic = proxy_diagnostic_entry(method, url, headers, &body, Some(&target), route);
+    let usage_context = token_usage_context(method, path, &body, &target, started_at);
     let result = match target {
         ActiveTarget::Official => forward_official(app, method, url, headers, body),
         ActiveTarget::Provider(provider) => {
@@ -557,7 +633,8 @@ fn handle_proxy_request<R: Runtime>(
             }
         }
     };
-    append_proxy_diagnostic_result(app, diagnostic, &result);
+    let result = attach_token_usage_capture(app, usage_context, result);
+    append_proxy_diagnostic_result(app, diagnostic, &result, started_at.elapsed());
     result
 }
 
@@ -629,7 +706,9 @@ fn append_proxy_diagnostic_result<R: Runtime>(
     app: &tauri::AppHandle<R>,
     mut entry: Value,
     result: &Result<UpstreamPayload, String>,
+    duration: Duration,
 ) {
+    entry["durationMs"] = json!(duration.as_millis() as u64);
     match result {
         Ok(payload) => {
             entry["result"] = json!({
@@ -653,6 +732,318 @@ fn append_proxy_diagnostic_result<R: Runtime>(
 
     if let Err(error) = append_diagnostic_log(app, &entry) {
         eprintln!("failed to write local proxy diagnostics: {error}");
+    }
+}
+
+fn token_usage_context(
+    method: &Method,
+    path: &str,
+    body: &[u8],
+    target: &ActiveTarget,
+    started_at: Instant,
+) -> Option<TokenUsageContext> {
+    if *method != Method::Post || !is_responses_endpoint(path) {
+        return None;
+    }
+
+    let request_body = serde_json::from_slice::<Value>(body).ok();
+    let (provider, model) = match target {
+        ActiveTarget::Official => {
+            let model = request_body
+                .as_ref()
+                .and_then(|value| value.get("model"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("gpt-5-codex")
+                .to_string();
+            ("Official Codex".to_string(), model)
+        }
+        ActiveTarget::Provider(provider) => {
+            let model = request_body
+                .as_ref()
+                .map(|value| selected_provider_model(value, provider))
+                .unwrap_or_else(|| provider.model.clone());
+            (provider.name.clone(), model)
+        }
+    };
+
+    Some(TokenUsageContext {
+        ts: unix_now(),
+        provider,
+        model,
+        request_hash: short_hash_bytes(body),
+        started_at,
+        content_type: None,
+    })
+}
+
+fn attach_token_usage_capture<R: Runtime + 'static>(
+    app: &tauri::AppHandle<R>,
+    context: Option<TokenUsageContext>,
+    result: Result<UpstreamPayload, String>,
+) -> Result<UpstreamPayload, String> {
+    let mut payload = result?;
+    let Some(mut context) = context else {
+        return Ok(payload);
+    };
+    if !status_ok(payload.status) {
+        return Ok(payload);
+    }
+    context.content_type = payload.content_type.clone();
+    payload.body = match payload.body {
+        UpstreamBody::Buffered(body) => {
+            let usage = extract_token_usage_from_bytes(&body, context.content_type.as_deref());
+            record_token_usage_entry(app, &context, usage);
+            UpstreamBody::Buffered(body)
+        }
+        UpstreamBody::Streaming(reader) => UpstreamBody::Streaming(Box::new(
+            TokenUsageCaptureReader::new(reader, app.clone(), context),
+        )),
+    };
+    Ok(payload)
+}
+
+struct TokenUsageCaptureReader<R: Runtime> {
+    inner: Box<dyn Read + Send>,
+    app: tauri::AppHandle<R>,
+    context: TokenUsageContext,
+    body: Vec<u8>,
+    sse_buffer: String,
+    usage: Option<TokenUsageValues>,
+    recorded: bool,
+}
+
+impl<R: Runtime> TokenUsageCaptureReader<R> {
+    fn new(
+        inner: Box<dyn Read + Send>,
+        app: tauri::AppHandle<R>,
+        context: TokenUsageContext,
+    ) -> Self {
+        Self {
+            inner,
+            app,
+            context,
+            body: Vec::new(),
+            sse_buffer: String::new(),
+            usage: None,
+            recorded: false,
+        }
+    }
+
+    fn observe(&mut self, bytes: &[u8]) {
+        if is_event_stream(self.context.content_type.as_deref()) {
+            let chunk = String::from_utf8_lossy(bytes).replace("\r\n", "\n");
+            self.sse_buffer.push_str(&chunk);
+            self.process_sse_blocks();
+            return;
+        }
+        let remaining = TOKEN_USAGE_CAPTURE_MAX_BYTES.saturating_sub(self.body.len());
+        if remaining > 0 {
+            self.body
+                .extend_from_slice(&bytes[..bytes.len().min(remaining)]);
+        }
+    }
+
+    fn process_sse_blocks(&mut self) {
+        while let Some(index) = self.sse_buffer.find("\n\n") {
+            let block = self.sse_buffer[..index].to_string();
+            self.sse_buffer.drain(..index + 2);
+            self.process_sse_block(&block);
+        }
+    }
+
+    fn process_sse_block(&mut self, block: &str) {
+        let data = block
+            .lines()
+            .filter_map(|line| line.trim_start().strip_prefix("data:"))
+            .map(str::trim_start)
+            .collect::<Vec<_>>()
+            .join("\n");
+        if data.trim().is_empty() || data.trim() == "[DONE]" {
+            return;
+        }
+        if let Ok(value) = serde_json::from_str::<Value>(&data) {
+            if let Some(usage) = extract_token_usage_from_value(&value) {
+                self.usage = Some(usage);
+            }
+        }
+    }
+
+    fn finish(&mut self) {
+        if self.recorded {
+            return;
+        }
+        self.recorded = true;
+        if is_event_stream(self.context.content_type.as_deref()) {
+            self.process_sse_blocks();
+            if !self.sse_buffer.trim().is_empty() {
+                let block = std::mem::take(&mut self.sse_buffer);
+                self.process_sse_block(&block);
+            }
+        } else if self.usage.is_none() {
+            self.usage =
+                extract_token_usage_from_bytes(&self.body, self.context.content_type.as_deref());
+        }
+        record_token_usage_entry(&self.app, &self.context, self.usage.clone());
+    }
+}
+
+impl<R: Runtime> Read for TokenUsageCaptureReader<R> {
+    fn read(&mut self, target: &mut [u8]) -> io::Result<usize> {
+        match self.inner.read(target) {
+            Ok(0) => {
+                self.finish();
+                Ok(0)
+            }
+            Ok(count) => {
+                self.observe(&target[..count]);
+                Ok(count)
+            }
+            Err(error) => {
+                self.finish();
+                Err(error)
+            }
+        }
+    }
+}
+
+impl<R: Runtime> Drop for TokenUsageCaptureReader<R> {
+    fn drop(&mut self) {
+        self.finish();
+    }
+}
+
+fn extract_token_usage_from_bytes(
+    bytes: &[u8],
+    content_type: Option<&str>,
+) -> Option<TokenUsageValues> {
+    if is_event_stream(content_type) {
+        let text = String::from_utf8_lossy(bytes).replace("\r\n", "\n");
+        let mut usage = None;
+        for block in text.split("\n\n") {
+            let data = block
+                .lines()
+                .filter_map(|line| line.trim_start().strip_prefix("data:"))
+                .map(str::trim_start)
+                .collect::<Vec<_>>()
+                .join("\n");
+            if data.trim().is_empty() || data.trim() == "[DONE]" {
+                continue;
+            }
+            if let Ok(value) = serde_json::from_str::<Value>(&data) {
+                if let Some(next) = extract_token_usage_from_value(&value) {
+                    usage = Some(next);
+                }
+            }
+        }
+        return usage;
+    }
+
+    serde_json::from_slice::<Value>(bytes)
+        .ok()
+        .and_then(|value| extract_token_usage_from_value(&value))
+}
+
+fn extract_token_usage_from_value(value: &Value) -> Option<TokenUsageValues> {
+    let usage = value
+        .get("usage")
+        .filter(|usage| !usage.is_null())
+        .or_else(|| {
+            value
+                .pointer("/response/usage")
+                .filter(|usage| !usage.is_null())
+        })
+        .or_else(|| {
+            value
+                .pointer("/choices/0/usage")
+                .filter(|usage| !usage.is_null())
+        })?;
+    Some(token_usage_values_from_usage(usage))
+}
+
+fn token_usage_values_from_usage(usage: &Value) -> TokenUsageValues {
+    let input_tokens = first_usage_number(usage, &[&["input_tokens"], &["prompt_tokens"]]);
+    let output_tokens = first_usage_number(usage, &[&["output_tokens"], &["completion_tokens"]]);
+    let reasoning_tokens = first_usage_number(
+        usage,
+        &[
+            &["output_tokens_details", "reasoning_tokens"],
+            &["completion_tokens_details", "reasoning_tokens"],
+            &["reasoning_tokens"],
+        ],
+    );
+    let cached_tokens = first_usage_number(
+        usage,
+        &[
+            &["input_tokens_details", "cached_tokens"],
+            &["prompt_tokens_details", "cached_tokens"],
+            &["cache_read_input_tokens"],
+            &["cached_tokens"],
+            &["prompt_cache_hit_tokens"],
+        ],
+    );
+    let total_tokens = first_usage_number(usage, &[&["total_tokens"]]).or_else(|| {
+        input_tokens
+            .zip(output_tokens)
+            .map(|(input, output)| input + output)
+    });
+
+    TokenUsageValues {
+        input_tokens,
+        output_tokens,
+        reasoning_tokens,
+        cached_tokens,
+        total_tokens,
+    }
+}
+
+fn first_usage_number(usage: &Value, paths: &[&[&str]]) -> Option<u64> {
+    paths
+        .iter()
+        .find_map(|path| usage_number_at_path(usage, path))
+}
+
+fn usage_number_at_path(value: &Value, path: &[&str]) -> Option<u64> {
+    let mut current = value;
+    for segment in path {
+        current = current.get(*segment)?;
+    }
+    current
+        .as_u64()
+        .or_else(|| current.as_i64().and_then(|value| u64::try_from(value).ok()))
+}
+
+fn record_token_usage_entry<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    context: &TokenUsageContext,
+    usage: Option<TokenUsageValues>,
+) {
+    let usage = usage.unwrap_or_default();
+    let duration_ms = context.started_at.elapsed().as_millis() as u64;
+    let id = short_hash_str(&format!(
+        "{}:{}:{}:{}:{}:{}",
+        context.ts,
+        context.provider,
+        context.model,
+        context.request_hash,
+        duration_ms,
+        unix_millis()
+    ));
+    let entry = TokenUsageEntry {
+        id,
+        ts: context.ts,
+        provider: context.provider.clone(),
+        model: context.model.clone(),
+        duration_ms: Some(duration_ms),
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        reasoning_tokens: usage.reasoning_tokens,
+        cached_tokens: usage.cached_tokens,
+        total_tokens: usage.total_tokens,
+    };
+    if let Err(error) = append_token_usage_log(app, &entry) {
+        eprintln!("failed to write token usage log: {error}");
     }
 }
 
@@ -851,6 +1242,28 @@ fn append_diagnostic_log<R: Runtime>(
         .map_err(|error| format!("Failed to write {}: {error}", path.display()))
 }
 
+fn append_token_usage_log<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    entry: &TokenUsageEntry,
+) -> Result<(), String> {
+    let path = token_usage_log_path(app)?;
+    rotate_token_usage_log_if_needed(&path)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Token usage log path has no parent directory".to_string())?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|error| format!("Failed to open {}: {error}", path.display()))?;
+    serde_json::to_writer(&mut file, entry)
+        .map_err(|error| format!("Failed to serialize token usage log: {error}"))?;
+    file.write_all(b"\n")
+        .map_err(|error| format!("Failed to write {}: {error}", path.display()))
+}
+
 fn rotate_diagnostic_log_if_needed(path: &Path) -> Result<(), String> {
     let Ok(metadata) = fs::metadata(path) else {
         return Ok(());
@@ -873,12 +1286,42 @@ fn rotate_diagnostic_log_if_needed(path: &Path) -> Result<(), String> {
     })
 }
 
+fn rotate_token_usage_log_if_needed(path: &Path) -> Result<(), String> {
+    let Ok(metadata) = fs::metadata(path) else {
+        return Ok(());
+    };
+    if metadata.len() <= TOKEN_USAGE_LOG_MAX_BYTES {
+        return Ok(());
+    }
+
+    let rotated = path.with_extension("jsonl.old");
+    if rotated.exists() {
+        fs::remove_file(&rotated)
+            .map_err(|error| format!("Failed to remove {}: {error}", rotated.display()))?;
+    }
+    fs::rename(path, &rotated).map_err(|error| {
+        format!(
+            "Failed to rotate token usage log {} to {}: {error}",
+            path.display(),
+            rotated.display()
+        )
+    })
+}
+
 fn diagnostic_log_path<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
     let app_data = app
         .path()
         .app_data_dir()
         .map_err(|error| format!("Failed to locate app data directory: {error}"))?;
     Ok(app_data.join("logs").join(DIAGNOSTIC_LOG_FILE_NAME))
+}
+
+fn token_usage_log_path<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Failed to locate app data directory: {error}"))?;
+    Ok(app_data.join("logs").join(TOKEN_USAGE_LOG_FILE_NAME))
 }
 
 fn models_response_for_target(target: &ActiveTarget) -> Value {
@@ -1954,6 +2397,7 @@ struct ChatSseReader<R> {
     text: String,
     tools: BTreeMap<usize, StreamingToolCall>,
     tool_context: CodexToolContext,
+    usage: Option<Value>,
     completed: bool,
 }
 
@@ -1973,6 +2417,7 @@ impl<R: BufRead> ChatSseReader<R> {
             text: String::new(),
             tools: BTreeMap::new(),
             tool_context,
+            usage: None,
             completed: false,
         }
     }
@@ -2031,6 +2476,9 @@ impl<R: BufRead> ChatSseReader<R> {
         let Ok(value) = serde_json::from_str::<Value>(&data) else {
             return;
         };
+        if let Some(usage) = value.get("usage").filter(|usage| !usage.is_null()) {
+            self.usage = Some(usage.clone());
+        }
         if let Some(delta) = chat_stream_delta_text(&value) {
             if !delta.is_empty() {
                 self.text.push_str(delta);
@@ -2062,6 +2510,7 @@ impl<R: BufRead> ChatSseReader<R> {
             &self.text,
             &tool_events,
             tool_items,
+            self.usage.clone(),
         ));
         self.completed = true;
     }
@@ -2361,6 +2810,7 @@ fn chat_sse_to_responses_sse(sse: &str, model: &str) -> String {
         &text,
         "",
         Vec::new(),
+        None,
     ));
     output
 }
@@ -2445,6 +2895,7 @@ fn response_done_sse(
     text: &str,
     tool_events: &str,
     tool_items: Vec<Value>,
+    usage: Option<Value>,
 ) -> String {
     let mut output = String::new();
     let message_item = json!({
@@ -2488,19 +2939,23 @@ fn response_done_sse(
     output.push_str(tool_events);
     let mut response_output = vec![message_item];
     response_output.extend(tool_items);
+    let mut response = json!({
+        "id": response_id,
+        "object": "response",
+        "created_at": unix_now(),
+        "status": "completed",
+        "model": model,
+        "output": response_output
+    });
+    if let Some(usage) = usage {
+        response["usage"] = usage;
+    }
     push_sse(
         &mut output,
         "response.completed",
         json!({
             "type": "response.completed",
-            "response": {
-                "id": response_id,
-                "object": "response",
-                "created_at": unix_now(),
-                "status": "completed",
-                "model": model,
-                "output": response_output
-            }
+            "response": response
         }),
     );
     output.push_str("data: [DONE]\n\n");
@@ -2545,6 +3000,13 @@ fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
+fn unix_millis() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
         .unwrap_or(0)
 }
 

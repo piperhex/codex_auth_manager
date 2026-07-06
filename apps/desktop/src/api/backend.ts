@@ -16,6 +16,7 @@ import type {
   Provider,
   ProviderInput,
   ResetCreditsSummary,
+  TokenUsageEntry,
   UpdateInfo,
 } from "../types";
 import { DEFAULT_THEME_COLOR, normalizeThemeColor } from "../utils/theme";
@@ -225,6 +226,47 @@ export async function removeProvider(id: string): Promise<void> {
 export async function loadLocalProxyStatus(): Promise<LocalProxyStatus> {
   if (!isDesktopApp) return previewLocalProxyStatus();
   return invoke<LocalProxyStatus>("get_local_proxy_status");
+}
+
+export async function loadTokenUsageEntries(): Promise<TokenUsageEntry[]> {
+  if (!isDesktopApp) {
+    const now = Math.floor(Date.now() / 1000);
+    return [
+      {
+        id: "preview-token-1",
+        ts: now - 92,
+        provider: "AICoding.sh",
+        model: "gpt-5-codex",
+        durationMs: 16720,
+        inputTokens: 20088,
+        outputTokens: 1376,
+        reasoningTokens: 1344,
+        cachedTokens: 19456,
+        totalTokens: 21464,
+      },
+      {
+        id: "preview-token-2",
+        ts: now - 109,
+        provider: "AICoding.sh",
+        model: "gpt-5-codex",
+        durationMs: 3280,
+        inputTokens: 19548,
+        outputTokens: 32,
+        reasoningTokens: 0,
+        cachedTokens: 19012,
+        totalTokens: 19580,
+      },
+    ];
+  }
+  return invoke<TokenUsageEntry[]>("list_token_usage_entries");
+}
+
+export async function showTokenUsageWindow(): Promise<void> {
+  if (!isDesktopApp) {
+    window.open(`${window.location.pathname}?window=token-usage`, "_blank", "noopener,noreferrer");
+    return;
+  }
+  await invoke("show_token_usage_window");
 }
 
 export async function startLocalProxy(): Promise<LocalProxyStatus> {

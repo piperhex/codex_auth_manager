@@ -79,6 +79,19 @@ export interface LocalProxyStatus {
   baseUrl: string;
 }
 
+export interface TokenUsageEntry {
+  id: string;
+  ts: number;
+  provider: string;
+  model: string;
+  durationMs?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  reasoningTokens?: number | null;
+  cachedTokens?: number | null;
+  totalTokens?: number | null;
+}
+
 export interface UpdateInfo {
   currentVersion: string;
   latestVersion: string;

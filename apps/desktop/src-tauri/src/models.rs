@@ -109,6 +109,21 @@ pub(crate) struct LocalProxyStatus {
     pub(crate) base_url: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TokenUsageEntry {
+    pub(crate) id: String,
+    pub(crate) ts: u64,
+    pub(crate) provider: String,
+    pub(crate) model: String,
+    pub(crate) duration_ms: Option<u64>,
+    pub(crate) input_tokens: Option<u64>,
+    pub(crate) output_tokens: Option<u64>,
+    pub(crate) reasoning_tokens: Option<u64>,
+    pub(crate) cached_tokens: Option<u64>,
+    pub(crate) total_tokens: Option<u64>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UpdateInfo {

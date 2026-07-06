@@ -2,11 +2,12 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfigProvider, Popconfirm, Tooltip, theme as antdTheme } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
-import { CalendarClock, Check, CircleHelp, Cloud, Download, Github, LogIn, LogOut, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Upload, UploadCloud, UserRound } from "lucide-react";
+import { BarChart3, CalendarClock, Check, CircleHelp, Cloud, Download, Github, LogIn, LogOut, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Upload, UploadCloud, UserRound } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { checkForUpdate, chooseAndExportDiagnosticLogs, isDesktopApp, openManagedFolder, restartCodex } from "./api/backend";
+import { checkForUpdate, chooseAndExportDiagnosticLogs, isDesktopApp, openManagedFolder, restartCodex, showTokenUsageWindow } from "./api/backend";
 import { HelpModal, type HelpVersionState } from "./components/modals/HelpModal";
 import { FloatingUsageBubble } from "./components/FloatingUsageBubble";
+import { TokenUsageWindow } from "./components/TokenUsageWindow";
 import { CloudLoginModal } from "./components/modals/CloudLoginModal";
 import { LoginModal } from "./components/modals/LoginModal";
 import { UpdateModal } from "./components/modals/UpdateModal";
@@ -207,6 +208,13 @@ function DashboardApp() {
       setRestartingCodex(false);
     }
   }, [notify, t]);
+  const openTokenUsage = useCallback(async () => {
+    try {
+      await showTokenUsageWindow();
+    } catch (error) {
+      notify(String(error));
+    }
+  }, [notify]);
   const openRepository = () => {
     if ("__TAURI_INTERNALS__" in window) {
       void openUrl(REPOSITORY_URL).catch((error) => notify(String(error)));
@@ -339,6 +347,11 @@ function DashboardApp() {
             )}
             {page === "providers" && (
               <div className="topbar-actions">
+                <Tooltip title="Token 消耗汇总">
+                  <button className="refresh-all" onClick={() => void openTokenUsage()}>
+                    <BarChart3 size={17} />Token 汇总
+                  </button>
+                </Tooltip>
                 <Popconfirm title={t("actions.restartCodexConfirmTitle")}
                   description={t("actions.restartCodexConfirmDescription")}
                   okText={t("actions.restartCodex")} cancelText={t("table.cancel")}
@@ -413,8 +426,12 @@ function DashboardApp() {
 }
 
 export default function App() {
-  if (new URLSearchParams(window.location.search).get("window") === "bubble") {
+  const windowName = new URLSearchParams(window.location.search).get("window");
+  if (windowName === "bubble") {
     return <FloatingUsageBubble />;
+  }
+  if (windowName === "token-usage") {
+    return <TokenUsageWindow />;
   }
   return <DashboardApp />;
 }
