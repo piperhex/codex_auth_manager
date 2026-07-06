@@ -444,7 +444,8 @@ fn forward_official<R: Runtime>(
 ) -> Result<UpstreamPayload, String> {
     let client = http_client()?;
     let (access_token, account_id) = official_token(app, &client)?;
-    let upstream_url = official_url(url);
+    let upstream_endpoint = upstream_endpoint_for_codex_request(url);
+    let upstream_url = official_url(&upstream_endpoint);
     let mut request = client
         .request(reqwest_method(method)?, upstream_url)
         .bearer_auth(access_token)
@@ -470,8 +471,9 @@ fn forward_provider(
     provider: &ProviderProfile,
 ) -> Result<UpstreamPayload, String> {
     let client = http_client()?;
-    let upstream_url = build_upstream_url(&provider.base_url, url);
-    let body = provider_body_for_upstream(method, url, body, provider);
+    let upstream_endpoint = upstream_endpoint_for_codex_request(url);
+    let upstream_url = build_upstream_url(&provider.base_url, &upstream_endpoint);
+    let body = provider_body_for_upstream(method, &upstream_endpoint, body, provider);
     let request = client
         .request(reqwest_method(method)?, upstream_url)
         .bearer_auth(provider.api_key.trim());
@@ -710,11 +712,30 @@ fn request_path(url: &str) -> &str {
     url.split_once('?').map_or(url, |(path, _)| path)
 }
 
+fn upstream_endpoint_for_codex_request(url: &str) -> String {
+    let path = request_path(url);
+    let normalized_path = normalized_responses_endpoint(path).unwrap_or(path);
+    match url.split_once('?') {
+        Some((_, query)) if !query.is_empty() => format!("{normalized_path}?{query}"),
+        _ => normalized_path.to_string(),
+    }
+}
+
 fn is_responses_endpoint(path: &str) -> bool {
-    matches!(
-        path,
-        "/responses" | "/v1/responses" | "/responses/compact" | "/v1/responses/compact"
-    )
+    normalized_responses_endpoint(path).is_some()
+}
+
+fn normalized_responses_endpoint(path: &str) -> Option<&'static str> {
+    match path {
+        "/responses" | "/v1/responses" | "/v1/v1/responses" | "/codex/v1/responses" => {
+            Some("/v1/responses")
+        }
+        "/responses/compact"
+        | "/v1/responses/compact"
+        | "/v1/v1/responses/compact"
+        | "/codex/v1/responses/compact" => Some("/v1/responses/compact"),
+        _ => None,
+    }
 }
 
 fn status_ok(status: u16) -> bool {
@@ -2069,6 +2090,24 @@ mod tests {
             build_upstream_url("https://api.example.com", "/responses"),
             "https://api.example.com/v1/responses"
         );
+    }
+
+    #[test]
+    fn codex_response_endpoint_variants_normalize_for_upstream() {
+        assert_eq!(
+            upstream_endpoint_for_codex_request("/v1/v1/responses?foo=bar"),
+            "/v1/responses?foo=bar"
+        );
+        assert_eq!(
+            upstream_endpoint_for_codex_request("/codex/v1/responses"),
+            "/v1/responses"
+        );
+        assert_eq!(
+            upstream_endpoint_for_codex_request("/codex/v1/responses/compact?foo=bar"),
+            "/v1/responses/compact?foo=bar"
+        );
+        assert!(is_responses_endpoint("/v1/v1/responses"));
+        assert!(is_responses_endpoint("/codex/v1/responses/compact"));
     }
 
     #[test]

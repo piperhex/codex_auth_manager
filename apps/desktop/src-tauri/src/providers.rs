@@ -162,7 +162,7 @@ pub(crate) fn switch_provider<R: Runtime>(
 
     let mut state = read_state(&paths);
     backup_codex_config_if_needed(&paths, state.active_provider_id.is_none())?;
-    if proxy_running {
+    if provider_uses_local_proxy_when_running(&provider) && proxy_running {
         write_provider_local_proxy_config(&paths, &provider)?;
     } else {
         write_provider_config(&paths, &provider)?;
@@ -268,7 +268,11 @@ pub(crate) fn apply_local_proxy_config_for_state<R: Runtime>(
     if let Some(id) = state.active_provider_id.as_deref() {
         let provider = read_provider(&paths, id)?;
         ensure_not_local_proxy_base_url(&provider.base_url)?;
-        write_provider_local_proxy_config(&paths, &provider)
+        if provider_uses_local_proxy_when_running(&provider) {
+            write_provider_local_proxy_config(&paths, &provider)
+        } else {
+            write_provider_config(&paths, &provider)
+        }
     } else {
         ensure_official_auth_for_local_proxy(&paths)?;
         write_official_local_proxy_config(&paths)
@@ -521,11 +525,15 @@ fn write_provider_local_proxy_config(
 }
 
 fn write_active_provider_config(paths: &Paths, provider: &ProviderProfile) -> Result<(), String> {
-    if crate::local_proxy::is_running() {
+    if provider_uses_local_proxy_when_running(provider) && crate::local_proxy::is_running() {
         write_provider_local_proxy_config(paths, provider)
     } else {
         write_provider_config(paths, provider)
     }
+}
+
+fn provider_uses_local_proxy_when_running(provider: &ProviderProfile) -> bool {
+    provider.api_format == ProviderApiFormat::OpenaiChat
 }
 
 fn write_provider_model_catalog(paths: &Paths, provider: &ProviderProfile) -> Result<(), String> {
@@ -921,6 +929,17 @@ sandbox_mode = "workspace-write"
         let merged = merge_provider_config("", &provider);
 
         assert!(merged.contains("model_catalog_json = \"codex-switch-model-catalog.json\""));
+    }
+
+    #[test]
+    fn responses_providers_stay_direct_even_when_proxy_is_running() {
+        let mut responses_provider = provider();
+        responses_provider.api_format = ProviderApiFormat::OpenaiResponses;
+        let mut chat_provider = provider();
+        chat_provider.api_format = ProviderApiFormat::OpenaiChat;
+
+        assert!(!provider_uses_local_proxy_when_running(&responses_provider));
+        assert!(provider_uses_local_proxy_when_running(&chat_provider));
     }
 
     #[test]
