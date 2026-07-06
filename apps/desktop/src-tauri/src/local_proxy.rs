@@ -1,4 +1,5 @@
 use std::{
+    collections::{BTreeMap, HashMap, HashSet},
     io::{self, BufRead, BufReader, Read},
     sync::{Arc, Mutex, OnceLock},
     thread::{self, JoinHandle},
@@ -7,6 +8,7 @@ use std::{
 
 use reqwest::blocking::{Client, Response as ReqwestResponse};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tauri::{Emitter, Runtime};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
@@ -24,6 +26,12 @@ use crate::{
 const OFFICIAL_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(600);
 const UPSTREAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+const TOOL_SEARCH_PROXY_NAME: &str = "tool_search";
+const CUSTOM_TOOL_INPUT_FIELD: &str = "input";
+const CHAT_TOOL_NAME_MAX_LEN: usize = 64;
+const CUSTOM_TOOL_INPUT_DESCRIPTION: &str =
+    "Raw string input for the original custom tool. Preserve formatting exactly.";
+const CUSTOM_TOOL_PRESERVED_METADATA_HEADING: &str = "Original tool definition:";
 
 struct ProxyRuntime {
     server: Arc<Server>,
@@ -44,6 +52,188 @@ enum UpstreamBody {
 enum ActiveTarget {
     Official,
     Provider(ProviderProfile),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CodexToolKind {
+    Function,
+    Namespace,
+    Custom,
+    ToolSearch,
+}
+
+#[derive(Debug, Clone)]
+struct CodexToolSpec {
+    kind: CodexToolKind,
+    name: String,
+    namespace: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct CodexToolContext {
+    chat_tools: Vec<Value>,
+    seen_chat_names: HashSet<String>,
+    chat_name_to_spec: HashMap<String, CodexToolSpec>,
+    namespace_name_to_chat_name: HashMap<(String, String), String>,
+}
+
+impl CodexToolContext {
+    fn chat_tools(&self) -> &[Value] {
+        &self.chat_tools
+    }
+
+    fn lookup_chat_name(&self, chat_name: &str) -> Option<&CodexToolSpec> {
+        self.chat_name_to_spec.get(chat_name)
+    }
+
+    fn is_custom_tool_chat_name(&self, chat_name: &str) -> bool {
+        self.lookup_chat_name(chat_name)
+            .is_some_and(|spec| spec.kind == CodexToolKind::Custom)
+    }
+
+    fn chat_name_for_response_function(&self, name: &str, namespace: Option<&str>) -> String {
+        if let Some(namespace) = namespace.filter(|value| !value.is_empty()) {
+            if let Some(chat_name) = self
+                .namespace_name_to_chat_name
+                .get(&(namespace.to_string(), name.to_string()))
+            {
+                return chat_name.clone();
+            }
+            return flatten_namespace_tool_name(namespace, name);
+        }
+
+        name.to_string()
+    }
+
+    fn add_chat_tool(&mut self, chat_name: String, spec: CodexToolSpec, chat_tool: Value) {
+        if chat_name.trim().is_empty() || self.seen_chat_names.contains(&chat_name) {
+            return;
+        }
+        self.seen_chat_names.insert(chat_name.clone());
+        if let Some(namespace) = spec.namespace.as_ref() {
+            self.namespace_name_to_chat_name
+                .insert((namespace.clone(), spec.name.clone()), chat_name.clone());
+        }
+        self.chat_name_to_spec.insert(chat_name, spec);
+        self.chat_tools.push(chat_tool);
+    }
+
+    fn add_function_tool(&mut self, tool: &Value, namespace: Option<&str>) {
+        let Some(original_name) = responses_tool_name(tool) else {
+            return;
+        };
+        let chat_name = namespace
+            .map(|namespace| flatten_namespace_tool_name(namespace, &original_name))
+            .unwrap_or_else(|| original_name.clone());
+        let Some(chat_tool) = responses_function_tool_to_chat_tool(tool, &chat_name) else {
+            return;
+        };
+        let spec = CodexToolSpec {
+            kind: if namespace.is_some() {
+                CodexToolKind::Namespace
+            } else {
+                CodexToolKind::Function
+            },
+            name: original_name,
+            namespace: namespace.map(ToString::to_string),
+        };
+        self.add_chat_tool(chat_name, spec, chat_tool);
+    }
+
+    fn add_custom_tool(&mut self, tool: &Value) {
+        let Some(name) = responses_tool_name(tool) else {
+            return;
+        };
+        let chat_tool = json!({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": responses_custom_tool_description(tool),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        CUSTOM_TOOL_INPUT_FIELD: {
+                            "type": "string",
+                            "description": CUSTOM_TOOL_INPUT_DESCRIPTION
+                        }
+                    },
+                    "required": [CUSTOM_TOOL_INPUT_FIELD]
+                }
+            }
+        });
+        let spec = CodexToolSpec {
+            kind: CodexToolKind::Custom,
+            name: name.clone(),
+            namespace: None,
+        };
+        self.add_chat_tool(name, spec, chat_tool);
+    }
+
+    fn add_tool_search_tool(&mut self) {
+        let chat_tool = json!({
+            "type": "function",
+            "function": {
+                "name": TOOL_SEARCH_PROXY_NAME,
+                "description": "Search and load Codex tools, plugins, connectors, and MCP namespaces for the current task.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query for tools or connectors to load."
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of tool groups to return."
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        });
+        let spec = CodexToolSpec {
+            kind: CodexToolKind::ToolSearch,
+            name: TOOL_SEARCH_PROXY_NAME.to_string(),
+            namespace: None,
+        };
+        self.add_chat_tool(TOOL_SEARCH_PROXY_NAME.to_string(), spec, chat_tool);
+    }
+
+    fn add_namespace_tool(&mut self, namespace_tool: &Value) {
+        let Some(namespace) = namespace_tool.get("name").and_then(Value::as_str) else {
+            return;
+        };
+        let Some(children) = namespace_tool
+            .get("tools")
+            .or_else(|| namespace_tool.get("children"))
+            .and_then(Value::as_array)
+        else {
+            return;
+        };
+
+        for child in children {
+            if child.get("type").and_then(Value::as_str) == Some("function") {
+                self.add_function_tool(child, Some(namespace));
+            }
+        }
+    }
+
+    fn add_response_tool(&mut self, tool: &Value) {
+        match tool {
+            Value::String(name) => self.add_custom_tool(&json!({
+                "type": "custom",
+                "name": name
+            })),
+            Value::Object(_) => match tool.get("type").and_then(Value::as_str) {
+                Some("function") => self.add_function_tool(tool, None),
+                Some("custom") => self.add_custom_tool(tool),
+                Some("tool_search") => self.add_tool_search_tool(),
+                Some("namespace") => self.add_namespace_tool(tool),
+                _ => {}
+            },
+            _ => {}
+        }
+    }
 }
 
 static RUNTIME: OnceLock<Mutex<Option<ProxyRuntime>>> = OnceLock::new();
@@ -330,7 +520,8 @@ fn forward_chat_bridge(
         .map_err(|error| format!("Responses request body is not valid JSON: {error}"))?;
     let selected_model = selected_provider_model(&responses_body, provider);
     responses_body["model"] = Value::String(selected_model.clone());
-    let chat_body = responses_to_chat_completions(&responses_body);
+    let tool_context = build_codex_tool_context_from_request(&responses_body);
+    let chat_body = responses_to_chat_completions_with_context(&responses_body, &tool_context);
     let stream = chat_body
         .get("stream")
         .and_then(Value::as_bool)
@@ -359,6 +550,7 @@ fn forward_chat_bridge(
             body: UpstreamBody::Streaming(Box::new(ChatSseReader::new(
                 BufReader::new(response),
                 selected_model,
+                tool_context,
             ))),
         });
     }
@@ -377,7 +569,10 @@ fn forward_chat_bridge(
 
     let json: Value = serde_json::from_slice(&body)
         .map_err(|_| "Chat bridge upstream returned non-JSON response".to_string())?;
-    Ok(json_payload(status, chat_to_responses_json(&json)))
+    Ok(json_payload(
+        status,
+        chat_to_responses_json(&json, &tool_context),
+    ))
 }
 
 fn selected_provider_model(body: &Value, provider: &ProviderProfile) -> String {
@@ -570,7 +765,16 @@ fn respond_error(request: Request, status: u16, message: String) {
     );
 }
 
+#[cfg(test)]
 fn responses_to_chat_completions(body: &Value) -> Value {
+    let tool_context = build_codex_tool_context_from_request(body);
+    responses_to_chat_completions_with_context(body, &tool_context)
+}
+
+fn responses_to_chat_completions_with_context(
+    body: &Value,
+    tool_context: &CodexToolContext,
+) -> Value {
     let mut messages = Vec::new();
     if let Some(instructions) = body.get("instructions").and_then(value_to_text) {
         if !instructions.trim().is_empty() {
@@ -578,7 +782,7 @@ fn responses_to_chat_completions(body: &Value) -> Value {
         }
     }
     if let Some(input) = body.get("input") {
-        append_input_messages(input, &mut messages);
+        append_input_messages(input, &mut messages, tool_context);
     }
     if messages.is_empty() {
         messages.push(json!({ "role": "user", "content": "" }));
@@ -595,7 +799,6 @@ fn responses_to_chat_completions(body: &Value) -> Value {
         "presence_penalty",
         "frequency_penalty",
         "parallel_tool_calls",
-        "tool_choice",
     ] {
         if let Some(value) = body.get(key) {
             result[key] = value.clone();
@@ -608,14 +811,11 @@ fn responses_to_chat_completions(body: &Value) -> Value {
     {
         result["max_tokens"] = value.clone();
     }
-    if let Some(tools) = body.get("tools").and_then(Value::as_array) {
-        let tools = tools
-            .iter()
-            .filter_map(responses_tool_to_chat_tool)
-            .collect::<Vec<_>>();
-        if !tools.is_empty() {
-            result["tools"] = Value::Array(tools);
-        }
+    if !tool_context.chat_tools().is_empty() {
+        result["tools"] = Value::Array(tool_context.chat_tools().to_vec());
+    }
+    if let Some(tool_choice) = body.get("tool_choice") {
+        result["tool_choice"] = responses_tool_choice_to_chat(tool_choice, tool_context);
     }
     if result.get("tools").is_none() {
         if let Some(object) = result.as_object_mut() {
@@ -633,31 +833,136 @@ fn responses_to_chat_completions(body: &Value) -> Value {
     result
 }
 
-fn append_input_messages(input: &Value, messages: &mut Vec<Value>) {
+fn append_input_messages(
+    input: &Value,
+    messages: &mut Vec<Value>,
+    tool_context: &CodexToolContext,
+) {
+    let mut pending_tool_calls = Vec::new();
     match input {
         Value::String(text) => messages.push(json!({ "role": "user", "content": text })),
         Value::Array(items) => {
             for item in items {
-                append_input_messages(item, messages);
+                append_input_item_as_chat_message(
+                    item,
+                    messages,
+                    &mut pending_tool_calls,
+                    tool_context,
+                );
             }
         }
         Value::Object(map) => {
-            if map.get("type").and_then(Value::as_str) == Some("function_call_output") {
-                if let Some(text) = map.get("output").and_then(value_to_text) {
-                    messages.push(json!({ "role": "tool", "content": text }));
-                }
-                return;
-            }
-            let role = map
-                .get("role")
-                .and_then(Value::as_str)
-                .map(normalize_chat_role)
-                .unwrap_or("user");
-            if let Some(content) = map.get("content").and_then(value_to_text) {
-                messages.push(json!({ "role": role, "content": content }));
-            }
+            append_input_item_as_chat_message(
+                &Value::Object(map.clone()),
+                messages,
+                &mut pending_tool_calls,
+                tool_context,
+            );
         }
         _ => {}
+    }
+    flush_pending_tool_calls(messages, &mut pending_tool_calls);
+}
+
+fn append_input_item_as_chat_message(
+    item: &Value,
+    messages: &mut Vec<Value>,
+    pending_tool_calls: &mut Vec<Value>,
+    tool_context: &CodexToolContext,
+) {
+    match item {
+        Value::String(text) => {
+            flush_pending_tool_calls(messages, pending_tool_calls);
+            messages.push(json!({ "role": "user", "content": text }));
+            return;
+        }
+        Value::Array(items) => {
+            for nested in items {
+                append_input_item_as_chat_message(
+                    nested,
+                    messages,
+                    pending_tool_calls,
+                    tool_context,
+                );
+            }
+            return;
+        }
+        _ => {}
+    }
+
+    let item_type = item.get("type").and_then(Value::as_str);
+    match item_type {
+        Some("function_call") => {
+            pending_tool_calls.push(responses_function_call_to_chat_tool_call(
+                item,
+                tool_context,
+            ));
+        }
+        Some("custom_tool_call") => {
+            pending_tool_calls.push(responses_custom_tool_call_to_chat_tool_call(item));
+        }
+        Some("tool_search_call") => {
+            pending_tool_calls.push(responses_tool_search_call_to_chat_tool_call(item));
+        }
+        Some("function_call_output") => {
+            flush_pending_tool_calls(messages, pending_tool_calls);
+            append_tool_output_message(item, messages);
+        }
+        Some("custom_tool_call_output") | Some("tool_search_output") => {
+            flush_pending_tool_calls(messages, pending_tool_calls);
+            append_tool_output_message(item, messages);
+        }
+        _ => {
+            flush_pending_tool_calls(messages, pending_tool_calls);
+            append_regular_input_message(item, messages);
+        }
+    }
+}
+
+fn flush_pending_tool_calls(messages: &mut Vec<Value>, pending_tool_calls: &mut Vec<Value>) {
+    if pending_tool_calls.is_empty() {
+        return;
+    }
+    messages.push(json!({
+        "role": "assistant",
+        "content": Value::Null,
+        "tool_calls": pending_tool_calls.drain(..).collect::<Vec<_>>()
+    }));
+}
+
+fn append_tool_output_message(item: &Value, messages: &mut Vec<Value>) {
+    let call_id = item.get("call_id").and_then(Value::as_str).unwrap_or("");
+    if call_id.is_empty() {
+        return;
+    }
+    let content = match item.get("output") {
+        Some(output) => output_to_chat_tool_content(output),
+        None => canonical_json_string(item),
+    };
+    messages.push(json!({
+        "role": "tool",
+        "tool_call_id": call_id,
+        "content": content
+    }));
+}
+
+fn append_regular_input_message(item: &Value, messages: &mut Vec<Value>) {
+    if let Value::Object(map) = item {
+        let role = map
+            .get("role")
+            .and_then(Value::as_str)
+            .map(normalize_chat_role)
+            .unwrap_or("user");
+        if let Some(content) = map.get("content").and_then(value_to_text) {
+            messages.push(json!({ "role": role, "content": content }));
+        } else if matches!(
+            map.get("type").and_then(Value::as_str),
+            Some("input_text" | "output_text" | "text")
+        ) {
+            if let Some(text) = map.get("text").and_then(Value::as_str) {
+                messages.push(json!({ "role": role, "content": text }));
+            }
+        }
     }
 }
 
@@ -696,40 +1001,192 @@ fn value_to_text(value: &Value) -> Option<String> {
     }
 }
 
-fn responses_tool_to_chat_tool(tool: &Value) -> Option<Value> {
-    let tool_type = tool.get("type").and_then(Value::as_str)?;
-    match tool_type {
-        "function" => {
-            let name = tool.get("name").and_then(Value::as_str)?;
-            Some(json!({
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": tool.get("description").cloned().unwrap_or_else(|| json!("")),
-                    "parameters": tool.get("parameters").or_else(|| tool.get("input_schema")).cloned().unwrap_or_else(|| json!({ "type": "object" }))
-                }
-            }))
+fn build_codex_tool_context_from_request(body: &Value) -> CodexToolContext {
+    let mut context = CodexToolContext::default();
+    if let Some(tools) = body.get("tools").and_then(Value::as_array) {
+        for tool in tools {
+            context.add_response_tool(tool);
         }
-        "custom" => {
-            let name = tool.get("name").and_then(Value::as_str)?;
-            Some(json!({
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": tool.get("description").cloned().unwrap_or_else(|| json!("Custom tool input")),
-                    "parameters": {
-                        "type": "object",
-                        "properties": { "input": { "type": "string" } },
-                        "required": ["input"]
+    }
+    if let Some(input) = body.get("input") {
+        collect_tool_search_output_tools(input, &mut context);
+    }
+    context
+}
+
+fn collect_tool_search_output_tools(value: &Value, context: &mut CodexToolContext) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_tool_search_output_tools(item, context);
+            }
+        }
+        Value::Object(obj) => {
+            if obj.get("type").and_then(Value::as_str) == Some("tool_search_output") {
+                if let Some(tools) = obj.get("tools").and_then(Value::as_array) {
+                    for tool in tools {
+                        context.add_response_tool(tool);
                     }
                 }
-            }))
+            }
+            for nested in obj.values() {
+                collect_tool_search_output_tools(nested, context);
+            }
         }
-        _ => None,
+        _ => {}
     }
 }
 
-fn chat_to_responses_json(chat: &Value) -> Value {
+fn responses_tool_name(tool: &Value) -> Option<String> {
+    tool.get("function")
+        .and_then(|function| function.get("name"))
+        .or_else(|| tool.get("name"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn responses_function_tool_to_chat_tool(tool: &Value, chat_name: &str) -> Option<Value> {
+    if tool.get("type").and_then(Value::as_str) != Some("function") {
+        return None;
+    }
+    if let Some(function) = tool.get("function") {
+        let mut chat_tool = json!({
+            "type": "function",
+            "function": function.clone()
+        });
+        if let Some(obj) = chat_tool.get_mut("function").and_then(Value::as_object_mut) {
+            obj.insert("name".to_string(), json!(chat_name));
+            if let Some(strict) = tool.get("strict").cloned() {
+                obj.entry("strict".to_string()).or_insert(strict);
+            }
+        }
+        return Some(chat_tool);
+    }
+
+    let mut function = json!({
+        "name": chat_name,
+        "description": tool.get("description").cloned().unwrap_or_else(|| json!("")),
+        "parameters": tool
+            .get("parameters")
+            .or_else(|| tool.get("input_schema"))
+            .cloned()
+            .unwrap_or_else(|| json!({ "type": "object" }))
+    });
+    if let Some(strict) = tool.get("strict") {
+        function["strict"] = strict.clone();
+    }
+    Some(json!({
+        "type": "function",
+        "function": function
+    }))
+}
+
+fn responses_custom_tool_description(tool: &Value) -> String {
+    let mut description = tool
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    if !description.is_empty() {
+        description.push_str("\n\n");
+    }
+    description.push_str(CUSTOM_TOOL_PRESERVED_METADATA_HEADING);
+    description.push_str("\n```json\n");
+    description.push_str(&canonical_json_string(tool));
+    description.push_str("\n```");
+    description
+}
+
+fn responses_function_call_to_chat_tool_call(
+    item: &Value,
+    tool_context: &CodexToolContext,
+) -> Value {
+    let call_id = item
+        .get("call_id")
+        .or_else(|| item.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let name = item.get("name").and_then(Value::as_str).unwrap_or("");
+    let namespace = item.get("namespace").and_then(Value::as_str);
+    let chat_name = tool_context.chat_name_for_response_function(name, namespace);
+    json!({
+        "id": call_id,
+        "type": "function",
+        "function": {
+            "name": chat_name,
+            "arguments": canonicalize_tool_arguments(item.get("arguments"))
+        }
+    })
+}
+
+fn responses_custom_tool_call_to_chat_tool_call(item: &Value) -> Value {
+    let call_id = item
+        .get("call_id")
+        .or_else(|| item.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let name = item.get("name").and_then(Value::as_str).unwrap_or("");
+    let input = item.get("input").cloned().unwrap_or_else(|| json!(""));
+    json!({
+        "id": call_id,
+        "type": "function",
+        "function": {
+            "name": name,
+            "arguments": canonical_json_string(&json!({ CUSTOM_TOOL_INPUT_FIELD: input }))
+        }
+    })
+}
+
+fn responses_tool_search_call_to_chat_tool_call(item: &Value) -> Value {
+    let call_id = item
+        .get("call_id")
+        .or_else(|| item.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    json!({
+        "id": call_id,
+        "type": "function",
+        "function": {
+            "name": TOOL_SEARCH_PROXY_NAME,
+            "arguments": item
+                .get("arguments")
+                .map(canonical_json_string)
+                .unwrap_or_else(|| "{}".to_string())
+        }
+    })
+}
+
+fn responses_tool_choice_to_chat(tool_choice: &Value, tool_context: &CodexToolContext) -> Value {
+    match tool_choice {
+        Value::Object(obj) if obj.get("type").and_then(Value::as_str) == Some("function") => {
+            let name = obj.get("name").and_then(Value::as_str).unwrap_or("");
+            let namespace = obj.get("namespace").and_then(Value::as_str);
+            let chat_name = tool_context.chat_name_for_response_function(name, namespace);
+            json!({
+                "type": "function",
+                "function": { "name": chat_name }
+            })
+        }
+        Value::Object(obj) if obj.get("type").and_then(Value::as_str) == Some("tool_search") => {
+            json!({
+                "type": "function",
+                "function": { "name": TOOL_SEARCH_PROXY_NAME }
+            })
+        }
+        Value::Object(obj) if obj.get("type").and_then(Value::as_str) == Some("custom") => {
+            let name = obj.get("name").and_then(Value::as_str).unwrap_or("");
+            json!({
+                "type": "function",
+                "function": { "name": name }
+            })
+        }
+        _ => tool_choice.clone(),
+    }
+}
+
+fn chat_to_responses_json(chat: &Value, tool_context: &CodexToolContext) -> Value {
     let id = chat
         .get("id")
         .and_then(Value::as_str)
@@ -759,15 +1216,15 @@ fn chat_to_responses_json(chat: &Value) -> Value {
         }));
     }
     if let Some(tool_calls) = message.get("tool_calls").and_then(Value::as_array) {
-        for call in tool_calls {
-            output.push(json!({
-                "id": call.get("id").cloned().unwrap_or_else(|| json!(response_id())),
-                "type": "function_call",
-                "status": "completed",
-                "call_id": call.get("id").cloned().unwrap_or_else(|| json!(response_id())),
-                "name": call.pointer("/function/name").cloned().unwrap_or_else(|| json!("tool")),
-                "arguments": call.pointer("/function/arguments").cloned().unwrap_or_else(|| json!("{}"))
-            }));
+        for (index, call) in tool_calls.iter().enumerate() {
+            if call
+                .pointer("/function/name")
+                .and_then(Value::as_str)
+                .is_none()
+            {
+                continue;
+            }
+            output.push(chat_tool_call_to_response_item(call, index, tool_context));
         }
     }
     json!({
@@ -781,6 +1238,214 @@ fn chat_to_responses_json(chat: &Value) -> Value {
     })
 }
 
+fn chat_tool_call_to_response_item(
+    tool_call: &Value,
+    index: usize,
+    tool_context: &CodexToolContext,
+) -> Value {
+    let call_id = tool_call
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| format!("call_{index}"));
+    let function = tool_call.get("function").unwrap_or(&Value::Null);
+    let name = function.get("name").and_then(Value::as_str).unwrap_or("");
+    let arguments = canonicalize_tool_arguments(function.get("arguments"));
+    let item_id = response_tool_call_item_id_from_chat_name(&call_id, name, tool_context);
+    response_tool_call_item_from_chat_name(
+        &item_id,
+        "completed",
+        &call_id,
+        name,
+        &arguments,
+        tool_context,
+    )
+}
+
+fn response_tool_call_item_id_from_chat_name(
+    call_id: &str,
+    chat_name: &str,
+    tool_context: &CodexToolContext,
+) -> String {
+    if tool_context.is_custom_tool_chat_name(chat_name) {
+        format!("ctc_{call_id}")
+    } else {
+        format!("fc_{call_id}")
+    }
+}
+
+fn response_tool_call_item_from_chat_name(
+    item_id: &str,
+    status: &str,
+    call_id: &str,
+    chat_name: &str,
+    arguments: &str,
+    tool_context: &CodexToolContext,
+) -> Value {
+    match tool_context.lookup_chat_name(chat_name) {
+        Some(spec) if spec.kind == CodexToolKind::ToolSearch => {
+            response_tool_search_call_item(call_id, status, arguments)
+        }
+        Some(spec) if spec.kind == CodexToolKind::Custom => {
+            response_custom_tool_call_item(item_id, status, call_id, &spec.name, arguments)
+        }
+        Some(spec) => response_function_call_item(
+            item_id,
+            status,
+            call_id,
+            &spec.name,
+            spec.namespace.as_deref(),
+            arguments,
+        ),
+        None => response_function_call_item(item_id, status, call_id, chat_name, None, arguments),
+    }
+}
+
+fn response_tool_search_call_item(call_id: &str, status: &str, arguments: &str) -> Value {
+    json!({
+        "type": "tool_search_call",
+        "call_id": call_id,
+        "status": status,
+        "execution": "client",
+        "arguments": parse_tool_arguments_object(arguments)
+    })
+}
+
+fn response_custom_tool_call_item(
+    item_id: &str,
+    status: &str,
+    call_id: &str,
+    name: &str,
+    arguments: &str,
+) -> Value {
+    json!({
+        "id": item_id,
+        "type": "custom_tool_call",
+        "status": status,
+        "call_id": call_id,
+        "name": name,
+        "input": custom_tool_input_from_chat_arguments(arguments)
+    })
+}
+
+fn response_function_call_item(
+    item_id: &str,
+    status: &str,
+    call_id: &str,
+    name: &str,
+    namespace: Option<&str>,
+    arguments: &str,
+) -> Value {
+    let mut item = json!({
+        "id": item_id,
+        "type": "function_call",
+        "status": status,
+        "call_id": call_id,
+        "name": name,
+        "arguments": arguments
+    });
+    if let Some(namespace) = namespace.filter(|value| !value.is_empty()) {
+        item["namespace"] = json!(namespace);
+    }
+    item
+}
+
+fn parse_tool_arguments_object(arguments: &str) -> Value {
+    if arguments.trim().is_empty() {
+        return json!({});
+    }
+    serde_json::from_str::<Value>(arguments)
+        .ok()
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({ "query": arguments }))
+}
+
+fn custom_tool_input_from_chat_arguments(arguments: &str) -> String {
+    if arguments.trim().is_empty() {
+        return String::new();
+    }
+    match serde_json::from_str::<Value>(arguments) {
+        Ok(Value::Object(obj)) => obj
+            .get(CUSTOM_TOOL_INPUT_FIELD)
+            .and_then(Value::as_str)
+            .unwrap_or(arguments)
+            .to_string(),
+        _ => arguments.to_string(),
+    }
+}
+
+fn canonicalize_tool_arguments(value: Option<&Value>) -> String {
+    let Some(value) = value else {
+        return "{}".to_string();
+    };
+    match value {
+        Value::String(text) => canonicalize_tool_arguments_str(text),
+        other => canonical_json_string(other),
+    }
+}
+
+fn canonicalize_tool_arguments_str(arguments: &str) -> String {
+    let trimmed = arguments.trim();
+    if trimmed.is_empty() {
+        return "{}".to_string();
+    }
+    serde_json::from_str::<Value>(trimmed)
+        .ok()
+        .map(|value| canonical_json_string(&value))
+        .unwrap_or_else(|| arguments.to_string())
+}
+
+fn canonical_json_string(value: &Value) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string())
+}
+
+fn output_to_chat_tool_content(value: &Value) -> String {
+    match value {
+        Value::String(text) => serde_json::from_str::<Value>(text)
+            .ok()
+            .map(|parsed| canonical_json_string(&parsed))
+            .unwrap_or_else(|| text.clone()),
+        other => canonical_json_string(other),
+    }
+}
+
+fn flatten_namespace_tool_name(namespace: &str, name: &str) -> String {
+    let full_name = format!("{namespace}__{name}");
+    if full_name.len() <= CHAT_TOOL_NAME_MAX_LEN {
+        return full_name;
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(full_name.as_bytes());
+    let digest = hasher.finalize();
+    let hash = digest[..5]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let suffix = format!("__{hash}");
+    let prefix_len = CHAT_TOOL_NAME_MAX_LEN.saturating_sub(suffix.len());
+    let mut prefix = String::new();
+    for ch in full_name.chars() {
+        if prefix.len() + ch.len_utf8() > prefix_len {
+            break;
+        }
+        prefix.push(ch);
+    }
+    format!("{prefix}{suffix}")
+}
+
+#[derive(Debug, Default)]
+struct StreamingToolCall {
+    output_index: Option<usize>,
+    item_id: String,
+    call_id: String,
+    name: String,
+    arguments: String,
+    added: bool,
+    done: bool,
+}
+
 struct ChatSseReader<R> {
     upstream: R,
     model: String,
@@ -790,11 +1455,13 @@ struct ChatSseReader<R> {
     pending_offset: usize,
     data_lines: Vec<String>,
     text: String,
+    tools: BTreeMap<usize, StreamingToolCall>,
+    tool_context: CodexToolContext,
     completed: bool,
 }
 
 impl<R: BufRead> ChatSseReader<R> {
-    fn new(upstream: R, model: String) -> Self {
+    fn new(upstream: R, model: String, tool_context: CodexToolContext) -> Self {
         let response_id = response_id();
         let message_id = format!("msg_{response_id}");
         let pending = response_start_sse(&response_id, &message_id, &model).into_bytes();
@@ -807,6 +1474,8 @@ impl<R: BufRead> ChatSseReader<R> {
             pending_offset: 0,
             data_lines: Vec::new(),
             text: String::new(),
+            tools: BTreeMap::new(),
+            tool_context,
             completed: false,
         }
     }
@@ -871,17 +1540,31 @@ impl<R: BufRead> ChatSseReader<R> {
                 self.push_pending(response_text_delta_sse(&self.message_id, delta));
             }
         }
+        if let Some(tool_calls) = value
+            .pointer("/choices/0/delta/tool_calls")
+            .and_then(Value::as_array)
+        {
+            for tool_call in tool_calls {
+                let events = self.process_tool_call_delta(tool_call);
+                if !events.is_empty() {
+                    self.push_pending(events);
+                }
+            }
+        }
     }
 
     fn finish(&mut self) {
         if self.completed {
             return;
         }
+        let (tool_events, tool_items) = self.finalize_tools();
         self.push_pending(response_done_sse(
             &self.response_id,
             &self.message_id,
             &self.model,
             &self.text,
+            &tool_events,
+            tool_items,
         ));
         self.completed = true;
     }
@@ -896,6 +1579,231 @@ impl<R: BufRead> ChatSseReader<R> {
             &message,
         ));
         self.completed = true;
+    }
+
+    fn process_tool_call_delta(&mut self, tool_call: &Value) -> String {
+        let index = tool_call.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let id_delta = tool_call.get("id").and_then(Value::as_str);
+        let function = tool_call.get("function").unwrap_or(&Value::Null);
+        let name_delta = function.get("name").and_then(Value::as_str);
+        let args_delta = function
+            .get("arguments")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+
+        let mut should_add = false;
+        let mut output_index = None;
+        let mut item_id = String::new();
+        let current_name: String;
+
+        {
+            let state = self.tools.entry(index).or_default();
+            if let Some(id) = id_delta.filter(|value| !value.is_empty()) {
+                if !state.added {
+                    state.call_id = id.to_string();
+                }
+            }
+            if let Some(name) = name_delta.filter(|value| !value.is_empty()) {
+                state.name = name.to_string();
+            }
+            if !args_delta.is_empty() {
+                state.arguments.push_str(args_delta);
+            }
+            if !state.added && !state.name.is_empty() {
+                should_add = true;
+            } else if state.added {
+                output_index = state.output_index;
+                item_id = state.item_id.clone();
+            }
+            current_name = state.name.clone();
+        }
+
+        let is_custom_tool = self.tool_context.is_custom_tool_chat_name(&current_name);
+        let mut output = String::new();
+
+        if should_add {
+            let output_index = index + 1;
+            let Some(state) = self.tools.get_mut(&index) else {
+                return output;
+            };
+            if state.call_id.is_empty() {
+                state.call_id = format!("call_{index}");
+            }
+            state.output_index = Some(output_index);
+            state.item_id = response_tool_call_item_id_from_chat_name(
+                &state.call_id,
+                &state.name,
+                &self.tool_context,
+            );
+            state.added = true;
+            let item = response_tool_call_item_from_chat_name(
+                &state.item_id,
+                "in_progress",
+                &state.call_id,
+                &state.name,
+                "",
+                &self.tool_context,
+            );
+            push_sse(
+                &mut output,
+                "response.output_item.added",
+                json!({
+                    "type": "response.output_item.added",
+                    "output_index": output_index,
+                    "item": item
+                }),
+            );
+            if !state.arguments.is_empty() && !is_custom_tool {
+                push_sse(
+                    &mut output,
+                    "response.function_call_arguments.delta",
+                    json!({
+                        "type": "response.function_call_arguments.delta",
+                        "item_id": state.item_id,
+                        "output_index": output_index,
+                        "delta": state.arguments
+                    }),
+                );
+            }
+        } else if !args_delta.is_empty() && !is_custom_tool {
+            if let Some(output_index) = output_index {
+                push_sse(
+                    &mut output,
+                    "response.function_call_arguments.delta",
+                    json!({
+                        "type": "response.function_call_arguments.delta",
+                        "item_id": item_id,
+                        "output_index": output_index,
+                        "delta": args_delta
+                    }),
+                );
+            }
+        }
+
+        output
+    }
+
+    fn finalize_tools(&mut self) -> (String, Vec<Value>) {
+        let mut output = String::new();
+        let mut items = Vec::new();
+        let keys = self.tools.keys().copied().collect::<Vec<_>>();
+
+        for key in keys {
+            if self.tools.get(&key).map(|state| state.done).unwrap_or(true) {
+                continue;
+            }
+            if self
+                .tools
+                .get(&key)
+                .map(|state| state.name.is_empty())
+                .unwrap_or(true)
+            {
+                if let Some(state) = self.tools.get_mut(&key) {
+                    state.done = true;
+                }
+                continue;
+            }
+
+            let should_add = self.tools.get(&key).is_some_and(|state| !state.added);
+            if should_add {
+                let output_index = key + 1;
+                let Some(state) = self.tools.get_mut(&key) else {
+                    continue;
+                };
+                if state.call_id.is_empty() {
+                    state.call_id = format!("call_{key}");
+                }
+                state.output_index = Some(output_index);
+                state.item_id = response_tool_call_item_id_from_chat_name(
+                    &state.call_id,
+                    &state.name,
+                    &self.tool_context,
+                );
+                state.added = true;
+                let item = response_tool_call_item_from_chat_name(
+                    &state.item_id,
+                    "in_progress",
+                    &state.call_id,
+                    &state.name,
+                    "",
+                    &self.tool_context,
+                );
+                push_sse(
+                    &mut output,
+                    "response.output_item.added",
+                    json!({
+                        "type": "response.output_item.added",
+                        "output_index": output_index,
+                        "item": item
+                    }),
+                );
+            }
+
+            let Some(state) = self.tools.get_mut(&key) else {
+                continue;
+            };
+            let output_index = state.output_index.unwrap_or(key + 1);
+            let arguments = canonicalize_tool_arguments_str(&state.arguments);
+            let is_custom_tool = self.tool_context.is_custom_tool_chat_name(&state.name);
+            let item = response_tool_call_item_from_chat_name(
+                &state.item_id,
+                "completed",
+                &state.call_id,
+                &state.name,
+                &arguments,
+                &self.tool_context,
+            );
+            state.done = true;
+            items.push(item.clone());
+
+            if is_custom_tool {
+                let input = custom_tool_input_from_chat_arguments(&arguments);
+                if !input.is_empty() {
+                    push_sse(
+                        &mut output,
+                        "response.custom_tool_call_input.delta",
+                        json!({
+                            "type": "response.custom_tool_call_input.delta",
+                            "item_id": state.item_id,
+                            "output_index": output_index,
+                            "delta": input
+                        }),
+                    );
+                }
+                push_sse(
+                    &mut output,
+                    "response.custom_tool_call_input.done",
+                    json!({
+                        "type": "response.custom_tool_call_input.done",
+                        "item_id": state.item_id,
+                        "output_index": output_index,
+                        "input": input
+                    }),
+                );
+            } else {
+                push_sse(
+                    &mut output,
+                    "response.function_call_arguments.done",
+                    json!({
+                        "type": "response.function_call_arguments.done",
+                        "item_id": state.item_id,
+                        "output_index": output_index,
+                        "arguments": arguments
+                    }),
+                );
+            }
+            push_sse(
+                &mut output,
+                "response.output_item.done",
+                json!({
+                    "type": "response.output_item.done",
+                    "output_index": output_index,
+                    "item": item
+                }),
+            );
+        }
+
+        (output, items)
     }
 }
 
@@ -949,7 +1857,14 @@ fn chat_sse_to_responses_sse(sse: &str, model: &str) -> String {
         }
     }
 
-    output.push_str(&response_done_sse(&response_id, &message_id, model, &text));
+    output.push_str(&response_done_sse(
+        &response_id,
+        &message_id,
+        model,
+        &text,
+        "",
+        Vec::new(),
+    ));
     output
 }
 
@@ -1026,8 +1941,22 @@ fn response_text_delta_sse(message_id: &str, delta: &str) -> String {
     output
 }
 
-fn response_done_sse(response_id: &str, message_id: &str, model: &str, text: &str) -> String {
+fn response_done_sse(
+    response_id: &str,
+    message_id: &str,
+    model: &str,
+    text: &str,
+    tool_events: &str,
+    tool_items: Vec<Value>,
+) -> String {
     let mut output = String::new();
+    let message_item = json!({
+        "id": message_id,
+        "type": "message",
+        "status": "completed",
+        "role": "assistant",
+        "content": [{ "type": "output_text", "text": text, "annotations": [] }]
+    });
     push_sse(
         &mut output,
         "response.output_text.done",
@@ -1056,15 +1985,12 @@ fn response_done_sse(response_id: &str, message_id: &str, model: &str, text: &st
         json!({
             "type": "response.output_item.done",
             "output_index": 0,
-            "item": {
-                "id": message_id,
-                "type": "message",
-                "status": "completed",
-                "role": "assistant",
-                "content": [{ "type": "output_text", "text": text, "annotations": [] }]
-            }
+            "item": message_item
         }),
     );
+    output.push_str(tool_events);
+    let mut response_output = vec![message_item];
+    response_output.extend(tool_items);
     push_sse(
         &mut output,
         "response.completed",
@@ -1076,13 +2002,7 @@ fn response_done_sse(response_id: &str, message_id: &str, model: &str, text: &st
                 "created_at": unix_now(),
                 "status": "completed",
                 "model": model,
-                "output": [{
-                    "id": message_id,
-                    "type": "message",
-                    "status": "completed",
-                    "role": "assistant",
-                    "content": [{ "type": "output_text", "text": text, "annotations": [] }]
-                }]
+                "output": response_output
             }
         }),
     );
@@ -1165,6 +2085,110 @@ mod tests {
     }
 
     #[test]
+    fn responses_chat_bridge_roundtrips_tool_search_and_namespace_tools() {
+        let body = json!({
+            "model": "deepseek-chat",
+            "input": "open the site",
+            "tools": [
+                { "type": "tool_search" },
+                {
+                    "type": "namespace",
+                    "name": "chrome",
+                    "tools": [{
+                        "type": "function",
+                        "name": "open_url",
+                        "description": "Open a URL",
+                        "parameters": {
+                            "type": "object",
+                            "properties": { "url": { "type": "string" } },
+                            "required": ["url"]
+                        }
+                    }]
+                }
+            ],
+            "tool_choice": { "type": "tool_search" }
+        });
+        let context = build_codex_tool_context_from_request(&body);
+        let chat = responses_to_chat_completions_with_context(&body, &context);
+        let tools = chat["tools"].as_array().unwrap();
+
+        assert!(tools
+            .iter()
+            .any(|tool| tool.pointer("/function/name") == Some(&json!("tool_search"))));
+        assert!(tools
+            .iter()
+            .any(|tool| tool.pointer("/function/name") == Some(&json!("chrome__open_url"))));
+        assert_eq!(chat["tool_choice"]["function"]["name"], "tool_search");
+
+        let response = chat_to_responses_json(
+            &json!({
+                "id": "chatcmpl_tools",
+                "model": "deepseek-chat",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": "call_search",
+                                "type": "function",
+                                "function": {
+                                    "name": "tool_search",
+                                    "arguments": "{\"query\":\"chrome\"}"
+                                }
+                            },
+                            {
+                                "id": "call_chrome",
+                                "type": "function",
+                                "function": {
+                                    "name": "chrome__open_url",
+                                    "arguments": "{\"url\":\"https://example.com\"}"
+                                }
+                            }
+                        ]
+                    },
+                    "finish_reason": "tool_calls"
+                }]
+            }),
+            &context,
+        );
+
+        assert_eq!(response["output"][0]["type"], "tool_search_call");
+        assert_eq!(response["output"][0]["arguments"]["query"], "chrome");
+        assert_eq!(response["output"][1]["type"], "function_call");
+        assert_eq!(response["output"][1]["namespace"], "chrome");
+        assert_eq!(response["output"][1]["name"], "open_url");
+    }
+
+    #[test]
+    fn chat_sse_reader_restores_streaming_custom_tool_calls() {
+        let body = json!({
+            "model": "deepseek-chat",
+            "tools": [{
+                "type": "custom",
+                "name": "apply_patch",
+                "format": { "type": "grammar", "syntax": "lark", "definition": "start: /.+/" }
+            }]
+        });
+        let context = build_codex_tool_context_from_request(&body);
+        let sse = concat!(
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_patch\",\"type\":\"function\",\"function\":{\"name\":\"apply_patch\",\"arguments\":\"{\\\"input\\\":\\\"*** Begin\"}}]}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\" Patch\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let mut reader = ChatSseReader::new(
+            BufReader::new(Cursor::new(sse.as_bytes().to_vec())),
+            "deepseek-chat".to_string(),
+            context,
+        );
+        let mut output = String::new();
+        reader.read_to_string(&mut output).unwrap();
+
+        assert!(output.contains("response.custom_tool_call_input.done"));
+        assert!(output.contains("\"type\":\"custom_tool_call\""));
+        assert!(output.contains("*** Begin Patch"));
+    }
+
+    #[test]
     fn chat_sse_reader_emits_incremental_response_events() {
         let sse = concat!(
             "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking\"}}]}\n\n",
@@ -1174,6 +2198,7 @@ mod tests {
         let mut reader = ChatSseReader::new(
             BufReader::new(Cursor::new(sse.as_bytes().to_vec())),
             "deepseek-chat".to_string(),
+            CodexToolContext::default(),
         );
         let mut output = String::new();
         reader.read_to_string(&mut output).unwrap();
