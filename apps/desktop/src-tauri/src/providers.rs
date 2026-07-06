@@ -621,7 +621,6 @@ fn merge_provider_config(existing: &str, provider: &ProviderProfile) -> String {
     config.push_str(&format!("name = {}\n", toml_string(&provider.name)));
     config.push_str(&format!("base_url = {}\n", toml_string(&provider.base_url)));
     config.push_str("wire_api = \"responses\"\n");
-    config.push_str("requires_openai_auth = true\n");
     config.push_str(&format!(
         "experimental_bearer_token = {}\n",
         toml_string(&provider.api_key)
@@ -674,7 +673,6 @@ fn merge_local_proxy_config(
         toml_string(LOCAL_PROXY_BASE_URL)
     ));
     config.push_str("wire_api = \"responses\"\n");
-    config.push_str("requires_openai_auth = true\n");
     config.push_str(&format!(
         "experimental_bearer_token = {}\n",
         toml_string(LOCAL_PROXY_TOKEN)
@@ -887,6 +885,7 @@ mod tests {
         assert!(merged.contains("model_catalog_json = \"codex-switch-model-catalog.json\""));
         assert!(merged.contains("base_url = \"http://127.0.0.1:15722/v1\""));
         assert!(merged.contains("experimental_bearer_token = \"CODEX_SWITCH_LOCAL_PROXY\""));
+        assert!(!merged.contains("requires_openai_auth"));
         assert!(!merged.contains("model = \"old\""));
     }
 
@@ -907,6 +906,7 @@ sandbox_mode = "workspace-write"
         assert!(merged.contains("model_provider = \"custom\""));
         assert!(merged.contains("model = \"gpt-4.1\""));
         assert!(!merged.contains("model_catalog_json"));
+        assert!(!merged.contains("requires_openai_auth"));
         assert!(merged.contains("approval_policy = \"on-request\""));
         assert!(merged.contains("[profiles.default]"));
         assert!(!merged.contains("https://old.example.com"));
