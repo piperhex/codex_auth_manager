@@ -88,6 +88,7 @@ pub fn run() {
             providers::disable_provider,
             providers::delete_provider,
             local_proxy::get_local_proxy_status,
+            local_proxy::export_diagnostic_logs,
             local_proxy::start_local_proxy,
             local_proxy::stop_local_proxy,
             update::check_for_update,

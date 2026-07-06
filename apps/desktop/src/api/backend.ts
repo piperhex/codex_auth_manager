@@ -369,6 +369,11 @@ export type ImportAccountArchiveResult =
   | { status: "cancelled" }
   | { status: "preview" };
 
+export type ExportDiagnosticLogsResult =
+  | { status: "exported"; path: string }
+  | { status: "cancelled" }
+  | { status: "preview" };
+
 export async function chooseAndImportAuth(): Promise<ImportAuthResult> {
   if (!isDesktopApp) return { status: "preview" };
   const selected = await open({
@@ -400,6 +405,17 @@ export async function chooseAndImportAccountArchive(): Promise<ImportAccountArch
   if (!selected) return { status: "cancelled" };
   const result = await invoke<AccountArchiveImportResult>("import_accounts_archive", { path: selected });
   return { status: "imported", result };
+}
+
+export async function chooseAndExportDiagnosticLogs(): Promise<ExportDiagnosticLogsResult> {
+  if (!isDesktopApp) return { status: "preview" };
+  const selected = await save({
+    defaultPath: `codex-switch-diagnostics-${new Date().toISOString().slice(0, 10)}.jsonl`,
+    filters: [{ name: "Codex Switch diagnostics", extensions: ["jsonl"] }],
+  });
+  if (!selected) return { status: "cancelled" };
+  const path = await invoke<string>("export_diagnostic_logs", { path: selected });
+  return { status: "exported", path };
 }
 
 export async function activateAccount(id: string): Promise<void> {

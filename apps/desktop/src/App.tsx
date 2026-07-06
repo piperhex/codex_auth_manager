@@ -4,7 +4,7 @@ import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
 import { CalendarClock, Check, CircleHelp, Cloud, Download, Github, LogIn, LogOut, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Upload, UploadCloud, UserRound } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { checkForUpdate, isDesktopApp, openManagedFolder, restartCodex } from "./api/backend";
+import { checkForUpdate, chooseAndExportDiagnosticLogs, isDesktopApp, openManagedFolder, restartCodex } from "./api/backend";
 import { HelpModal, type HelpVersionState } from "./components/modals/HelpModal";
 import { FloatingUsageBubble } from "./components/FloatingUsageBubble";
 import { CloudLoginModal } from "./components/modals/CloudLoginModal";
@@ -51,6 +51,7 @@ function DashboardApp() {
   const [availableUpdate, setAvailableUpdate] = useState<UpdateInfo | null>(null);
   const [lastRefreshAllAt, setLastRefreshAllAt] = useState<string | null>(storedRefreshAllTime);
   const [restartingCodex, setRestartingCodex] = useState(false);
+  const [exportingLogs, setExportingLogs] = useState(false);
   const helpVersionRequestId = useRef(0);
   const { message: toast, notify } = useToast();
   const { language, setLanguage, t } = useLanguage();
@@ -145,6 +146,18 @@ function DashboardApp() {
   const openAccountStore = useCallback(() => {
     openFolder("accountStore");
   }, [openFolder]);
+  const exportLogs = useCallback(async () => {
+    notify(isDesktopApp ? t("toast.exportLogsPrompt") : t("toast.previewNoFile"));
+    setExportingLogs(true);
+    try {
+      const result = await chooseAndExportDiagnosticLogs();
+      if (result.status === "exported") notify(t("toast.logsExported"));
+    } catch (error) {
+      notify(String(error));
+    } finally {
+      setExportingLogs(false);
+    }
+  }, [notify, t]);
   const openHelp = useCallback(() => {
     const requestId = ++helpVersionRequestId.current;
     setShowHelp(true);
@@ -358,6 +371,7 @@ function DashboardApp() {
               floatingBubbleEnabled={floatingBubble.enabled}
               floatingBubbleLoading={floatingBubble.loading} onFloatingBubbleChange={changeFloatingBubble}
               onOpenCodexHome={openCodexHome} onOpenAccountStore={openAccountStore} language={language}
+              onExportLogs={() => void exportLogs()} exportingLogs={exportingLogs}
               onLanguageChange={setLanguage} t={t} />
           </section>
           <section className="page-panel" hidden={page !== "providers"}>

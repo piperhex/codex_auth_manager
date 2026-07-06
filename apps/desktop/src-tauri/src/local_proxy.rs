@@ -1,6 +1,8 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    io::{self, BufRead, BufReader, Read},
+    fs::{self, OpenOptions},
+    io::{self, BufRead, BufReader, Read, Write},
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
     thread::{self, JoinHandle},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -9,7 +11,7 @@ use std::{
 use reqwest::blocking::{Client, Response as ReqwestResponse};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use tauri::{Emitter, Runtime};
+use tauri::{Emitter, Manager, Runtime};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 use crate::{
@@ -29,6 +31,8 @@ const UPSTREAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const TOOL_SEARCH_PROXY_NAME: &str = "tool_search";
 const CUSTOM_TOOL_INPUT_FIELD: &str = "input";
 const CHAT_TOOL_NAME_MAX_LEN: usize = 64;
+const DIAGNOSTIC_LOG_MAX_BYTES: u64 = 2 * 1024 * 1024;
+const DIAGNOSTIC_LOG_FILE_NAME: &str = "local-proxy-diagnostics.jsonl";
 const CUSTOM_TOOL_INPUT_DESCRIPTION: &str =
     "Raw string input for the original custom tool. Preserve formatting exactly.";
 const CUSTOM_TOOL_PRESERVED_METADATA_HEADING: &str = "Original tool definition:";
@@ -52,6 +56,38 @@ enum UpstreamBody {
 enum ActiveTarget {
     Official,
     Provider(ProviderProfile),
+}
+
+#[derive(Clone, Copy)]
+enum ProxyDiagnosticRoute {
+    LocalHealth,
+    LocalModels,
+    TargetResolutionError,
+    Official,
+    ProviderChatBridge,
+    ProviderResponsesPassthrough,
+    ProviderPassthrough,
+}
+
+impl ProxyDiagnosticRoute {
+    fn as_str(self) -> &'static str {
+        match self {
+            ProxyDiagnosticRoute::LocalHealth => "local_health",
+            ProxyDiagnosticRoute::LocalModels => "local_models",
+            ProxyDiagnosticRoute::TargetResolutionError => "target_resolution_error",
+            ProxyDiagnosticRoute::Official => "official",
+            ProxyDiagnosticRoute::ProviderChatBridge => "provider_chat_bridge",
+            ProxyDiagnosticRoute::ProviderResponsesPassthrough => "provider_responses_passthrough",
+            ProxyDiagnosticRoute::ProviderPassthrough => "provider_passthrough",
+        }
+    }
+
+    fn is_local(self) -> bool {
+        matches!(
+            self,
+            ProxyDiagnosticRoute::LocalHealth | ProxyDiagnosticRoute::LocalModels
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,6 +299,45 @@ pub(crate) fn get_local_proxy_status() -> Result<LocalProxyStatus, String> {
     Ok(status())
 }
 
+#[tauri::command]
+pub(crate) fn export_diagnostic_logs<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    path: String,
+) -> Result<String, String> {
+    let destination = PathBuf::from(path);
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "Diagnostic log export path has no parent directory".to_string())?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
+
+    let source = diagnostic_log_path(&app)?;
+    if source.exists() {
+        fs::copy(&source, &destination).map_err(|error| {
+            format!(
+                "Failed to export diagnostics from {} to {}: {error}",
+                source.display(),
+                destination.display()
+            )
+        })?;
+    } else {
+        let empty_log = json!({
+            "ts": unix_now(),
+            "event": "no_diagnostic_logs",
+            "message": "No local proxy diagnostic logs have been recorded yet."
+        })
+        .to_string();
+        fs::write(&destination, format!("{empty_log}\n")).map_err(|error| {
+            format!(
+                "Failed to write diagnostic export {}: {error}",
+                destination.display()
+            )
+        })?;
+    }
+
+    Ok(destination.display().to_string())
+}
+
 pub(crate) fn restore_local_proxy_if_enabled<R: Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Result<bool, String> {
@@ -412,14 +487,67 @@ fn handle_proxy_request<R: Runtime>(
 ) -> Result<UpstreamPayload, String> {
     let path = request_path(url);
     if *method == Method::Get && path == "/health" {
-        return Ok(json_payload(200, json!({ "status": "ok" })));
+        let diagnostic = proxy_diagnostic_entry(
+            method,
+            url,
+            headers,
+            &body,
+            None,
+            ProxyDiagnosticRoute::LocalHealth,
+        );
+        let result = Ok(json_payload(200, json!({ "status": "ok" })));
+        append_proxy_diagnostic_result(app, diagnostic, &result);
+        return result;
     }
     if *method == Method::Get && matches!(path, "/models" | "/v1/models") {
-        return Ok(json_payload(200, models_response(app)?));
+        let target = match active_target(app) {
+            Ok(target) => target,
+            Err(error) => {
+                let diagnostic = proxy_diagnostic_entry(
+                    method,
+                    url,
+                    headers,
+                    &body,
+                    None,
+                    ProxyDiagnosticRoute::LocalModels,
+                );
+                let result = Err(error);
+                append_proxy_diagnostic_result(app, diagnostic, &result);
+                return result;
+            }
+        };
+        let diagnostic = proxy_diagnostic_entry(
+            method,
+            url,
+            headers,
+            &body,
+            Some(&target),
+            ProxyDiagnosticRoute::LocalModels,
+        );
+        let result = Ok(json_payload(200, models_response_for_target(&target)));
+        append_proxy_diagnostic_result(app, diagnostic, &result);
+        return result;
     }
 
-    let target = active_target(app)?;
-    match target {
+    let target = match active_target(app) {
+        Ok(target) => target,
+        Err(error) => {
+            let diagnostic = proxy_diagnostic_entry(
+                method,
+                url,
+                headers,
+                &body,
+                None,
+                ProxyDiagnosticRoute::TargetResolutionError,
+            );
+            let result = Err(error);
+            append_proxy_diagnostic_result(app, diagnostic, &result);
+            return result;
+        }
+    };
+    let route = proxy_diagnostic_route(path, &target);
+    let diagnostic = proxy_diagnostic_entry(method, url, headers, &body, Some(&target), route);
+    let result = match target {
         ActiveTarget::Official => forward_official(app, method, url, headers, body),
         ActiveTarget::Provider(provider) => {
             if is_responses_endpoint(path) && provider.api_format == ProviderApiFormat::OpenaiChat {
@@ -428,7 +556,9 @@ fn handle_proxy_request<R: Runtime>(
                 forward_provider(method, url, headers, body, &provider)
             }
         }
-    }
+    };
+    append_proxy_diagnostic_result(app, diagnostic, &result);
+    result
 }
 
 fn active_target<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<ActiveTarget, String> {
@@ -441,9 +571,319 @@ fn active_target<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<ActiveTarget, 
     Ok(ActiveTarget::Official)
 }
 
-fn models_response<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<Value, String> {
-    let models = match active_target(app)? {
-        ActiveTarget::Provider(provider) => provider_models_for_codex(&provider),
+fn proxy_diagnostic_route(path: &str, target: &ActiveTarget) -> ProxyDiagnosticRoute {
+    match target {
+        ActiveTarget::Official => ProxyDiagnosticRoute::Official,
+        ActiveTarget::Provider(provider)
+            if is_responses_endpoint(path)
+                && provider.api_format == ProviderApiFormat::OpenaiChat =>
+        {
+            ProxyDiagnosticRoute::ProviderChatBridge
+        }
+        ActiveTarget::Provider(_) if is_responses_endpoint(path) => {
+            ProxyDiagnosticRoute::ProviderResponsesPassthrough
+        }
+        ActiveTarget::Provider(_) => ProxyDiagnosticRoute::ProviderPassthrough,
+    }
+}
+
+fn proxy_diagnostic_entry(
+    method: &Method,
+    url: &str,
+    headers: &[(String, String)],
+    body: &[u8],
+    target: Option<&ActiveTarget>,
+    route: ProxyDiagnosticRoute,
+) -> Value {
+    let path = request_path(url);
+    let request_body = serde_json::from_slice::<Value>(body).ok();
+    let upstream_endpoint = upstream_endpoint_for_codex_request(url);
+
+    let mut entry = json!({
+        "ts": unix_now(),
+        "event": "local_proxy_request",
+        "method": method.as_str(),
+        "path": path,
+        "query": request_query_diagnostic(url),
+        "upstreamEndpoint": request_path(&upstream_endpoint),
+        "isResponsesEndpoint": is_responses_endpoint(path),
+        "route": route.as_str(),
+        "requestBodyBytes": body.len(),
+        "requestBodyHash": short_hash_bytes(body),
+        "requestBody": request_body_diagnostic(body, request_body.as_ref()),
+        "requestHeaders": diagnostic_header_summary(headers),
+        "target": diagnostic_target(target, route),
+    });
+
+    if is_responses_endpoint(path) {
+        entry["responses"] = request_body
+            .as_ref()
+            .map(responses_body_diagnostic)
+            .unwrap_or_else(|| json!({ "json": false }));
+    }
+
+    entry
+}
+
+fn append_proxy_diagnostic_result<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    mut entry: Value,
+    result: &Result<UpstreamPayload, String>,
+) {
+    match result {
+        Ok(payload) => {
+            entry["result"] = json!({
+                "ok": status_ok(payload.status),
+                "status": payload.status,
+                "contentType": payload.content_type,
+                "bodyKind": match payload.body {
+                    UpstreamBody::Buffered(_) => "buffered",
+                    UpstreamBody::Streaming(_) => "streaming",
+                }
+            });
+        }
+        Err(error) => {
+            entry["result"] = json!({
+                "ok": false,
+                "error": truncate_for_log(error, 240),
+                "errorHash": short_hash_str(error)
+            });
+        }
+    }
+
+    if let Err(error) = append_diagnostic_log(app, &entry) {
+        eprintln!("failed to write local proxy diagnostics: {error}");
+    }
+}
+
+fn diagnostic_header_summary(headers: &[(String, String)]) -> Value {
+    json!({
+        "xClientRequestId": diagnostic_header_value(headers, "x-client-request-id"),
+        "xCodexWindowId": diagnostic_header_value(headers, "x-codex-window-id"),
+        "sessionId": diagnostic_header_value(headers, "session_id"),
+        "contentType": diagnostic_header_value(headers, "content-type"),
+        "accept": diagnostic_header_value(headers, "accept"),
+        "authorizationPresent": header_value(headers, "authorization").is_some(),
+        "apiKeyPresent": header_value(headers, "x-api-key").is_some()
+            || header_value(headers, "openai-api-key").is_some()
+            || header_value(headers, "api-key").is_some(),
+        "chatgptAccountIdPresent": header_value(headers, "chatgpt-account-id").is_some()
+    })
+}
+
+fn diagnostic_header_value(headers: &[(String, String)], name: &str) -> Value {
+    header_value(headers, name)
+        .map(diagnostic_string_value)
+        .unwrap_or_else(|| json!({ "present": false }))
+}
+
+fn header_value<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.as_str())
+}
+
+fn request_query_diagnostic(url: &str) -> Value {
+    url.split_once('?')
+        .map(|(_, query)| diagnostic_string_value(query))
+        .unwrap_or_else(|| json!({ "present": false }))
+}
+
+fn diagnostic_target(target: Option<&ActiveTarget>, route: ProxyDiagnosticRoute) -> Value {
+    match target {
+        Some(ActiveTarget::Official) => json!({ "type": "official" }),
+        Some(ActiveTarget::Provider(provider)) => json!({
+            "type": "provider",
+            "id": provider.id,
+            "name": provider.name,
+            "apiFormat": provider.api_format,
+            "model": provider.model,
+            "modelSelectionControlledByCodex": provider.model_selection_controlled_by_codex
+        }),
+        None if route.is_local() => json!({ "type": "local" }),
+        None => json!({ "type": "unresolved" }),
+    }
+}
+
+fn request_body_diagnostic(body: &[u8], parsed: Option<&Value>) -> Value {
+    let mut result = json!({
+        "bytes": body.len(),
+        "hash": short_hash_bytes(body),
+    });
+
+    let Some(value) = parsed else {
+        result["json"] = Value::Bool(false);
+        result["empty"] = Value::Bool(body.is_empty());
+        return result;
+    };
+
+    result["json"] = Value::Bool(true);
+    result["shape"] = diagnostic_value_shape(Some(value));
+    result["model"] = diagnostic_scalar_value(value.get("model"));
+    result["stream"] = diagnostic_scalar_value(value.get("stream"));
+    result["store"] = diagnostic_scalar_value(value.get("store"));
+    result["previousResponseId"] = value
+        .get("previous_response_id")
+        .and_then(Value::as_str)
+        .map(diagnostic_string_value)
+        .unwrap_or_else(|| diagnostic_scalar_value(value.get("previous_response_id")));
+    result["input"] = diagnostic_value_shape(value.get("input"));
+    result["messages"] = diagnostic_value_shape(value.get("messages"));
+    result["tools"] = diagnostic_value_shape(value.get("tools"));
+    result["toolChoice"] = diagnostic_value_shape(value.get("tool_choice"));
+    result["include"] = diagnostic_value_shape(value.get("include"));
+    result["instructions"] = diagnostic_value_shape(value.get("instructions"));
+    result["metadata"] = diagnostic_value_shape(value.get("metadata"));
+    result["maxOutputTokens"] = diagnostic_scalar_value(value.get("max_output_tokens"));
+    result["maxTokens"] = diagnostic_scalar_value(value.get("max_tokens"));
+    result["temperature"] = diagnostic_scalar_value(value.get("temperature"));
+    result
+}
+
+fn responses_body_diagnostic(body: &Value) -> Value {
+    json!({
+        "json": true,
+        "model": diagnostic_scalar_value(body.get("model")),
+        "previousResponseId": body
+            .get("previous_response_id")
+            .and_then(Value::as_str)
+            .map(diagnostic_string_value)
+            .unwrap_or_else(|| json!({ "present": false })),
+        "store": diagnostic_scalar_value(body.get("store")),
+        "stream": diagnostic_scalar_value(body.get("stream")),
+        "input": diagnostic_value_shape(body.get("input")),
+        "tools": diagnostic_value_shape(body.get("tools")),
+        "include": diagnostic_value_shape(body.get("include")),
+        "instructions": diagnostic_value_shape(body.get("instructions")),
+        "bodyHash": diagnostic_value_hash(body)
+    })
+}
+
+fn diagnostic_string_value(value: &str) -> Value {
+    json!({
+        "present": true,
+        "len": value.len(),
+        "hash": short_hash_str(value)
+    })
+}
+
+fn diagnostic_scalar_value(value: Option<&Value>) -> Value {
+    match value {
+        None => json!({ "present": false }),
+        Some(Value::Bool(value)) => json!({ "present": true, "type": "bool", "value": value }),
+        Some(Value::Number(value)) => json!({ "present": true, "type": "number", "value": value }),
+        Some(Value::String(value)) => json!({
+            "present": true,
+            "type": "string",
+            "len": value.len(),
+            "hash": short_hash_str(value)
+        }),
+        Some(other) => diagnostic_value_shape(Some(other)),
+    }
+}
+
+fn diagnostic_value_shape(value: Option<&Value>) -> Value {
+    let Some(value) = value else {
+        return json!({ "present": false });
+    };
+
+    let mut result = match value {
+        Value::Null => json!({ "present": true, "type": "null" }),
+        Value::Bool(_) => json!({ "present": true, "type": "bool" }),
+        Value::Number(_) => json!({ "present": true, "type": "number" }),
+        Value::String(text) => json!({ "present": true, "type": "string", "len": text.len() }),
+        Value::Array(items) => json!({ "present": true, "type": "array", "len": items.len() }),
+        Value::Object(map) => json!({ "present": true, "type": "object", "len": map.len() }),
+    };
+    result["hash"] = Value::String(diagnostic_value_hash(value));
+    result
+}
+
+fn diagnostic_value_hash(value: &Value) -> String {
+    short_hash_str(&canonical_json_string(value))
+}
+
+fn short_hash_str(value: &str) -> String {
+    short_hash_bytes(value.as_bytes())
+}
+
+fn short_hash_bytes(value: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(value);
+    let digest = hasher.finalize();
+    digest[..8]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
+}
+
+fn truncate_for_log(value: &str, max_chars: usize) -> String {
+    let mut output = String::new();
+    for ch in value.chars().take(max_chars) {
+        output.push(ch);
+    }
+    if value.chars().count() > max_chars {
+        output.push_str("...");
+    }
+    output
+}
+
+fn append_diagnostic_log<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    entry: &Value,
+) -> Result<(), String> {
+    let path = diagnostic_log_path(app)?;
+    rotate_diagnostic_log_if_needed(&path)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Diagnostic log path has no parent directory".to_string())?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|error| format!("Failed to open {}: {error}", path.display()))?;
+    serde_json::to_writer(&mut file, entry)
+        .map_err(|error| format!("Failed to serialize diagnostic log: {error}"))?;
+    file.write_all(b"\n")
+        .map_err(|error| format!("Failed to write {}: {error}", path.display()))
+}
+
+fn rotate_diagnostic_log_if_needed(path: &Path) -> Result<(), String> {
+    let Ok(metadata) = fs::metadata(path) else {
+        return Ok(());
+    };
+    if metadata.len() <= DIAGNOSTIC_LOG_MAX_BYTES {
+        return Ok(());
+    }
+
+    let rotated = path.with_extension("jsonl.old");
+    if rotated.exists() {
+        fs::remove_file(&rotated)
+            .map_err(|error| format!("Failed to remove {}: {error}", rotated.display()))?;
+    }
+    fs::rename(path, &rotated).map_err(|error| {
+        format!(
+            "Failed to rotate diagnostic log {} to {}: {error}",
+            path.display(),
+            rotated.display()
+        )
+    })
+}
+
+fn diagnostic_log_path<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Failed to locate app data directory: {error}"))?;
+    Ok(app_data.join("logs").join(DIAGNOSTIC_LOG_FILE_NAME))
+}
+
+fn models_response_for_target(target: &ActiveTarget) -> Value {
+    let models = match target {
+        ActiveTarget::Provider(provider) => provider_models_for_codex(provider),
         ActiveTarget::Official => vec!["gpt-5-codex".to_string()],
     };
     let data = models
@@ -462,11 +902,11 @@ fn models_response<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<Value, Strin
             })
         })
         .collect::<Vec<_>>();
-    Ok(json!({
+    json!({
         "object": "list",
         "data": data,
         "models": catalog
-    }))
+    })
 }
 
 fn forward_official<R: Runtime>(
@@ -2142,6 +2582,107 @@ mod tests {
         );
         assert!(is_responses_endpoint("/v1/v1/responses"));
         assert!(is_responses_endpoint("/codex/v1/responses/compact"));
+    }
+
+    #[test]
+    fn proxy_diagnostic_entry_redacts_response_body_content() {
+        let provider = ProviderProfile {
+            id: "responses".to_string(),
+            name: "Responses Gateway".to_string(),
+            base_url: "https://gateway.example.com/v1".to_string(),
+            api_key: "sk-provider-test".to_string(),
+            model: "gpt-4.1".to_string(),
+            models: vec!["gpt-4.1".to_string()],
+            model_selection_controlled_by_codex: false,
+            api_format: ProviderApiFormat::OpenaiResponses,
+        };
+        let body = serde_json::to_vec(&json!({
+            "model": "gpt-4.1",
+            "previous_response_id": "resp_secret_cursor",
+            "input": "do not log this user prompt",
+            "tools": [{ "type": "function", "name": "secret_tool" }],
+            "store": true
+        }))
+        .unwrap();
+
+        let target = ActiveTarget::Provider(provider);
+        let entry = proxy_diagnostic_entry(
+            &Method::Post,
+            "/v1/responses",
+            &[],
+            &body,
+            Some(&target),
+            ProxyDiagnosticRoute::ProviderResponsesPassthrough,
+        );
+        let serialized = entry.to_string();
+
+        assert!(serialized.contains("\"previousResponseId\""));
+        assert!(serialized.contains("\"hash\""));
+        assert!(!serialized.contains("do not log this user prompt"));
+        assert!(!serialized.contains("resp_secret_cursor"));
+        assert!(!serialized.contains("secret_tool"));
+    }
+
+    #[test]
+    fn proxy_diagnostic_entry_redacts_non_responses_body_content() {
+        let provider = ProviderProfile {
+            id: "chat".to_string(),
+            name: "Chat Gateway".to_string(),
+            base_url: "https://gateway.example.com/v1".to_string(),
+            api_key: "sk-provider-test".to_string(),
+            model: "deepseek-chat".to_string(),
+            models: vec!["deepseek-chat".to_string()],
+            model_selection_controlled_by_codex: false,
+            api_format: ProviderApiFormat::OpenaiChat,
+        };
+        let body = serde_json::to_vec(&json!({
+            "model": "deepseek-chat",
+            "messages": [{ "role": "user", "content": "do not log this chat prompt" }],
+            "tools": [{ "type": "function", "function": { "name": "secret_tool" } }],
+            "stream": true
+        }))
+        .unwrap();
+
+        let target = ActiveTarget::Provider(provider);
+        let entry = proxy_diagnostic_entry(
+            &Method::Post,
+            "/v1/chat/completions",
+            &[("Authorization".to_string(), "Bearer sk-secret".to_string())],
+            &body,
+            Some(&target),
+            ProxyDiagnosticRoute::ProviderPassthrough,
+        );
+        let serialized = entry.to_string();
+
+        assert_eq!(entry["route"].as_str(), Some("provider_passthrough"));
+        assert_eq!(entry["requestHeaders"]["authorizationPresent"], true);
+        assert!(serialized.contains("\"messages\""));
+        assert!(serialized.contains("\"requestBody\""));
+        assert!(!serialized.contains("do not log this chat prompt"));
+        assert!(!serialized.contains("secret_tool"));
+        assert!(!serialized.contains("sk-secret"));
+        assert!(entry.get("responses").is_none());
+    }
+
+    #[test]
+    fn proxy_diagnostic_entry_covers_local_models_route() {
+        let target = ActiveTarget::Official;
+        let entry = proxy_diagnostic_entry(
+            &Method::Get,
+            "/v1/models?probe=secret",
+            &[],
+            &[],
+            Some(&target),
+            ProxyDiagnosticRoute::LocalModels,
+        );
+        let serialized = entry.to_string();
+
+        assert_eq!(entry["route"].as_str(), Some("local_models"));
+        assert_eq!(entry["target"]["type"].as_str(), Some("official"));
+        assert_eq!(entry["requestBody"]["json"], false);
+        assert_eq!(entry["query"]["present"], true);
+        assert!(!serialized.contains("probe=secret"));
+        assert!(entry.get("responses").is_none());
     }
 
     #[test]

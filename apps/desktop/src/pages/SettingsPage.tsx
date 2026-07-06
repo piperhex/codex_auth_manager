@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, ColorPicker, Input, InputNumber, Segmented, Space, Switch } from "antd";
-import { CircleGauge, Cloud, FolderKey, FolderOpen, KeyRound, Languages, Palette, RefreshCw, Save, ShieldCheck } from "lucide-react";
+import { CircleGauge, Cloud, FileDown, FolderKey, FolderOpen, KeyRound, Languages, Palette, RefreshCw, Save, ShieldCheck } from "lucide-react";
 import { MAX_AUTO_REFRESH_SECONDS, MIN_AUTO_REFRESH_SECONDS } from "../hooks/useAutoRefresh";
 import { LANGUAGE_OPTIONS, type Language, type Translate } from "../i18n";
 import type { AppInfo } from "../types";
@@ -28,6 +28,8 @@ export function SettingsPage({
   onFloatingBubbleChange,
   onOpenCodexHome,
   onOpenAccountStore,
+  onExportLogs,
+  exportingLogs,
   language,
   onLanguageChange,
   t,
@@ -54,6 +56,8 @@ export function SettingsPage({
   onFloatingBubbleChange: (enabled: boolean) => void;
   onOpenCodexHome: () => void;
   onOpenAccountStore: () => void;
+  onExportLogs: () => void;
+  exportingLogs: boolean;
   language: Language;
   onLanguageChange: (language: Language) => void;
   t: Translate;
@@ -178,6 +182,14 @@ export function SettingsPage({
         </div></section>
       <section className="settings-card note-card"><div className="settings-icon"><ShieldCheck size={23} /></div>
         <div><h3>{t("settings.security.title")}</h3><p>{t("settings.security.description")}</p></div></section>
+      <section className="settings-card"><div className="settings-icon"><FileDown size={23} /></div>
+        <div>
+          <div className="settings-card-header">
+            <div><h3>{t("settings.logs.title")}</h3><p>{t("settings.logs.description")}</p></div>
+            <Button size="small" icon={<FileDown size={14} />} loading={exportingLogs}
+              onClick={onExportLogs}>{t("settings.logs.export")}</Button>
+          </div>
+        </div></section>
     </div>
   );
 }
