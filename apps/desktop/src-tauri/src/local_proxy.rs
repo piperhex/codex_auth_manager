@@ -541,20 +541,7 @@ fn provider_body_for_upstream(
         return body;
     };
     value["model"] = Value::String(selected_provider_model(&value, provider));
-    prepare_native_responses_provider_body(&mut value, provider);
     serde_json::to_vec(&value).unwrap_or(body)
-}
-
-fn prepare_native_responses_provider_body(body: &mut Value, provider: &ProviderProfile) {
-    if provider.api_format != ProviderApiFormat::OpenaiResponses {
-        return;
-    }
-    let Some(object) = body.as_object_mut() else {
-        return;
-    };
-
-    object.remove("previous_response_id");
-    object.insert("store".to_string(), Value::Bool(false));
 }
 
 fn forward_chat_bridge(
@@ -2127,19 +2114,6 @@ mod tests {
     use std::io::{Cursor, Read};
     use std::sync::mpsc;
 
-    fn responses_provider() -> ProviderProfile {
-        ProviderProfile {
-            id: "responses".to_string(),
-            name: "Responses Gateway".to_string(),
-            base_url: "https://gateway.example.com/v1".to_string(),
-            api_key: "sk-provider-test".to_string(),
-            model: "gpt-4.1".to_string(),
-            models: vec!["gpt-4.1".to_string()],
-            model_selection_controlled_by_codex: false,
-            api_format: ProviderApiFormat::OpenaiResponses,
-        }
-    }
-
     #[test]
     fn upstream_url_avoids_duplicate_v1() {
         assert_eq!(
@@ -2168,47 +2142,6 @@ mod tests {
         );
         assert!(is_responses_endpoint("/v1/v1/responses"));
         assert!(is_responses_endpoint("/codex/v1/responses/compact"));
-    }
-
-    #[test]
-    fn native_responses_provider_body_is_stateless_for_follow_up_turns() {
-        let provider = responses_provider();
-        let body = serde_json::to_vec(&json!({
-            "model": "client-model",
-            "previous_response_id": "resp_first_turn",
-            "store": true,
-            "input": [{ "role": "user", "content": "second turn" }]
-        }))
-        .unwrap();
-
-        let rewritten = provider_body_for_upstream(&Method::Post, "/v1/responses", body, &provider);
-        let value: Value = serde_json::from_slice(&rewritten).unwrap();
-
-        assert_eq!(value["model"], "gpt-4.1");
-        assert_eq!(value["store"], false);
-        assert!(value.get("previous_response_id").is_none());
-        assert_eq!(
-            value["input"][0],
-            json!({ "role": "user", "content": "second turn" })
-        );
-    }
-
-    #[test]
-    fn native_responses_provider_body_honors_codex_model_selection() {
-        let mut provider = responses_provider();
-        provider.model_selection_controlled_by_codex = true;
-        provider.models.push("gpt-4.1-mini".to_string());
-        let body = serde_json::to_vec(&json!({
-            "model": "gpt-4.1-mini",
-            "input": "ping"
-        }))
-        .unwrap();
-
-        let rewritten = provider_body_for_upstream(&Method::Post, "/v1/responses", body, &provider);
-        let value: Value = serde_json::from_slice(&rewritten).unwrap();
-
-        assert_eq!(value["model"], "gpt-4.1-mini");
-        assert_eq!(value["store"], false);
     }
 
     #[test]
