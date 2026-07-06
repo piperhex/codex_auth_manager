@@ -341,8 +341,10 @@ function DashboardApp() {
           <section className="page-panel" hidden={page !== "providers"}>
             <MemoProvidersPage providers={providerManager.providers} loading={providerManager.loading}
               busyProviderId={providerManager.busyProviderId} saving={providerManager.saving}
+              localProxy={providerManager.localProxy} proxyBusy={providerManager.proxyBusy}
               info={manager.info} onSave={providerManager.saveProvider}
-              onSwitch={switchProvider} onDisable={useOfficialProvider} onDelete={deleteProvider} t={t} />
+              onSwitch={switchProvider} onDisable={useOfficialProvider} onDelete={deleteProvider}
+              onStartProxy={providerManager.startProxy} onStopProxy={providerManager.stopProxy} t={t} />
           </section>
           <section className="page-panel" hidden={page !== "accounts"}>
             <MemoAccountsPage accounts={manager.accounts} loading={manager.loading}

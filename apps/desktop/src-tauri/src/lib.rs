@@ -4,6 +4,7 @@ mod cloud;
 mod codex_api;
 mod commands;
 mod floating_bubble;
+mod local_proxy;
 mod models;
 mod oauth;
 mod providers;
@@ -41,6 +42,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             size_main_window_to_screen(app)?;
+            providers::cleanup_stale_local_proxy_config(app.handle())?;
             system_tray::setup(app)?;
             floating_bubble::setup(app.handle())?;
             Ok(())
@@ -76,6 +78,9 @@ pub fn run() {
             providers::switch_provider,
             providers::disable_provider,
             providers::delete_provider,
+            local_proxy::get_local_proxy_status,
+            local_proxy::start_local_proxy,
+            local_proxy::stop_local_proxy,
             update::check_for_update,
             floating_bubble::get_app_settings,
             floating_bubble::set_floating_bubble,

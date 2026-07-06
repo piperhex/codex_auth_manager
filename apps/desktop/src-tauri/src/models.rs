@@ -92,6 +92,15 @@ pub(crate) struct ProviderSummary {
     pub(crate) supports_direct_switch: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LocalProxyStatus {
+    pub(crate) running: bool,
+    pub(crate) address: String,
+    pub(crate) port: u16,
+    pub(crate) base_url: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UpdateInfo {

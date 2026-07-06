@@ -68,6 +68,13 @@ export interface ProviderInput {
   apiFormat: ProviderApiFormat;
 }
 
+export interface LocalProxyStatus {
+  running: boolean;
+  address: string;
+  port: number;
+  baseUrl: string;
+}
+
 export interface UpdateInfo {
   currentVersion: string;
   latestVersion: string;

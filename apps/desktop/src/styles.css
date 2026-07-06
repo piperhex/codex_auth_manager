@@ -276,14 +276,16 @@ h1 { margin: 5px 0 0; font: 700 26px/1.1 Manrope, sans-serif; letter-spacing: -.
 .note-card { border-color: #c8dccd; background: #f8fbf7; }
 
 .provider-page { margin: 30px var(--page-x); display: grid; gap: 14px; max-width: 980px; }
-.provider-official { min-height: 72px; padding: 15px 18px; border: 1px solid var(--line); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--panel); box-shadow: 0 5px 18px rgba(24,45,31,.035); }
+.provider-official, .provider-proxy { min-height: 72px; padding: 15px 18px; border: 1px solid var(--line); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--panel); box-shadow: 0 5px 18px rgba(24,45,31,.035); }
 .provider-official.active { border-color: #b9d0bf; background: var(--green-selection); }
+.provider-proxy.active { border-color: #b9d0bf; background: #f4faf5; }
 .provider-official-main, .provider-official-actions { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .provider-official-main > div:last-child, .provider-toolbar > div { min-width: 0; display: grid; gap: 3px; }
-.provider-official strong, .provider-toolbar strong { color: var(--ink); font: 700 13px Manrope, sans-serif; }
-.provider-official span, .provider-toolbar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #718078; font-size: 10px; }
+.provider-official strong, .provider-proxy strong, .provider-toolbar strong { color: var(--ink); font: 700 13px Manrope, sans-serif; }
+.provider-official span, .provider-proxy span, .provider-toolbar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #718078; font-size: 10px; }
 .provider-avatar { width: 30px; height: 30px; flex: 0 0 auto; border-radius: 8px; display: grid; place-items: center; color: var(--green-dark); background: var(--green-soft); }
 .provider-avatar.official { color: #234f34; background: #dcebdd; }
+.provider-avatar.proxy { color: #334a62; background: #e7edf3; }
 .provider-toolbar { min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .provider-table-wrap { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: white; box-shadow: 0 5px 18px rgba(24,45,31,.035); }
 .provider-table-wrap .ant-table { color: var(--ink); font-size: 12px; }
@@ -323,6 +325,8 @@ h1 { margin: 5px 0 0; font: 700 26px/1.1 Manrope, sans-serif; letter-spacing: -.
   .app-menu { gap: 12px; }
   .brand { min-width: 184px; }
   .usage-copy { min-width: 85px; }
+  .provider-official, .provider-proxy { align-items: flex-start; flex-wrap: wrap; }
+  .provider-official-actions { margin-left: 40px; flex-wrap: wrap; justify-content: flex-start; }
 }
 
 html.floating-usage-page,

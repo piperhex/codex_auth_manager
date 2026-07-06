@@ -220,7 +220,9 @@ fn apply_archive<R: Runtime>(
     let active_account_id = if let Some((id, auth)) = active_account {
         write_json_if_changed(&paths.current_auth, &auth)?;
         let mut state = read_state(&paths);
-        if state.active_provider_id.is_some() {
+        if crate::local_proxy::is_running() {
+            crate::providers::write_official_local_proxy_config(&paths)?;
+        } else if state.active_provider_id.is_some() {
             crate::providers::restore_official_config(&paths)?;
         }
         state.active_account_id = Some(id.clone());

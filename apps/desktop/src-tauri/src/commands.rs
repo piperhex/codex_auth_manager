@@ -135,7 +135,10 @@ pub(crate) fn switch_account<R: Runtime>(
     let selected = read_json(&managed_auth_path(&paths, &id))?;
     validate_auth(&selected)?;
     let mut state = read_state(&paths);
-    if state.active_provider_id.is_some() {
+    if crate::local_proxy::is_running() {
+        crate::providers::write_official_local_proxy_config(&paths)?;
+        state.active_provider_id = None;
+    } else if state.active_provider_id.is_some() {
         crate::providers::restore_official_config(&paths)?;
         state.active_provider_id = None;
     }

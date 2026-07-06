@@ -2,13 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import {
   activateProvider,
   deactivateProvider,
+  loadLocalProxyStatus,
   loadProviders,
   removeProvider,
   saveProviderProfile,
+  startLocalProxy,
+  stopLocalProxy,
   subscribeToProviderEvents,
 } from "../api/backend";
 import type { Translate } from "../i18n";
-import type { Provider, ProviderInput } from "../types";
+import type { LocalProxyStatus, Provider, ProviderInput } from "../types";
 
 function providerErrorMessage(error: unknown, t: Translate) {
   const message = String(error);
@@ -33,13 +36,20 @@ function providerErrorMessage(error: unknown, t: Translate) {
 
 export function useProviderManager(notify: (message: string) => void, t: Translate) {
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [localProxy, setLocalProxy] = useState<LocalProxyStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyProviderId, setBusyProviderId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [proxyBusy, setProxyBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      setProviders(await loadProviders());
+      const [nextProviders, nextProxy] = await Promise.all([
+        loadProviders(),
+        loadLocalProxyStatus(),
+      ]);
+      setProviders(nextProviders);
+      setLocalProxy(nextProxy);
     } catch (error) {
       notify(String(error));
     } finally {
@@ -68,15 +78,16 @@ export function useProviderManager(notify: (message: string) => void, t: Transla
   const switchProvider = useCallback(async (id: string) => {
     setBusyProviderId(id);
     try {
+      const hotSwitch = Boolean(localProxy?.running);
       await activateProvider(id);
-      notify(t("toast.providerSwitched"));
+      notify(t(hotSwitch ? "toast.providerSwitchedHot" : "toast.providerSwitched"));
       await load();
     } catch (error) {
       notify(providerErrorMessage(error, t));
     } finally {
       setBusyProviderId(null);
     }
-  }, [load, notify, t]);
+  }, [load, localProxy?.running, notify, t]);
 
   const useOfficialProvider = useCallback(async () => {
     setBusyProviderId("official");
@@ -104,16 +115,46 @@ export function useProviderManager(notify: (message: string) => void, t: Transla
     }
   }, [load, notify, t]);
 
+  const startProxy = useCallback(async () => {
+    setProxyBusy(true);
+    try {
+      setLocalProxy(await startLocalProxy());
+      notify(t("toast.localProxyStarted"));
+      await load();
+    } catch (error) {
+      notify(providerErrorMessage(error, t));
+    } finally {
+      setProxyBusy(false);
+    }
+  }, [load, notify, t]);
+
+  const stopProxy = useCallback(async () => {
+    setProxyBusy(true);
+    try {
+      setLocalProxy(await stopLocalProxy());
+      notify(t("toast.localProxyStopped"));
+      await load();
+    } catch (error) {
+      notify(providerErrorMessage(error, t));
+    } finally {
+      setProxyBusy(false);
+    }
+  }, [load, notify, t]);
+
   return {
     providers,
+    localProxy,
     loading,
     busyProviderId,
     saving,
+    proxyBusy,
     activeProvider: providers.find((provider) => provider.active) ?? null,
     saveProvider,
     switchProvider,
     useOfficialProvider,
     deleteProvider,
+    startProxy,
+    stopProxy,
     reload: load,
   };
 }

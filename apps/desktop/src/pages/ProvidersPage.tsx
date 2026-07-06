@@ -1,20 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Input, Popconfirm, Segmented, Space, Table, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Check, KeyRound, Pencil, Plus, RefreshCw, RotateCcw, Save, Server, ShieldCheck, Trash2, X } from "lucide-react";
+import { Check, KeyRound, Pencil, Plus, Power, PowerOff, RadioTower, RefreshCw, RotateCcw, Save, Server, ShieldCheck, Trash2, X } from "lucide-react";
 import type { Translate } from "../i18n";
-import type { AppInfo, Provider, ProviderApiFormat, ProviderInput } from "../types";
+import type { AppInfo, LocalProxyStatus, Provider, ProviderApiFormat, ProviderInput } from "../types";
 
 interface ProvidersPageProps {
   providers: Provider[];
   loading: boolean;
   busyProviderId: string | null;
   saving: boolean;
+  localProxy: LocalProxyStatus | null;
+  proxyBusy: boolean;
   info: AppInfo | null;
   onSave: (provider: ProviderInput) => Promise<Provider | null>;
   onSwitch: (id: string) => void;
   onDisable: () => void;
   onDelete: (id: string) => void;
+  onStartProxy: () => void;
+  onStopProxy: () => void;
   t: Translate;
 }
 
@@ -106,16 +110,22 @@ export function ProvidersPage({
   loading,
   busyProviderId,
   saving,
+  localProxy,
+  proxyBusy,
   info,
   onSave,
   onSwitch,
   onDisable,
   onDelete,
+  onStartProxy,
+  onStopProxy,
   t,
 }: ProvidersPageProps) {
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [showModal, setShowModal] = useState(false);
   const officialActive = useMemo(() => providers.every((provider) => !provider.active), [providers]);
+  const proxyRunning = Boolean(localProxy?.running);
+  const proxyBaseUrl = localProxy?.baseUrl ?? "http://127.0.0.1:15722/v1";
 
   const openCreate = () => {
     setEditingProvider(null);
@@ -212,6 +222,26 @@ export function ProvidersPage({
           <Button size="small" type={officialActive ? "default" : "primary"} disabled={officialActive}
             loading={busyProviderId === "official"} icon={<KeyRound size={14} />}
             onClick={onDisable}>{officialActive ? t("providers.action.inUse") : t("providers.action.useOfficial")}</Button>
+        </div>
+      </section>
+
+      <section className={`provider-proxy${proxyRunning ? " active" : ""}`}>
+        <div className="provider-official-main">
+          <div className="provider-avatar proxy"><RadioTower size={16} /></div>
+          <div>
+            <strong>{t("providers.proxy.title")}</strong>
+            <span title={proxyBaseUrl}>{t("providers.proxy.baseUrl", { url: proxyBaseUrl })}</span>
+          </div>
+        </div>
+        <div className="provider-official-actions">
+          <Tag className={proxyRunning ? "current-tag" : undefined}>
+            {proxyRunning ? t("providers.proxy.running") : t("providers.proxy.stopped")}
+          </Tag>
+          <Button size="small" type={proxyRunning ? "default" : "primary"} loading={proxyBusy}
+            icon={proxyRunning ? <PowerOff size={14} /> : <Power size={14} />}
+            onClick={proxyRunning ? onStopProxy : onStartProxy}>
+            {proxyRunning ? t("providers.proxy.stop") : t("providers.proxy.start")}
+          </Button>
         </div>
       </section>
 

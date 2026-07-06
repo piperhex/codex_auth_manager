@@ -17,6 +17,13 @@ const PROVIDER_ROOT_START: &str = "# Codex Switch provider start";
 const PROVIDER_ROOT_END: &str = "# Codex Switch provider end";
 const PROVIDER_TABLE_START: &str = "# Codex Switch custom provider start";
 const PROVIDER_TABLE_END: &str = "# Codex Switch custom provider end";
+pub(crate) const LOCAL_PROXY_HOST: &str = "127.0.0.1";
+pub(crate) const LOCAL_PROXY_PORT: u16 = 15722;
+pub(crate) const LOCAL_PROXY_BASE_URL: &str = "http://127.0.0.1:15722/v1";
+pub(crate) const LOCAL_PROXY_TOKEN: &str = "CODEX_SWITCH_LOCAL_PROXY";
+const LOCAL_PROXY_PROVIDER_ID: &str = "codex-switch-local";
+const LOCAL_PROXY_PROVIDER_NAME: &str = "Codex Switch Local Proxy";
+const DEFAULT_OFFICIAL_MODEL: &str = "gpt-5-codex";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -122,7 +129,8 @@ pub(crate) fn switch_provider<R: Runtime>(
     let _ = sync_current_into_store(&app);
     let paths = resolve_paths(&app)?;
     let provider = read_provider(&paths, &id)?;
-    if provider.api_format != ProviderApiFormat::OpenaiResponses {
+    let proxy_running = crate::local_proxy::is_running();
+    if !proxy_running && provider.api_format != ProviderApiFormat::OpenaiResponses {
         return Err(
             "Chat Completions providers need a local Responses bridge. This build supports direct Responses-compatible providers only."
                 .to_string(),
@@ -134,7 +142,11 @@ pub(crate) fn switch_provider<R: Runtime>(
 
     let mut state = read_state(&paths);
     backup_codex_config_if_needed(&paths, state.active_provider_id.is_none())?;
-    write_provider_config(&paths, &provider)?;
+    if proxy_running {
+        write_provider_local_proxy_config(&paths, &provider)?;
+    } else {
+        write_provider_config(&paths, &provider)?;
+    }
     state.active_provider_id = Some(provider.id);
     write_state(&paths, &state)?;
     app.emit("providers-changed", ())
@@ -145,8 +157,13 @@ pub(crate) fn switch_provider<R: Runtime>(
 #[tauri::command]
 pub(crate) fn disable_provider<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
     let paths = resolve_paths(&app)?;
-    restore_official_config(&paths)?;
     let mut state = read_state(&paths);
+    if crate::local_proxy::is_running() {
+        backup_codex_config_if_needed(&paths, state.active_provider_id.is_none())?;
+        write_official_local_proxy_config(&paths)?;
+    } else {
+        restore_official_config(&paths)?;
+    }
     state.active_provider_id = None;
     write_state(&paths, &state)?;
     app.emit("providers-changed", ())
@@ -163,7 +180,11 @@ pub(crate) fn delete_provider<R: Runtime>(
     validate_provider_id(&id)?;
     let mut state = read_state(&paths);
     if state.active_provider_id.as_deref() == Some(&id) {
-        restore_official_config(&paths)?;
+        if crate::local_proxy::is_running() {
+            write_official_local_proxy_config(&paths)?;
+        } else {
+            restore_official_config(&paths)?;
+        }
         state.active_provider_id = None;
         write_state(&paths, &state)?;
     }
@@ -174,6 +195,38 @@ pub(crate) fn delete_provider<R: Runtime>(
     app.emit("providers-changed", ())
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+pub(crate) fn apply_local_proxy_config_for_state<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<(), String> {
+    let paths = resolve_paths(app)?;
+    let state = read_state(&paths);
+    backup_codex_config_if_needed(&paths, state.active_provider_id.is_none())?;
+    if let Some(id) = state.active_provider_id.as_deref() {
+        let provider = read_provider(&paths, id)?;
+        write_provider_local_proxy_config(&paths, &provider)
+    } else {
+        write_official_local_proxy_config(&paths)
+    }
+}
+
+pub(crate) fn cleanup_stale_local_proxy_config<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<(), String> {
+    let paths = resolve_paths(app)?;
+    if !paths.current_config.exists() {
+        return Ok(());
+    }
+    let current = fs::read_to_string(&paths.current_config)
+        .map_err(|error| format!("Failed to read Codex config: {error}"))?;
+    if !config_contains_local_proxy(&current) {
+        return Ok(());
+    }
+    restore_official_config(&paths)?;
+    let mut state = read_state(&paths);
+    state.active_provider_id = None;
+    write_state(&paths, &state)
 }
 
 pub(crate) fn restore_official_config(paths: &Paths) -> Result<(), String> {
@@ -211,7 +264,7 @@ fn provider_path(paths: &Paths, id: &str) -> PathBuf {
     paths.providers.join(format!("{id}.json"))
 }
 
-fn read_provider(paths: &Paths, id: &str) -> Result<ProviderProfile, String> {
+pub(crate) fn read_provider(paths: &Paths, id: &str) -> Result<ProviderProfile, String> {
     validate_provider_id(id)?;
     read_provider_file(provider_path(paths, id))
 }
@@ -236,7 +289,8 @@ fn provider_summary(provider: &ProviderProfile, active: bool) -> ProviderSummary
         api_format: provider.api_format,
         active,
         has_api_key: !provider.api_key.trim().is_empty(),
-        supports_direct_switch: provider.api_format == ProviderApiFormat::OpenaiResponses,
+        supports_direct_switch: provider.api_format == ProviderApiFormat::OpenaiResponses
+            || crate::local_proxy::is_running(),
     }
 }
 
@@ -317,6 +371,29 @@ fn write_provider_config(paths: &Paths, provider: &ProviderProfile) -> Result<()
     write_text_atomic(&paths.current_config, &merged)
 }
 
+pub(crate) fn write_official_local_proxy_config(paths: &Paths) -> Result<(), String> {
+    let model = preferred_official_model(paths);
+    write_local_proxy_config(paths, LOCAL_PROXY_PROVIDER_NAME, Some(&model))
+}
+
+fn write_provider_local_proxy_config(
+    paths: &Paths,
+    provider: &ProviderProfile,
+) -> Result<(), String> {
+    write_local_proxy_config(paths, &provider.name, Some(&provider.model))
+}
+
+fn write_local_proxy_config(paths: &Paths, name: &str, model: Option<&str>) -> Result<(), String> {
+    let existing = if paths.current_config.exists() {
+        fs::read_to_string(&paths.current_config)
+            .map_err(|error| format!("Failed to read Codex config: {error}"))?
+    } else {
+        String::new()
+    };
+    let merged = merge_local_proxy_config(&existing, name, model);
+    write_text_atomic(&paths.current_config, &merged)
+}
+
 fn merge_provider_config(existing: &str, provider: &ProviderProfile) -> String {
     let cleaned = remove_provider_conflicts(&remove_marked_blocks(existing));
     let mut config = String::new();
@@ -350,6 +427,48 @@ fn merge_provider_config(existing: &str, provider: &ProviderProfile) -> String {
     config
 }
 
+fn merge_local_proxy_config(existing: &str, name: &str, model: Option<&str>) -> String {
+    let cleaned = remove_provider_conflicts(&remove_marked_blocks(existing));
+    let model = model.map(str::trim).filter(|value| !value.is_empty());
+    let mut config = String::new();
+    config.push_str(PROVIDER_ROOT_START);
+    config.push('\n');
+    config.push_str(&format!(
+        "model_provider = {}\n",
+        toml_string(LOCAL_PROXY_PROVIDER_ID)
+    ));
+    if let Some(model) = model {
+        config.push_str(&format!("model = {}\n", toml_string(model)));
+    }
+    config.push_str("disable_response_storage = true\n");
+    config.push_str(PROVIDER_ROOT_END);
+    config.push_str("\n\n");
+
+    let cleaned = cleaned.trim();
+    if !cleaned.is_empty() {
+        config.push_str(cleaned);
+        config.push_str("\n\n");
+    }
+
+    config.push_str(PROVIDER_TABLE_START);
+    config.push('\n');
+    config.push_str(&format!("[model_providers.{LOCAL_PROXY_PROVIDER_ID}]\n"));
+    config.push_str(&format!("name = {}\n", toml_string(name)));
+    config.push_str(&format!(
+        "base_url = {}\n",
+        toml_string(LOCAL_PROXY_BASE_URL)
+    ));
+    config.push_str("wire_api = \"responses\"\n");
+    config.push_str("requires_openai_auth = true\n");
+    config.push_str(&format!(
+        "experimental_bearer_token = {}\n",
+        toml_string(LOCAL_PROXY_TOKEN)
+    ));
+    config.push_str(PROVIDER_TABLE_END);
+    config.push('\n');
+    config
+}
+
 fn remove_marked_blocks(config: &str) -> String {
     let mut output = Vec::new();
     let mut skipping = false;
@@ -374,6 +493,7 @@ fn remove_provider_conflicts(config: &str) -> String {
     let mut output = Vec::new();
     let mut in_root = true;
     let mut removing_custom_provider = false;
+    let local_proxy_provider_header = format!("[model_providers.{LOCAL_PROXY_PROVIDER_ID}]");
 
     for line in config.lines() {
         let trimmed = line.trim();
@@ -387,7 +507,9 @@ fn remove_provider_conflicts(config: &str) -> String {
 
         if is_table_header(trimmed) {
             in_root = false;
-            if trimmed == "[model_providers.custom]" {
+            if trimmed == "[model_providers.custom]"
+                || trimmed == local_proxy_provider_header.as_str()
+            {
                 removing_custom_provider = true;
                 continue;
             }
@@ -402,6 +524,80 @@ fn remove_provider_conflicts(config: &str) -> String {
     }
 
     output.join("\n")
+}
+
+fn config_contains_local_proxy(config: &str) -> bool {
+    config.contains(LOCAL_PROXY_BASE_URL)
+        || config.contains(LOCAL_PROXY_TOKEN)
+        || config.contains(&format!("[model_providers.{LOCAL_PROXY_PROVIDER_ID}]"))
+}
+
+fn preferred_official_model(paths: &Paths) -> String {
+    [
+        paths.current_config.as_path(),
+        paths.config_backup.as_path(),
+    ]
+    .into_iter()
+    .filter_map(|path| fs::read_to_string(path).ok())
+    .find_map(|config| extract_root_model(&config))
+    .unwrap_or_else(|| DEFAULT_OFFICIAL_MODEL.to_string())
+}
+
+fn extract_root_model(config: &str) -> Option<String> {
+    let mut in_root = true;
+    for line in config.lines() {
+        let trimmed = line.trim();
+        if is_table_header(trimmed) {
+            in_root = false;
+            continue;
+        }
+        if !in_root || !trimmed.starts_with("model") {
+            continue;
+        }
+        let Some(rest) = trimmed.strip_prefix("model") else {
+            continue;
+        };
+        let rest = rest.trim_start();
+        if !rest.starts_with('=') {
+            continue;
+        }
+        let value = rest[1..].trim();
+        return parse_toml_string_literal(value);
+    }
+    None
+}
+
+fn parse_toml_string_literal(value: &str) -> Option<String> {
+    let quote = value.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let mut escaped = false;
+    let mut output = String::new();
+    for ch in value[quote.len_utf8()..].chars() {
+        if quote == '"' && escaped {
+            let decoded = match ch {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '"' => '"',
+                '\\' => '\\',
+                other => other,
+            };
+            output.push(decoded);
+            escaped = false;
+            continue;
+        }
+        if quote == '"' && ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == quote {
+            return Some(output);
+        }
+        output.push(ch);
+    }
+    None
 }
 
 fn is_table_header(value: &str) -> bool {
@@ -456,6 +652,16 @@ mod tests {
             model: "gpt-4.1".to_string(),
             api_format: ProviderApiFormat::OpenaiResponses,
         }
+    }
+
+    #[test]
+    fn local_proxy_config_points_codex_to_local_responses() {
+        let merged = merge_local_proxy_config("model = \"old\"", "Proxy", Some("deepseek-chat"));
+        assert!(merged.contains("model_provider = \"codex-switch-local\""));
+        assert!(merged.contains("model = \"deepseek-chat\""));
+        assert!(merged.contains("base_url = \"http://127.0.0.1:15722/v1\""));
+        assert!(merged.contains("experimental_bearer_token = \"CODEX_SWITCH_LOCAL_PROXY\""));
+        assert!(!merged.contains("model = \"old\""));
     }
 
     #[test]

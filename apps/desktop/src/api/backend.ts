@@ -12,6 +12,7 @@ import type {
   CloudSyncResult,
   LoginStart,
   LoginStatus,
+  LocalProxyStatus,
   Provider,
   ProviderInput,
   ResetCreditsSummary,
@@ -25,6 +26,7 @@ const THEME_COLOR_PREVIEW_KEY = "codex-switch:theme-color";
 const CLOUD_BASE_URL_PREVIEW_KEY = "codex-switch:cloud-base-url";
 const CLOUD_USER_PREVIEW_KEY = "codex-switch:cloud-user-email";
 const PROVIDERS_PREVIEW_KEY = "codex-switch:providers";
+const LOCAL_PROXY_PREVIEW_KEY = "codex-switch:local-proxy-running";
 const THEME_COLOR_EVENT = "codex-switch:theme-color-changed";
 const LANGUAGE_EVENT = "codex-switch:language-changed";
 const PROVIDERS_EVENT = "codex-switch:providers-changed";
@@ -70,6 +72,15 @@ function previewProviderId() {
   return `provider-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function previewLocalProxyStatus(): LocalProxyStatus {
+  return {
+    running: window.localStorage.getItem(LOCAL_PROXY_PREVIEW_KEY) === "true",
+    address: "127.0.0.1",
+    port: 15722,
+    baseUrl: "http://127.0.0.1:15722/v1",
+  };
+}
+
 export async function loadDashboard(): Promise<{ accounts: Account[]; info: AppInfo }> {
   if (!isDesktopApp) {
     return { accounts: structuredClone(DEMO_ACCOUNTS), info: DEMO_INFO };
@@ -93,7 +104,13 @@ export async function loadAppSettings(): Promise<AppSettings> {
 }
 
 export async function loadProviders(): Promise<Provider[]> {
-  if (!isDesktopApp) return readPreviewProviders();
+  if (!isDesktopApp) {
+    const proxyRunning = previewLocalProxyStatus().running;
+    return readPreviewProviders().map((provider) => ({
+      ...provider,
+      supportsDirectSwitch: provider.apiFormat === "openaiResponses" || proxyRunning,
+    }));
+  }
   return invoke<Provider[]>("list_providers");
 }
 
@@ -112,7 +129,7 @@ export async function saveProviderProfile(provider: ProviderInput): Promise<Prov
       apiFormat: provider.apiFormat,
       active: existing?.active ?? false,
       hasApiKey,
-      supportsDirectSwitch: provider.apiFormat === "openaiResponses",
+      supportsDirectSwitch: provider.apiFormat === "openaiResponses" || previewLocalProxyStatus().running,
     };
     if (index >= 0) providers[index] = next;
     else providers.push(next);
@@ -127,7 +144,7 @@ export async function activateProvider(id: string): Promise<void> {
     const providers = readPreviewProviders();
     const selected = providers.find((provider) => provider.id === id);
     if (!selected) throw new Error("Provider does not exist");
-    if (!selected.supportsDirectSwitch) throw new Error("Chat Completions providers need a local Responses bridge");
+    if (!selected.supportsDirectSwitch && !previewLocalProxyStatus().running) throw new Error("Chat Completions providers need a local Responses bridge");
     writePreviewProviders(providers.map((provider) => ({ ...provider, active: provider.id === id })));
     return;
   }
@@ -148,6 +165,36 @@ export async function removeProvider(id: string): Promise<void> {
     return;
   }
   await invoke("delete_provider", { id });
+}
+
+export async function loadLocalProxyStatus(): Promise<LocalProxyStatus> {
+  if (!isDesktopApp) return previewLocalProxyStatus();
+  return invoke<LocalProxyStatus>("get_local_proxy_status");
+}
+
+export async function startLocalProxy(): Promise<LocalProxyStatus> {
+  if (!isDesktopApp) {
+    window.localStorage.setItem(LOCAL_PROXY_PREVIEW_KEY, "true");
+    writePreviewProviders(readPreviewProviders().map((provider) => ({
+      ...provider,
+      supportsDirectSwitch: true,
+    })));
+    return previewLocalProxyStatus();
+  }
+  return invoke<LocalProxyStatus>("start_local_proxy");
+}
+
+export async function stopLocalProxy(): Promise<LocalProxyStatus> {
+  if (!isDesktopApp) {
+    window.localStorage.removeItem(LOCAL_PROXY_PREVIEW_KEY);
+    writePreviewProviders(readPreviewProviders().map((provider) => ({
+      ...provider,
+      active: false,
+      supportsDirectSwitch: provider.apiFormat === "openaiResponses",
+    })));
+    return previewLocalProxyStatus();
+  }
+  return invoke<LocalProxyStatus>("stop_local_proxy");
 }
 
 export async function updateFloatingBubble(enabled: boolean): Promise<AppSettings> {
