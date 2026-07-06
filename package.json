@@ -19,6 +19,7 @@
     "build:backend": "npm run build -w @codex-switch/backend",
     "build:app": "npm run build:app -w @codex-switch/desktop",
     "build:app:mac": "npm run build:app:mac -w @codex-switch/desktop",
+    "build:app:win-arm64": "npm run build:app:win-arm64 -w @codex-switch/desktop",
     "check": "lerna run check --stream && npm run check:rust",
     "check:rust": "npm run check:rust -w @codex-switch/desktop",
     "test": "lerna run test --stream --if-present",

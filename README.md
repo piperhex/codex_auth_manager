@@ -81,6 +81,15 @@ On macOS, build a universal Apple Silicon + Intel bundle:
 npm run build:app:mac
 ```
 
+On Windows, build an ARM64 bundle:
+
+```powershell
+rustup target add aarch64-pc-windows-msvc
+npm run build:app:win-arm64
+```
+
+Windows ARM64 builds also need the MSVC C++ toolchain with ARM64 build tools available in the developer environment.
+
 On Ubuntu, `npm run build:app` produces `.deb` and AppImage bundles.
 
 Run all frontend and backend checks:
@@ -102,7 +111,7 @@ npm run release-beta
 
 You can pass an exact version or tag with `npm run release -- v0.2.0` or `npm run release-beta -- v0.2.0-beta.1`. Explicit versions are also synced into the version files before the tag is created.
 
-The release workflow builds Windows x64, Ubuntu/Linux x64, and macOS Apple Silicon and Intel artifacts, then uploads them to the matching GitHub Release. Release notes are generated automatically from the commits and pull requests included in the tag diff, with the installer download note kept at the top. Tags containing a prerelease suffix, such as `-beta.0`, are published as GitHub prereleases. The workflow can also be run manually from Actions by entering an existing tag.
+The release workflow builds Windows x64, Windows ARM64, Ubuntu/Linux x64, and macOS Apple Silicon and Intel artifacts, then uploads them to the matching GitHub Release. Release notes are generated automatically from the commits and pull requests included in the tag diff, with the installer download note kept at the top. Tags containing a prerelease suffix, such as `-beta.0`, are published as GitHub prereleases. The workflow can also be run manually from Actions by entering an existing tag.
 
 ## Usage
 

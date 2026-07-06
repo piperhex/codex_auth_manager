@@ -31,6 +31,7 @@ Dependency versions are locked by the root `package-lock.json` and `apps/desktop
 | `npm run build:backend` | Build the NestJS backend |
 | `npm run build:app` | Build desktop installers |
 | `npm run build:app:mac` | Build a universal macOS bundle |
+| `npm run build:app:win-arm64` | Build a Windows ARM64 bundle |
 | `npm run check:rust` | Check Rust formatting and run Rust tests |
 | `npm run check` | Run all pre-submission workspace checks plus Rust checks |
 | `npm run nx -- graph` | Open the Nx project graph |
@@ -50,6 +51,8 @@ npm run dev:app
 
 The `.local-codex/` directory may contain credentials. Confirm that it cannot be committed before using it. A temporary directory outside the workspace is safer.
 
+For local Windows ARM64 app builds, install the Rust `aarch64-pc-windows-msvc` target and use a Visual Studio/MSVC developer environment with ARM64 build tools before running `npm run build:app:win-arm64`.
+
 ## Debugging Guidelines
 
 - UI or state issue: reproduce it first with `npm run dev` and demo data.
@@ -65,7 +68,7 @@ The `.local-codex/` directory may contain credentials. Confirm that it cannot be
 
 `npm run release` and `npm run release-beta` require a clean working tree. The script updates `package.json`, `package-lock.json`, `apps/desktop/package.json`, and `apps/desktop/src-tauri/tauri.conf.json`, commits the version bump when needed, creates an annotated tag, then pushes both the current branch and tag to `origin`.
 
-The GitHub Actions release workflow starts from `v*` tags or a manual run with an existing tag. It creates or finds the GitHub Release, generates release notes when needed, runs `npm run check` in each build job, and uploads Windows x64, Ubuntu/Linux x64, and macOS Apple Silicon and Intel artifacts.
+The GitHub Actions release workflow starts from `v*` tags or a manual run with an existing tag. It creates or finds the GitHub Release, generates release notes when needed, runs `npm run check` in each build job, and uploads Windows x64, Windows ARM64, Ubuntu/Linux x64, and macOS Apple Silicon and Intel artifacts.
 
 ## Adding a Feature
 

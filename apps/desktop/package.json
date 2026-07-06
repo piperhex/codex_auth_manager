@@ -13,7 +13,8 @@
     "tauri": "tauri",
     "dev:app": "tauri dev",
     "build:app": "tauri build",
-    "build:app:mac": "tauri build --target universal-apple-darwin"
+    "build:app:mac": "tauri build --target universal-apple-darwin",
+    "build:app:win-arm64": "tauri build --target aarch64-pc-windows-msvc"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",

@@ -97,15 +97,25 @@ jobs:
           - name: macos-aarch64
             platform: macos-latest
             args: "--target aarch64-apple-darwin"
+            rustTargets: "aarch64-apple-darwin,x86_64-apple-darwin"
           - name: macos-x86_64
             platform: macos-latest
             args: "--target x86_64-apple-darwin"
+            rustTargets: "aarch64-apple-darwin,x86_64-apple-darwin"
           - name: ubuntu-x86_64
             platform: ubuntu-22.04
             args: ""
+            rustTargets: ""
           - name: windows-x86_64
             platform: windows-latest
             args: ""
+            rustTargets: ""
+            msvcArch: "amd64"
+          - name: windows-aarch64
+            platform: windows-latest
+            args: "--target aarch64-pc-windows-msvc"
+            rustTargets: "aarch64-pc-windows-msvc"
+            msvcArch: "amd64_arm64"
 
     steps:
       - name: Checkout
@@ -128,7 +138,13 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ startsWith(matrix.name, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.rustTargets }}
+
+      - name: Configure MSVC
+        if: startsWith(matrix.name, 'windows')
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvcArch }}
 
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
