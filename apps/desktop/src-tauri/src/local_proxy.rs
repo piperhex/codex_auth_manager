@@ -276,6 +276,7 @@ pub(crate) fn start_local_proxy<R: Runtime>(
     }
     app.emit("providers-changed", ())
         .map_err(|error| error.to_string())?;
+    crate::system_tray::refresh_menu(&app);
     Ok(status())
 }
 
@@ -291,6 +292,7 @@ pub(crate) fn stop_local_proxy<R: Runtime>(
     write_state(&paths, &state)?;
     app.emit("providers-changed", ())
         .map_err(|error| error.to_string())?;
+    crate::system_tray::refresh_menu(&app);
     Ok(status())
 }
 

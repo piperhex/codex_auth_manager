@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Input, Popconfirm, Segmented, Select, Space, Switch, Table, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Check, KeyRound, Pencil, Plus, Power, PowerOff, RadioTower, RefreshCw, RotateCcw, Save, Server, ShieldCheck, Trash2, X } from "lucide-react";
+import { Check, KeyRound, Pencil, Plus, RefreshCw, RotateCcw, Save, Server, ShieldCheck, Trash2, X } from "lucide-react";
+import { LocalProxyCard } from "../components/LocalProxyCard";
 import type { Translate } from "../i18n";
 import type { AppInfo, LocalProxyStatus, Provider, ProviderApiFormat, ProviderInput } from "../types";
 
@@ -211,7 +212,6 @@ export function ProvidersPage({
   const [showModal, setShowModal] = useState(false);
   const officialActive = useMemo(() => providers.every((provider) => !provider.active), [providers]);
   const proxyRunning = Boolean(localProxy?.running);
-  const proxyBaseUrl = localProxy?.baseUrl ?? "http://127.0.0.1:15722/v1";
 
   const openCreate = () => {
     setEditingProvider(null);
@@ -277,7 +277,11 @@ export function ProvidersPage({
                 disabled={provider.active || !provider.supportsDirectSwitch}
                 loading={waiting} icon={provider.active ? <Check size={14} /> : <RotateCcw size={14} />}
                 onClick={() => onSwitch(provider.id)}>
-                {provider.active ? t("providers.action.inUse") : t("providers.action.switch")}
+                {provider.active
+                  ? t("providers.action.inUse")
+                  : proxyRunning
+                    ? t("providers.action.hotSwitch")
+                    : t("providers.action.switch")}
               </Button>
             </Tooltip>
             <Tooltip title={t("providers.tooltip.edit")}>
@@ -318,25 +322,8 @@ export function ProvidersPage({
         </div>
       </section>
 
-      <section className={`provider-proxy${proxyRunning ? " active" : ""}`}>
-        <div className="provider-official-main">
-          <div className="provider-avatar proxy"><RadioTower size={16} /></div>
-          <div>
-            <strong>{t("providers.proxy.title")}</strong>
-            <span title={proxyBaseUrl}>{t("providers.proxy.baseUrl", { url: proxyBaseUrl })}</span>
-          </div>
-        </div>
-        <div className="provider-official-actions">
-          <Tag className={proxyRunning ? "current-tag" : undefined}>
-            {proxyRunning ? t("providers.proxy.running") : t("providers.proxy.stopped")}
-          </Tag>
-          <Button size="small" type={proxyRunning ? "default" : "primary"} loading={proxyBusy}
-            icon={proxyRunning ? <PowerOff size={14} /> : <Power size={14} />}
-            onClick={proxyRunning ? onStopProxy : onStartProxy}>
-            {proxyRunning ? t("providers.proxy.stop") : t("providers.proxy.start")}
-          </Button>
-        </div>
-      </section>
+      <LocalProxyCard localProxy={localProxy} proxyBusy={proxyBusy}
+        onStartProxy={onStartProxy} onStopProxy={onStopProxy} t={t} />
 
       <div className="provider-toolbar">
         <div>

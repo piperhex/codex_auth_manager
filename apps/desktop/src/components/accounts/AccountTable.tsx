@@ -19,6 +19,7 @@ interface AccountTableProps {
   onSaveNote: (id: string, note: string, expiresAt: string) => Promise<boolean>;
   resetCredits: Record<string, ResetCreditsLoadState>;
   onLoadResetCredits: (id: string, force?: boolean) => void;
+  hotSwitchEnabled: boolean;
   language: Language;
   t: Translate;
 }
@@ -112,6 +113,7 @@ export function AccountTable({
   onSaveNote,
   resetCredits,
   onLoadResetCredits,
+  hotSwitchEnabled,
   language,
   t,
 }: AccountTableProps) {
@@ -186,7 +188,9 @@ export function AccountTable({
           <Space size={4} className="table-actions">
             <Button size="small" type={account.active ? "default" : "primary"} disabled={account.active}
               loading={waiting} icon={account.active ? <Check size={14} /> : <RotateCcw size={14} />}
-              onClick={() => onSwitch(account.id)}>{account.active ? t("table.inUse") : t("table.switch")}</Button>
+              onClick={() => onSwitch(account.id)}>
+              {account.active ? t("table.inUse") : hotSwitchEnabled ? t("table.hotSwitch") : t("table.switch")}
+            </Button>
             <Tooltip title={t("table.refreshUsage")}>
               <Button size="small" className="table-icon-button" loading={waiting}
                 icon={<RefreshCw size={14} />} onClick={() => onRefresh(account.id)} />

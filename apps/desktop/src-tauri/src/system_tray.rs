@@ -6,7 +6,8 @@ use tauri::{
 
 use crate::{
     commands,
-    models::{AccountSummary, UsageWindow},
+    models::{AccountSummary, ProviderSummary, UsageWindow},
+    providers,
 };
 
 const TRAY_ID: &str = "main-tray";
@@ -14,7 +15,10 @@ const DASHBOARD_ID: &str = "tray:dashboard";
 const RESTART_CODEX_ID: &str = "tray:restart-codex";
 const QUIT_ID: &str = "tray:quit";
 const ACCOUNT_PREFIX: &str = "tray:account:";
+const OFFICIAL_PROVIDER_ID: &str = "tray:provider-official";
+const PROVIDER_PREFIX: &str = "tray:provider:";
 const MENU_EMAIL_CHARS: usize = 15;
+const MENU_PROVIDER_CHARS: usize = 28;
 
 pub(crate) fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let menu = build_menu(app.handle())?;
@@ -85,6 +89,18 @@ pub(crate) fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent
         if let Err(error) = commands::switch_account(app.clone(), account_id.to_string()) {
             eprintln!("failed to switch account from tray: {error}");
         }
+        return;
+    }
+    if id == OFFICIAL_PROVIDER_ID {
+        if let Err(error) = providers::disable_provider(app.clone()) {
+            eprintln!("failed to switch provider from tray: {error}");
+        }
+        return;
+    }
+    if let Some(provider_id) = id.strip_prefix(PROVIDER_PREFIX) {
+        if let Err(error) = providers::switch_provider(app.clone(), provider_id.to_string()) {
+            eprintln!("failed to switch provider from tray: {error}");
+        }
     }
 }
 
@@ -92,6 +108,10 @@ pub(crate) fn build_menu<R: Runtime>(
     app: &AppHandle<R>,
 ) -> Result<Menu<R>, Box<dyn std::error::Error>> {
     let menu = Menu::new(app)?;
+
+    let accounts_header =
+        MenuItem::with_id(app, "tray:accounts-header", "Accounts", false, None::<&str>)?;
+    menu.append(&accounts_header)?;
 
     match commands::list_accounts(app.clone()) {
         Ok(accounts) if accounts.is_empty() => {
@@ -124,6 +144,9 @@ pub(crate) fn build_menu<R: Runtime>(
     }
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
+    append_provider_items(app, &menu)?;
+
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItem::with_id(
         app,
         DASHBOARD_ID,
@@ -148,6 +171,70 @@ pub(crate) fn build_menu<R: Runtime>(
     Ok(menu)
 }
 
+fn append_provider_items<R: Runtime>(
+    app: &AppHandle<R>,
+    menu: &Menu<R>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let header = MenuItem::with_id(
+        app,
+        "tray:providers-header",
+        "Providers",
+        false,
+        None::<&str>,
+    )?;
+    menu.append(&header)?;
+
+    match providers::list_providers(app.clone()) {
+        Ok(providers) => {
+            let official_active = providers.iter().all(|provider| !provider.active);
+            let official = CheckMenuItem::with_id(
+                app,
+                OFFICIAL_PROVIDER_ID,
+                "Official Codex",
+                true,
+                official_active,
+                None::<&str>,
+            )?;
+            menu.append(&official)?;
+
+            if providers.is_empty() {
+                let empty = MenuItem::with_id(
+                    app,
+                    "tray:providers-empty",
+                    "No providers",
+                    false,
+                    None::<&str>,
+                )?;
+                menu.append(&empty)?;
+                return Ok(());
+            }
+
+            for provider in providers {
+                let item = CheckMenuItem::with_id(
+                    app,
+                    format!("{PROVIDER_PREFIX}{}", provider.id),
+                    provider_label(&provider),
+                    provider.supports_direct_switch,
+                    provider.active,
+                    None::<&str>,
+                )?;
+                menu.append(&item)?;
+            }
+        }
+        Err(error) => {
+            let item = MenuItem::with_id(
+                app,
+                "tray:providers-error",
+                format!("Providers error: {error}"),
+                false,
+                None::<&str>,
+            )?;
+            menu.append(&item)?;
+        }
+    }
+    Ok(())
+}
+
 fn account_label(account: &AccountSummary) -> String {
     format!(
         "{} | 5h {} | 1week {}",
@@ -157,10 +244,32 @@ fn account_label(account: &AccountSummary) -> String {
     )
 }
 
+pub(crate) fn provider_label(provider: &ProviderSummary) -> String {
+    let name = escape_menu_text(&truncate_menu_provider(&provider.name));
+    if provider.model_selection_controlled_by_codex || provider.model.trim().is_empty() {
+        name
+    } else {
+        format!(
+            "{name} | {}",
+            escape_menu_text(&truncate_menu_provider(&provider.model))
+        )
+    }
+}
+
 fn remaining_label(window: Option<&UsageWindow>) -> String {
     window
         .map(|window| format!("{}%", window.remaining_percent.round().clamp(0.0, 100.0)))
         .unwrap_or_else(|| "--".to_string())
+}
+
+fn truncate_menu_provider(text: &str) -> String {
+    let mut chars = text.chars();
+    let truncated = chars.by_ref().take(MENU_PROVIDER_CHARS).collect::<String>();
+    if chars.next().is_some() {
+        format!("{truncated}...")
+    } else {
+        truncated
+    }
 }
 
 fn escape_menu_text(text: &str) -> String {

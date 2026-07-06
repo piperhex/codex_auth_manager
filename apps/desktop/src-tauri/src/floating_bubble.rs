@@ -6,6 +6,7 @@ use tauri::{
 use crate::{
     commands,
     models::{AppSettings, UsageWindow},
+    providers,
     storage::{read_app_settings, write_app_settings},
 };
 
@@ -263,7 +264,7 @@ fn clamp_menu_axis(value: f64, min: f64, max: f64) -> f64 {
 }
 
 fn estimated_floating_menu_size<R: Runtime>(app: &AppHandle<R>) -> (f64, f64) {
-    let labels = match commands::list_accounts(app.clone()) {
+    let mut labels = match commands::list_accounts(app.clone()) {
         Ok(accounts) if accounts.is_empty() => vec!["No accounts".to_string()],
         Ok(accounts) => accounts
             .into_iter()
@@ -278,6 +279,17 @@ fn estimated_floating_menu_size<R: Runtime>(app: &AppHandle<R>) -> (f64, f64) {
             .collect::<Vec<_>>(),
         Err(error) => vec![format!("Accounts error: {error}")],
     };
+    labels.push("Providers".to_string());
+    labels.push("Official Codex".to_string());
+    match providers::list_providers(app.clone()) {
+        Ok(providers) if providers.is_empty() => labels.push("No providers".to_string()),
+        Ok(providers) => labels.extend(
+            providers
+                .into_iter()
+                .map(|provider| crate::system_tray::provider_label(&provider)),
+        ),
+        Err(error) => labels.push(format!("Providers error: {error}")),
+    }
     let max_chars = labels
         .iter()
         .map(|label| label.chars().count())
@@ -285,7 +297,7 @@ fn estimated_floating_menu_size<R: Runtime>(app: &AppHandle<R>) -> (f64, f64) {
         .max()
         .unwrap_or(20);
     let width = ((max_chars as f64) * 8.8 + 92.0).clamp(230.0, 520.0);
-    let height = ((labels.len() + 3) as f64) * 32.0 + 18.0;
+    let height = ((labels.len() + 3) as f64) * 32.0 + 26.0;
     (width, height)
 }
 

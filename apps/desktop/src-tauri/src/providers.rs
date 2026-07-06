@@ -29,6 +29,13 @@ const DEFAULT_OFFICIAL_MODEL: &str = "gpt-5-codex";
 const MODEL_CATALOG_FILENAME: &str = "codex-switch-model-catalog.json";
 const DEFAULT_MODEL_CONTEXT_WINDOW: u64 = 128_000;
 
+fn emit_providers_changed<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
+    app.emit("providers-changed", ())
+        .map_err(|error| error.to_string())?;
+    crate::system_tray::refresh_menu(app);
+    Ok(())
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProviderInput {
@@ -126,8 +133,7 @@ pub(crate) fn save_provider<R: Runtime>(
     if active_provider_id.as_deref() == Some(&profile.id) {
         write_active_provider_config(&paths, &profile)?;
     }
-    app.emit("providers-changed", ())
-        .map_err(|error| error.to_string())?;
+    emit_providers_changed(&app)?;
     Ok(provider_summary(
         &profile,
         active_provider_id.as_deref() == Some(&profile.id),
@@ -163,8 +169,7 @@ pub(crate) fn switch_provider<R: Runtime>(
     }
     state.active_provider_id = Some(provider.id);
     write_state(&paths, &state)?;
-    app.emit("providers-changed", ())
-        .map_err(|error| error.to_string())?;
+    emit_providers_changed(&app)?;
     Ok(())
 }
 
@@ -189,8 +194,7 @@ pub(crate) fn switch_provider_model<R: Runtime>(
     if active {
         write_active_provider_config(&paths, &provider)?;
     }
-    app.emit("providers-changed", ())
-        .map_err(|error| error.to_string())?;
+    emit_providers_changed(&app)?;
     Ok(provider_summary(&provider, active))
 }
 
@@ -210,8 +214,7 @@ pub(crate) fn set_provider_model_control<R: Runtime>(
     if active {
         write_active_provider_config(&paths, &provider)?;
     }
-    app.emit("providers-changed", ())
-        .map_err(|error| error.to_string())?;
+    emit_providers_changed(&app)?;
     Ok(provider_summary(&provider, active))
 }
 
@@ -227,8 +230,7 @@ pub(crate) fn disable_provider<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(
     }
     state.active_provider_id = None;
     write_state(&paths, &state)?;
-    app.emit("providers-changed", ())
-        .map_err(|error| error.to_string())?;
+    emit_providers_changed(&app)?;
     Ok(())
 }
 
@@ -253,8 +255,7 @@ pub(crate) fn delete_provider<R: Runtime>(
     if path.exists() {
         fs::remove_file(&path).map_err(|error| format!("Failed to delete provider: {error}"))?;
     }
-    app.emit("providers-changed", ())
-        .map_err(|error| error.to_string())?;
+    emit_providers_changed(&app)?;
     Ok(())
 }
 

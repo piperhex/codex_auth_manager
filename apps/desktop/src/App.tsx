@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ConfigProvider, Tooltip, theme as antdTheme } from "antd";
+import { ConfigProvider, Popconfirm, Tooltip, theme as antdTheme } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
 import { CalendarClock, Check, CircleHelp, Cloud, Download, Github, LogIn, LogOut, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Upload, UploadCloud, UserRound } from "lucide-react";
@@ -311,16 +311,32 @@ function DashboardApp() {
                   disabled={resetCredits.refreshingAll || !manager.accounts.length}>
                   <CalendarClock className={resetCredits.refreshingAll ? "spin" : ""} size={17} />{t("actions.refreshResetCredits")}
                 </button>
-                <button className="refresh-all" onClick={() => void restartCodexProcess()} disabled={restartingCodex}>
-                  <RotateCcw className={restartingCodex ? "spin" : ""} size={17} />{t("actions.restartCodex")}
-                </button>
+                <Popconfirm title={t("actions.restartCodexConfirmTitle")}
+                  description={t("actions.restartCodexConfirmDescription")}
+                  okText={t("actions.restartCodex")} cancelText={t("table.cancel")}
+                  okButtonProps={{ danger: true }} disabled={restartingCodex}
+                  onConfirm={() => void restartCodexProcess()}>
+                  <Tooltip title={t("actions.restartCodexHint")}>
+                    <button className="refresh-all restart-codex-button" disabled={restartingCodex}>
+                      <RotateCcw className={restartingCodex ? "spin" : ""} size={17} />{t("actions.restartCodex")}
+                    </button>
+                  </Tooltip>
+                </Popconfirm>
               </div>
             )}
             {page === "providers" && (
               <div className="topbar-actions">
-                <button className="refresh-all" onClick={() => void restartCodexProcess()} disabled={restartingCodex}>
-                  <RotateCcw className={restartingCodex ? "spin" : ""} size={17} />{t("actions.restartCodex")}
-                </button>
+                <Popconfirm title={t("actions.restartCodexConfirmTitle")}
+                  description={t("actions.restartCodexConfirmDescription")}
+                  okText={t("actions.restartCodex")} cancelText={t("table.cancel")}
+                  okButtonProps={{ danger: true }} disabled={restartingCodex}
+                  onConfirm={() => void restartCodexProcess()}>
+                  <Tooltip title={t("actions.restartCodexHint")}>
+                    <button className="refresh-all restart-codex-button" disabled={restartingCodex}>
+                      <RotateCcw className={restartingCodex ? "spin" : ""} size={17} />{t("actions.restartCodex")}
+                    </button>
+                  </Tooltip>
+                </Popconfirm>
               </div>
             )}
           </header>
@@ -357,12 +373,14 @@ function DashboardApp() {
           <section className="page-panel" hidden={page !== "accounts"}>
             <MemoAccountsPage accounts={manager.accounts} loading={manager.loading}
               busyAccountId={manager.busyAccountId} onAdd={openLogin}
+              localProxy={providerManager.localProxy} proxyBusy={providerManager.proxyBusy}
               onSwitch={switchAccount}
               onRefresh={refreshUsage}
               onDelete={deleteAccount}
               onSaveNote={saveAccountNote}
               resetCredits={resetCredits.states}
               onLoadResetCredits={loadResetCredits}
+              onStartProxy={providerManager.startProxy} onStopProxy={providerManager.stopProxy}
               language={language} t={t} />
           </section>
         </main>
