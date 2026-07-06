@@ -217,7 +217,7 @@ fn active_target<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<ActiveTarget, 
 
 fn models_response<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<Value, String> {
     let models = match active_target(app)? {
-        ActiveTarget::Provider(provider) => provider.models,
+        ActiveTarget::Provider(provider) => provider_models_for_codex(&provider),
         ActiveTarget::Official => vec!["gpt-5-codex".to_string()],
     };
     let data = models
@@ -279,6 +279,7 @@ fn forward_provider(
 ) -> Result<UpstreamPayload, String> {
     let client = http_client()?;
     let upstream_url = build_upstream_url(&provider.base_url, url);
+    let body = provider_body_for_upstream(method, url, body, provider);
     let request = client
         .request(reqwest_method(method)?, upstream_url)
         .bearer_auth(provider.api_key.trim());
@@ -289,6 +290,30 @@ fn forward_provider(
             .send()
             .map_err(|error| format!("Provider proxy request failed: {error}"))?,
     )
+}
+
+fn provider_models_for_codex(provider: &ProviderProfile) -> Vec<String> {
+    if provider.model_selection_controlled_by_codex {
+        provider.models.clone()
+    } else {
+        vec![provider.model.clone()]
+    }
+}
+
+fn provider_body_for_upstream(
+    method: &Method,
+    url: &str,
+    body: Vec<u8>,
+    provider: &ProviderProfile,
+) -> Vec<u8> {
+    if *method != Method::Post || !is_responses_endpoint(request_path(url)) {
+        return body;
+    }
+    let Ok(mut value) = serde_json::from_slice::<Value>(&body) else {
+        return body;
+    };
+    value["model"] = Value::String(selected_provider_model(&value, provider));
+    serde_json::to_vec(&value).unwrap_or(body)
 }
 
 fn forward_chat_bridge(
@@ -303,7 +328,8 @@ fn forward_chat_bridge(
     }
     let mut responses_body: Value = serde_json::from_slice(&body)
         .map_err(|error| format!("Responses request body is not valid JSON: {error}"))?;
-    responses_body["model"] = Value::String(provider.model.clone());
+    let selected_model = selected_provider_model(&responses_body, provider);
+    responses_body["model"] = Value::String(selected_model.clone());
     let chat_body = responses_to_chat_completions(&responses_body);
     let stream = chat_body
         .get("stream")
@@ -332,7 +358,7 @@ fn forward_chat_bridge(
             content_type: Some("text/event-stream; charset=utf-8".to_string()),
             body: UpstreamBody::Streaming(Box::new(ChatSseReader::new(
                 BufReader::new(response),
-                provider.model.clone(),
+                selected_model,
             ))),
         });
     }
@@ -352,6 +378,18 @@ fn forward_chat_bridge(
     let json: Value = serde_json::from_slice(&body)
         .map_err(|_| "Chat bridge upstream returned non-JSON response".to_string())?;
     Ok(json_payload(status, chat_to_responses_json(&json)))
+}
+
+fn selected_provider_model(body: &Value, provider: &ProviderProfile) -> String {
+    if !provider.model_selection_controlled_by_codex {
+        return provider.model.clone();
+    }
+    body.get("model")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|model| provider.models.iter().any(|allowed| allowed == model))
+        .unwrap_or(&provider.model)
+        .to_string()
 }
 
 fn official_token<R: Runtime>(
@@ -1160,6 +1198,26 @@ mod tests {
     }
 
     #[test]
+    fn chat_bridge_honors_codex_selected_provider_model() {
+        let provider = ProviderProfile {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            api_key: "sk-provider-test".to_string(),
+            model: "deepseek-chat".to_string(),
+            models: vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],
+            model_selection_controlled_by_codex: true,
+            api_format: ProviderApiFormat::OpenaiChat,
+        };
+        let body = json!({ "model": "deepseek-reasoner", "input": "ping" });
+
+        assert_eq!(
+            selected_provider_model(&body, &provider),
+            "deepseek-reasoner"
+        );
+    }
+
+    #[test]
     fn chat_bridge_uses_provider_key_and_chat_endpoint() {
         let server = Server::http("127.0.0.1:0").unwrap();
         let addr = server.server_addr().to_ip().unwrap();
@@ -1213,6 +1271,7 @@ mod tests {
             api_key: "sk-provider-test".to_string(),
             model: "deepseek-v4-flash".to_string(),
             models: vec!["deepseek-v4-flash".to_string()],
+            model_selection_controlled_by_codex: false,
             api_format: ProviderApiFormat::OpenaiChat,
         };
         let body = serde_json::to_vec(&json!({

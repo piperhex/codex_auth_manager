@@ -6,6 +6,7 @@ import {
   loadProviders,
   removeProvider,
   saveProviderProfile,
+  setProviderModelControl,
   startLocalProxy,
   stopLocalProxy,
   subscribeToProviderEvents,
@@ -107,6 +108,19 @@ export function useProviderManager(notify: (message: string) => void, t: Transla
     }
   }, [load, notify, t]);
 
+  const setModelControl = useCallback(async (id: string, controlledByCodex: boolean) => {
+    setBusyProviderId(id);
+    try {
+      await setProviderModelControl(id, controlledByCodex);
+      notify(t("toast.providerModelControlSaved"));
+      await load();
+    } catch (error) {
+      notify(providerErrorMessage(error, t));
+    } finally {
+      setBusyProviderId(null);
+    }
+  }, [load, notify, t]);
+
   const useOfficialProvider = useCallback(async () => {
     setBusyProviderId("official");
     try {
@@ -170,6 +184,7 @@ export function useProviderManager(notify: (message: string) => void, t: Transla
     saveProvider,
     switchProvider,
     switchModel,
+    setModelControl,
     useOfficialProvider,
     deleteProvider,
     startProxy,

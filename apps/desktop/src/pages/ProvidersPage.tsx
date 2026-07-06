@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Input, Popconfirm, Segmented, Select, Space, Table, Tag, Tooltip } from "antd";
+import { Button, Input, Popconfirm, Segmented, Select, Space, Switch, Table, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Check, KeyRound, Pencil, Plus, Power, PowerOff, RadioTower, RefreshCw, RotateCcw, Save, Server, ShieldCheck, Trash2, X } from "lucide-react";
 import type { Translate } from "../i18n";
@@ -16,6 +16,7 @@ interface ProvidersPageProps {
   onSave: (provider: ProviderInput) => Promise<Provider | null>;
   onSwitch: (id: string) => void;
   onSwitchModel: (id: string, model: string) => void;
+  onModelControlChange: (id: string, controlledByCodex: boolean) => void;
   onDisable: () => void;
   onDelete: (id: string) => void;
   onStartProxy: () => void;
@@ -84,6 +85,7 @@ function ProviderModal({ provider, saving, onClose, onSave, t }: ProviderModalPr
       baseUrl,
       model: activeModel,
       models: normalizedModels,
+      modelSelectionControlledByCodex: provider?.modelSelectionControlledByCodex ?? false,
       apiKey: apiKey.trim() || undefined,
       apiFormat,
     });
@@ -149,7 +151,7 @@ function ProviderModelCell({
   t: Translate;
 }) {
   const models = normalizeModels(provider.model, provider.models);
-  if (models.length <= 1) {
+  if (models.length <= 1 || provider.modelSelectionControlledByCodex) {
     return <code className="provider-model-code">{provider.model}</code>;
   }
   return (
@@ -160,6 +162,29 @@ function ProviderModelCell({
           onChange={(value) => onSwitchModel(provider.id, value)} />
       </Tooltip>
       <Tag>{t("providers.model.count", { count: models.length })}</Tag>
+    </div>
+  );
+}
+
+function ProviderModelControlCell({
+  provider,
+  busy,
+  onModelControlChange,
+  t,
+}: {
+  provider: Provider;
+  busy: boolean;
+  onModelControlChange: (id: string, controlledByCodex: boolean) => void;
+  t: Translate;
+}) {
+  const codexControlled = provider.modelSelectionControlledByCodex;
+  return (
+    <div className="provider-model-owner">
+      <Tooltip title={codexControlled ? t("providers.tooltip.codexModelControl") : t("providers.tooltip.appModelControl")}>
+        <Switch size="small" checked={codexControlled} disabled={busy}
+          onChange={(checked) => onModelControlChange(provider.id, checked)} />
+      </Tooltip>
+      <span>{codexControlled ? t("providers.control.codex") : t("providers.control.app")}</span>
     </div>
   );
 }
@@ -175,6 +200,7 @@ export function ProvidersPage({
   onSave,
   onSwitch,
   onSwitchModel,
+  onModelControlChange,
   onDisable,
   onDelete,
   onStartProxy,
@@ -222,6 +248,12 @@ export function ProvidersPage({
       title: t("providers.table.api"),
       width: 120,
       render: (_, provider) => apiFormatTag(provider, t),
+    },
+    {
+      title: t("providers.table.modelControl"),
+      width: 130,
+      render: (_, provider) => <ProviderModelControlCell provider={provider}
+        busy={busyProviderId === provider.id} onModelControlChange={onModelControlChange} t={t} />,
     },
     {
       title: t("providers.table.status"),
@@ -318,7 +350,7 @@ export function ProvidersPage({
         <div className="provider-table-wrap">
           <Table rowKey="id" size="small" columns={columns} dataSource={providers}
             rowClassName={(provider) => (provider.active ? "active-row" : "")}
-            pagination={false} scroll={{ x: 930 }} />
+            pagination={false} scroll={{ x: 1060 }} />
         </div>
       ) : (
         <div className="provider-empty">

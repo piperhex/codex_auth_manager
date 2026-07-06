@@ -54,6 +54,7 @@ export interface Provider {
   baseUrl: string;
   model: string;
   models: string[];
+  modelSelectionControlledByCodex: boolean;
   apiFormat: ProviderApiFormat;
   active: boolean;
   hasApiKey: boolean;
@@ -66,6 +67,7 @@ export interface ProviderInput {
   baseUrl: string;
   model: string;
   models: string[];
+  modelSelectionControlledByCodex: boolean;
   apiKey?: string;
   apiFormat: ProviderApiFormat;
 }

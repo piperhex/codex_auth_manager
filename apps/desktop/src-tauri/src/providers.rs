@@ -1,6 +1,7 @@
 use std::{fs, path::PathBuf};
 
 use serde::Deserialize;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tauri::{Emitter, Runtime};
 use url::Url;
@@ -25,6 +26,8 @@ pub(crate) const LOCAL_PROXY_TOKEN: &str = "CODEX_SWITCH_LOCAL_PROXY";
 const LOCAL_PROXY_PROVIDER_ID: &str = "codex-switch-local";
 const LOCAL_PROXY_PROVIDER_NAME: &str = "Codex Switch Local Proxy";
 const DEFAULT_OFFICIAL_MODEL: &str = "gpt-5-codex";
+const MODEL_CATALOG_FILENAME: &str = "codex-switch-model-catalog.json";
+const DEFAULT_MODEL_CONTEXT_WINDOW: u64 = 128_000;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,6 +39,8 @@ pub(crate) struct ProviderInput {
     model: String,
     #[serde(default)]
     models: Vec<String>,
+    #[serde(default)]
+    model_selection_controlled_by_codex: bool,
     api_format: ProviderApiFormat,
 }
 
@@ -112,6 +117,7 @@ pub(crate) fn save_provider<R: Runtime>(
         api_key,
         model,
         models,
+        model_selection_controlled_by_codex: provider.model_selection_controlled_by_codex,
         api_format: provider.api_format,
     };
     write_provider(&paths, &profile)?;
@@ -176,6 +182,27 @@ pub(crate) fn switch_provider_model<R: Runtime>(
     }
     provider.model = selected_model;
     provider = normalize_provider_profile(provider)?;
+    write_provider(&paths, &provider)?;
+
+    let active_provider_id = read_state(&paths).active_provider_id;
+    let active = active_provider_id.as_deref() == Some(&provider.id);
+    if active {
+        write_active_provider_config(&paths, &provider)?;
+    }
+    app.emit("providers-changed", ())
+        .map_err(|error| error.to_string())?;
+    Ok(provider_summary(&provider, active))
+}
+
+#[tauri::command]
+pub(crate) fn set_provider_model_control<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    id: String,
+    controlled_by_codex: bool,
+) -> Result<ProviderSummary, String> {
+    let paths = resolve_paths(&app)?;
+    let mut provider = read_provider(&paths, &id)?;
+    provider.model_selection_controlled_by_codex = controlled_by_codex;
     write_provider(&paths, &provider)?;
 
     let active_provider_id = read_state(&paths).active_provider_id;
@@ -325,6 +352,7 @@ fn provider_summary(provider: &ProviderProfile, active: bool) -> ProviderSummary
         base_url: provider.base_url.clone(),
         model: provider.model.clone(),
         models: provider.models.clone(),
+        model_selection_controlled_by_codex: provider.model_selection_controlled_by_codex,
         api_format: provider.api_format,
         active,
         has_api_key: !provider.api_key.trim().is_empty(),
@@ -458,6 +486,9 @@ fn backup_codex_config_if_needed(paths: &Paths, entering_provider: bool) -> Resu
 }
 
 fn write_provider_config(paths: &Paths, provider: &ProviderProfile) -> Result<(), String> {
+    if provider.model_selection_controlled_by_codex {
+        write_provider_model_catalog(paths, provider)?;
+    }
     let existing = if paths.current_config.exists() {
         fs::read_to_string(&paths.current_config)
             .map_err(|error| format!("Failed to read Codex config: {error}"))?
@@ -470,14 +501,22 @@ fn write_provider_config(paths: &Paths, provider: &ProviderProfile) -> Result<()
 
 pub(crate) fn write_official_local_proxy_config(paths: &Paths) -> Result<(), String> {
     let model = preferred_official_model(paths);
-    write_local_proxy_config(paths, LOCAL_PROXY_PROVIDER_NAME, Some(&model))
+    write_local_proxy_config(paths, LOCAL_PROXY_PROVIDER_NAME, Some(&model), false)
 }
 
 fn write_provider_local_proxy_config(
     paths: &Paths,
     provider: &ProviderProfile,
 ) -> Result<(), String> {
-    write_local_proxy_config(paths, &provider.name, Some(&provider.model))
+    if provider.model_selection_controlled_by_codex {
+        write_provider_model_catalog(paths, provider)?;
+    }
+    write_local_proxy_config(
+        paths,
+        &provider.name,
+        Some(&provider.model),
+        provider.model_selection_controlled_by_codex,
+    )
 }
 
 fn write_active_provider_config(paths: &Paths, provider: &ProviderProfile) -> Result<(), String> {
@@ -488,14 +527,68 @@ fn write_active_provider_config(paths: &Paths, provider: &ProviderProfile) -> Re
     }
 }
 
-fn write_local_proxy_config(paths: &Paths, name: &str, model: Option<&str>) -> Result<(), String> {
+fn write_provider_model_catalog(paths: &Paths, provider: &ProviderProfile) -> Result<(), String> {
+    let value = provider_model_catalog(provider);
+    write_json_atomic(&paths.codex_home.join(MODEL_CATALOG_FILENAME), &value)
+}
+
+fn provider_model_catalog(provider: &ProviderProfile) -> Value {
+    let entries = provider
+        .models
+        .iter()
+        .enumerate()
+        .map(|(index, model)| provider_model_catalog_entry(model, index))
+        .collect::<Vec<_>>();
+    json!({ "models": entries })
+}
+
+fn provider_model_catalog_entry(model: &str, index: usize) -> Value {
+    json!({
+        "slug": model,
+        "display_name": model,
+        "description": model,
+        "base_instructions": "You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve the user's goals.",
+        "default_reasoning_level": "high",
+        "supported_reasoning_levels": [
+            { "effort": "none", "description": "Disable Thinking" },
+            { "effort": "high", "description": "Enabled Thinking" }
+        ],
+        "shell_type": "shell_command",
+        "visibility": "list",
+        "supported_in_api": true,
+        "priority": 1000 + index,
+        "supports_reasoning_summaries": true,
+        "default_reasoning_summary": "none",
+        "support_verbosity": false,
+        "truncation_policy": { "mode": "bytes", "limit": 10000 },
+        "supports_parallel_tool_calls": false,
+        "supports_image_detail_original": false,
+        "context_window": DEFAULT_MODEL_CONTEXT_WINDOW,
+        "max_context_window": DEFAULT_MODEL_CONTEXT_WINDOW,
+        "effective_context_window_percent": 95,
+        "experimental_supported_tools": [],
+        "input_modalities": ["text"],
+        "supports_search_tool": false,
+        "additional_speed_tiers": [],
+        "service_tiers": [],
+        "availability_nux": null,
+        "upgrade": null
+    })
+}
+
+fn write_local_proxy_config(
+    paths: &Paths,
+    name: &str,
+    model: Option<&str>,
+    include_model_catalog: bool,
+) -> Result<(), String> {
     let existing = if paths.current_config.exists() {
         fs::read_to_string(&paths.current_config)
             .map_err(|error| format!("Failed to read Codex config: {error}"))?
     } else {
         String::new()
     };
-    let merged = merge_local_proxy_config(&existing, name, model);
+    let merged = merge_local_proxy_config(&existing, name, model, include_model_catalog);
     write_text_atomic(&paths.current_config, &merged)
 }
 
@@ -506,6 +599,12 @@ fn merge_provider_config(existing: &str, provider: &ProviderProfile) -> String {
     config.push('\n');
     config.push_str("model_provider = \"custom\"\n");
     config.push_str(&format!("model = {}\n", toml_string(&provider.model)));
+    if provider.model_selection_controlled_by_codex {
+        config.push_str(&format!(
+            "model_catalog_json = {}\n",
+            toml_string(MODEL_CATALOG_FILENAME)
+        ));
+    }
     config.push_str("disable_response_storage = true\n");
     config.push_str(PROVIDER_ROOT_END);
     config.push_str("\n\n");
@@ -532,7 +631,12 @@ fn merge_provider_config(existing: &str, provider: &ProviderProfile) -> String {
     config
 }
 
-fn merge_local_proxy_config(existing: &str, name: &str, model: Option<&str>) -> String {
+fn merge_local_proxy_config(
+    existing: &str,
+    name: &str,
+    model: Option<&str>,
+    include_model_catalog: bool,
+) -> String {
     let cleaned = remove_provider_conflicts(&remove_marked_blocks(existing));
     let model = model.map(str::trim).filter(|value| !value.is_empty());
     let mut config = String::new();
@@ -544,6 +648,12 @@ fn merge_local_proxy_config(existing: &str, name: &str, model: Option<&str>) -> 
     ));
     if let Some(model) = model {
         config.push_str(&format!("model = {}\n", toml_string(model)));
+    }
+    if include_model_catalog {
+        config.push_str(&format!(
+            "model_catalog_json = {}\n",
+            toml_string(MODEL_CATALOG_FILENAME)
+        ));
     }
     config.push_str("disable_response_storage = true\n");
     config.push_str(PROVIDER_ROOT_END);
@@ -763,15 +873,18 @@ mod tests {
             api_key: "sk-test".to_string(),
             model: "gpt-4.1".to_string(),
             models: vec!["gpt-4.1".to_string()],
+            model_selection_controlled_by_codex: false,
             api_format: ProviderApiFormat::OpenaiResponses,
         }
     }
 
     #[test]
     fn local_proxy_config_points_codex_to_local_responses() {
-        let merged = merge_local_proxy_config("model = \"old\"", "Proxy", Some("deepseek-chat"));
+        let merged =
+            merge_local_proxy_config("model = \"old\"", "Proxy", Some("deepseek-chat"), true);
         assert!(merged.contains("model_provider = \"codex-switch-local\""));
         assert!(merged.contains("model = \"deepseek-chat\""));
+        assert!(merged.contains("model_catalog_json = \"codex-switch-model-catalog.json\""));
         assert!(merged.contains("base_url = \"http://127.0.0.1:15722/v1\""));
         assert!(merged.contains("experimental_bearer_token = \"CODEX_SWITCH_LOCAL_PROXY\""));
         assert!(!merged.contains("model = \"old\""));
@@ -793,9 +906,20 @@ sandbox_mode = "workspace-write"
         let merged = merge_provider_config(existing, &provider());
         assert!(merged.contains("model_provider = \"custom\""));
         assert!(merged.contains("model = \"gpt-4.1\""));
+        assert!(!merged.contains("model_catalog_json"));
         assert!(merged.contains("approval_policy = \"on-request\""));
         assert!(merged.contains("[profiles.default]"));
         assert!(!merged.contains("https://old.example.com"));
+    }
+
+    #[test]
+    fn provider_config_adds_model_catalog_when_codex_controls_models() {
+        let mut provider = provider();
+        provider.model_selection_controlled_by_codex = true;
+
+        let merged = merge_provider_config("", &provider);
+
+        assert!(merged.contains("model_catalog_json = \"codex-switch-model-catalog.json\""));
     }
 
     #[test]
@@ -807,6 +931,7 @@ sandbox_mode = "workspace-write"
             api_key: "sk-test".to_string(),
             model: "gpt-4.1".to_string(),
             models: Vec::new(),
+            model_selection_controlled_by_codex: false,
             api_format: ProviderApiFormat::OpenaiResponses,
         })
         .unwrap();
@@ -833,6 +958,26 @@ sandbox_mode = "workspace-write"
     }
 
     #[test]
+    fn provider_model_catalog_contains_codex_visible_models() {
+        let mut provider = provider();
+        provider.models = vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()];
+        let catalog = provider_model_catalog(&provider);
+        let models = catalog["models"].as_array().unwrap();
+
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0]["slug"], "deepseek-chat");
+        assert_eq!(models[0]["display_name"], "deepseek-chat");
+        assert_eq!(
+            models[0]["base_instructions"]
+                .as_str()
+                .unwrap()
+                .contains("You are Codex"),
+            true
+        );
+        assert_eq!(models[1]["slug"], "deepseek-reasoner");
+    }
+
+    #[test]
     fn toml_string_escapes_secret_characters() {
         assert_eq!(toml_string("a\"b\\c"), "\"a\\\"b\\\\c\"");
     }
@@ -855,7 +1000,7 @@ model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 "#;
         let provider_proxy =
-            merge_local_proxy_config(backup, "DeepSeek", Some("deepseek-v4-flash"));
+            merge_local_proxy_config(backup, "DeepSeek", Some("deepseek-v4-flash"), true);
 
         assert_eq!(
             preferred_official_model_from_configs(Some(&provider_proxy), Some(backup)),
@@ -868,6 +1013,7 @@ model_reasoning_effort = "xhigh"
             &provider_proxy,
             LOCAL_PROXY_PROVIDER_NAME,
             Some(&official_model),
+            false,
         );
         let first_model = extract_root_model(&official_proxy).unwrap();
 
@@ -881,6 +1027,7 @@ model_reasoning_effort = "xhigh"
             r#"model = "gpt-5.5""#,
             "DeepSeek",
             Some("deepseek-v4-flash"),
+            true,
         );
 
         assert_eq!(

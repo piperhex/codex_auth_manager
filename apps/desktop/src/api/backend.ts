@@ -74,6 +74,7 @@ function readPreviewProviders(): Provider[] {
         ...provider,
         model: models.includes(provider.model.trim()) ? provider.model.trim() : (models[0] ?? ""),
         models,
+        modelSelectionControlledByCodex: Boolean(provider.modelSelectionControlledByCodex),
       };
     });
   } catch {
@@ -148,6 +149,7 @@ export async function saveProviderProfile(provider: ProviderInput): Promise<Prov
       baseUrl: provider.baseUrl.trim().replace(/\/+$/, ""),
       model,
       models,
+      modelSelectionControlledByCodex: provider.modelSelectionControlledByCodex,
       apiFormat: provider.apiFormat,
       active: existing?.active ?? false,
       hasApiKey,
@@ -187,6 +189,21 @@ export async function switchProviderModel(id: string, model: string): Promise<Pr
     return providers[index];
   }
   return invoke<Provider>("switch_provider_model", { id, model });
+}
+
+export async function setProviderModelControl(id: string, controlledByCodex: boolean): Promise<Provider> {
+  if (!isDesktopApp) {
+    const providers = readPreviewProviders();
+    const index = providers.findIndex((provider) => provider.id === id);
+    if (index < 0) throw new Error("Provider does not exist");
+    providers[index] = {
+      ...providers[index],
+      modelSelectionControlledByCodex: controlledByCodex,
+    };
+    writePreviewProviders(providers);
+    return providers[index];
+  }
+  return invoke<Provider>("set_provider_model_control", { id, controlledByCodex });
 }
 
 export async function deactivateProvider(): Promise<void> {

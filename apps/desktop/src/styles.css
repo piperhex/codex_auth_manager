@@ -304,6 +304,7 @@ h1 { margin: 5px 0 0; font: 700 26px/1.1 Manrope, sans-serif; letter-spacing: -.
 .provider-model-select { min-width: 0; display: flex; align-items: center; gap: 6px; }
 .provider-model-select .ant-select { width: min(190px, 100%); }
 .provider-model-select .ant-tag { margin-inline-end: 0; flex: 0 0 auto; font-size: 10px; }
+.provider-model-owner { min-width: 0; display: flex; align-items: center; gap: 7px; color: #5d6a62; font-size: 11px; font-weight: 700; }
 .provider-empty { min-height: 170px; border: 1px dashed #ced8d0; border-radius: 8px; display: grid; place-items: center; align-content: center; gap: 9px; color: #718078; background: rgba(255,255,255,.45); font-size: 12px; }
 .provider-empty svg { color: var(--green); }
 .provider-empty strong { color: var(--ink); font: 700 13px Manrope, sans-serif; }
