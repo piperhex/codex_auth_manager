@@ -294,6 +294,7 @@ pub(crate) fn cleanup_stale_local_proxy_config<R: Runtime>(
     restore_official_config(&paths)?;
     let mut state = read_state(&paths);
     state.active_provider_id = None;
+    state.local_proxy_enabled = false;
     write_state(&paths, &state)
 }
 

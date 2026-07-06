@@ -42,7 +42,14 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             size_main_window_to_screen(app)?;
-            providers::cleanup_stale_local_proxy_config(app.handle())?;
+            match local_proxy::restore_local_proxy_if_enabled(app.handle()) {
+                Ok(true) => {}
+                Ok(false) => providers::cleanup_stale_local_proxy_config(app.handle())?,
+                Err(error) => {
+                    eprintln!("failed to restore local proxy: {error}");
+                    providers::cleanup_stale_local_proxy_config(app.handle())?;
+                }
+            }
             system_tray::setup(app)?;
             floating_bubble::setup(app.handle())?;
             Ok(())

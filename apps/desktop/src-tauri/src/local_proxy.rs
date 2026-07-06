@@ -19,7 +19,7 @@ use crate::{
     providers::{self, LOCAL_PROXY_BASE_URL, LOCAL_PROXY_HOST, LOCAL_PROXY_PORT},
     storage::{
         managed_auth_path, read_json, read_state, resolve_paths, write_json_atomic,
-        write_managed_auth_if_changed, write_state,
+        write_managed_auth_if_changed, write_state, Paths,
     },
 };
 
@@ -263,10 +263,36 @@ pub(crate) fn get_local_proxy_status() -> Result<LocalProxyStatus, String> {
     Ok(status())
 }
 
+pub(crate) fn restore_local_proxy_if_enabled<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<bool, String> {
+    let paths = resolve_paths(app)?;
+    if !read_state(&paths).local_proxy_enabled {
+        return Ok(false);
+    }
+
+    let started = match start_server(app.clone()) {
+        Ok(started) => started,
+        Err(error) => {
+            let _ = set_local_proxy_enabled(&paths, false);
+            return Err(error);
+        }
+    };
+    if let Err(error) = providers::apply_local_proxy_config_for_state(app) {
+        if started {
+            stop_server();
+        }
+        let _ = set_local_proxy_enabled(&paths, false);
+        return Err(error);
+    }
+    Ok(true)
+}
+
 #[tauri::command]
 pub(crate) fn start_local_proxy<R: Runtime>(
     app: tauri::AppHandle<R>,
 ) -> Result<LocalProxyStatus, String> {
+    let paths = resolve_paths(&app)?;
     let started = start_server(app.clone())?;
     if let Err(error) = providers::apply_local_proxy_config_for_state(&app) {
         if started {
@@ -274,6 +300,7 @@ pub(crate) fn start_local_proxy<R: Runtime>(
         }
         return Err(error);
     }
+    set_local_proxy_enabled(&paths, true)?;
     app.emit("providers-changed", ())
         .map_err(|error| error.to_string())?;
     crate::system_tray::refresh_menu(&app);
@@ -289,11 +316,18 @@ pub(crate) fn stop_local_proxy<R: Runtime>(
     providers::restore_official_config(&paths)?;
     let mut state = read_state(&paths);
     state.active_provider_id = None;
+    state.local_proxy_enabled = false;
     write_state(&paths, &state)?;
     app.emit("providers-changed", ())
         .map_err(|error| error.to_string())?;
     crate::system_tray::refresh_menu(&app);
     Ok(status())
+}
+
+fn set_local_proxy_enabled(paths: &Paths, enabled: bool) -> Result<(), String> {
+    let mut state = read_state(paths);
+    state.local_proxy_enabled = enabled;
+    write_state(paths, &state)
 }
 
 fn start_server<R: Runtime>(app: tauri::AppHandle<R>) -> Result<bool, String> {

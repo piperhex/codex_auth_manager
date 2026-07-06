@@ -48,6 +48,8 @@ pub(crate) struct ResetCreditsSummary {
 pub(crate) struct ManagerStateFile {
     pub(crate) active_account_id: Option<String>,
     pub(crate) active_provider_id: Option<String>,
+    #[serde(default)]
+    pub(crate) local_proxy_enabled: bool,
 }
 
 #[derive(Serialize)]
@@ -183,4 +185,18 @@ pub(crate) struct CloudAccountPayload {
     pub(crate) usage: UsageSummary,
     pub(crate) last_modified_at: String,
     pub(crate) auth: serde_json::Value,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manager_state_defaults_local_proxy_to_disabled() {
+        let state: ManagerStateFile =
+            serde_json::from_str(r#"{"active_account_id":"account-1"}"#).unwrap();
+
+        assert_eq!(state.active_account_id.as_deref(), Some("account-1"));
+        assert!(!state.local_proxy_enabled);
+    }
 }
