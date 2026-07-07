@@ -202,6 +202,22 @@ pub(crate) struct CloudAccountPayload {
     pub(crate) auth: serde_json::Value,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProviderSyncPayload {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) base_url: String,
+    pub(crate) api_key: String,
+    pub(crate) model: String,
+    #[serde(default)]
+    pub(crate) models: Vec<String>,
+    #[serde(default)]
+    pub(crate) model_selection_controlled_by_codex: bool,
+    pub(crate) api_format: ProviderApiFormat,
+    pub(crate) last_modified_at: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

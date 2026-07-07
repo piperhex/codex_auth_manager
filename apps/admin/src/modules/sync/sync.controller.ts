@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Put, UseGuards } from '@nestjs/co
 import { CurrentUser, type AuthUser } from '@/common/decorators/user.decorator';
 import { JwtAuthGuard } from '@/modules/jwt/jwt-auth.guard';
 import { PutSyncAccountsDto, SyncAccountDto } from './dto/sync-accounts.dto';
+import { PutSyncProvidersDto, SyncProviderDto } from './dto/sync-providers.dto';
 import { SyncService } from './sync.service';
 
 @UseGuards(JwtAuthGuard)
@@ -27,5 +28,29 @@ export class SyncController {
   @Delete('accounts/:id')
   delete(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.sync.delete(user.id, id);
+  }
+
+  @Get('providers')
+  listProviders(@CurrentUser() user: AuthUser) {
+    return this.sync.listProviders(user.id);
+  }
+
+  @Put('providers')
+  replaceProviders(@CurrentUser() user: AuthUser, @Body() dto: PutSyncProvidersDto) {
+    return this.sync.replaceProviders(user.id, dto);
+  }
+
+  @Put('providers/:id')
+  upsertProvider(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: SyncProviderDto,
+  ) {
+    return this.sync.upsertProvider(user.id, id, dto);
+  }
+
+  @Delete('providers/:id')
+  deleteProvider(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.sync.deleteProvider(user.id, id);
   }
 }

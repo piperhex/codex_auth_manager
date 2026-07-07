@@ -4,13 +4,17 @@ import Redis from 'ioredis';
 import { DataSource, Repository } from 'typeorm';
 import { REDIS_CLIENT } from '@/modules/redis/redis.constants';
 import { PutSyncAccountsDto, SyncAccountDto } from './dto/sync-accounts.dto';
+import { PutSyncProvidersDto, SyncProviderDto } from './dto/sync-providers.dto';
 import { SyncedAccountEntity } from './entities/synced-account.entity';
+import { SyncedProviderEntity } from './entities/synced-provider.entity';
 
 @Injectable()
 export class SyncService {
   constructor(
     @InjectRepository(SyncedAccountEntity)
     private readonly accounts: Repository<SyncedAccountEntity>,
+    @InjectRepository(SyncedProviderEntity)
+    private readonly providers: Repository<SyncedProviderEntity>,
     private readonly dataSource: DataSource,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
@@ -97,6 +101,80 @@ export class SyncService {
     return { id: accountId };
   }
 
+  async listProviders(ownerId: string) {
+    const cacheKey = this.providerCacheKey(ownerId);
+    const cached = await this.redis.get(cacheKey);
+    if (cached) return JSON.parse(cached) as { providers: SyncProviderDto[] };
+
+    const rows = await this.providers.find({
+      where: { ownerId },
+      order: { name: 'ASC' },
+    });
+    const payload = { providers: rows.map((row) => this.toProviderDto(row)) };
+    await this.redis.set(cacheKey, JSON.stringify(payload), 'EX', 60);
+    return payload;
+  }
+
+  async replaceProviders(ownerId: string, dto: PutSyncProvidersDto) {
+    await this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(SyncedProviderEntity);
+      if (!dto.providers.length) return;
+      for (const provider of dto.providers) {
+        const existing = await repo.findOne({ where: { ownerId, providerId: provider.id } });
+        const incomingLastModifiedAt = this.parseLastModifiedAt(provider.lastModifiedAt);
+        if (!this.shouldApplyProviderIncoming(existing, incomingLastModifiedAt)) continue;
+        await repo.save(repo.create({
+          id: existing?.id,
+          ownerId,
+          providerId: provider.id,
+          name: provider.name,
+          baseUrl: provider.baseUrl,
+          apiKey: provider.apiKey,
+          model: provider.model,
+          models: provider.models ?? [],
+          modelSelectionControlledByCodex: provider.modelSelectionControlledByCodex ?? false,
+          apiFormat: provider.apiFormat,
+          lastModifiedAt: incomingLastModifiedAt,
+        }));
+      }
+    });
+    await this.redis.del(this.providerCacheKey(ownerId));
+    return { count: dto.providers.length };
+  }
+
+  async upsertProvider(ownerId: string, providerId: string, provider: SyncProviderDto) {
+    if (provider.id !== providerId) {
+      throw new BadRequestException('Route provider id does not match request body');
+    }
+    await this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(SyncedProviderEntity);
+      const existing = await repo.findOne({ where: { ownerId, providerId } });
+      const incomingLastModifiedAt = this.parseLastModifiedAt(provider.lastModifiedAt);
+      if (!this.shouldApplyProviderIncoming(existing, incomingLastModifiedAt)) return;
+      await repo.save(repo.create({
+        id: existing?.id,
+        ownerId,
+        providerId: provider.id,
+        name: provider.name,
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        model: provider.model,
+        models: provider.models ?? [],
+        modelSelectionControlledByCodex: provider.modelSelectionControlledByCodex ?? false,
+        apiFormat: provider.apiFormat,
+        lastModifiedAt: incomingLastModifiedAt,
+      }));
+    });
+    await this.redis.del(this.providerCacheKey(ownerId));
+    return { id: providerId };
+  }
+
+  async deleteProvider(ownerId: string, providerId: string) {
+    await this.providers.delete({ ownerId, providerId });
+    await this.redis.del(this.providerCacheKey(ownerId));
+    return { id: providerId };
+  }
+
   async updateForAdmin(
     ownerId: string,
     accountId: string,
@@ -140,6 +218,20 @@ export class SyncService {
     };
   }
 
+  private toProviderDto(row: SyncedProviderEntity): SyncProviderDto {
+    return {
+      id: row.providerId,
+      name: row.name,
+      baseUrl: row.baseUrl,
+      apiKey: row.apiKey,
+      model: row.model,
+      models: row.models ?? [],
+      modelSelectionControlledByCodex: row.modelSelectionControlledByCodex,
+      apiFormat: row.apiFormat,
+      lastModifiedAt: this.formatLastModifiedAt(row.lastModifiedAt ?? row.updatedAt),
+    };
+  }
+
   private parseLastModifiedAt(value: string | undefined) {
     if (!value?.trim()) return new Date();
     const parsed = new Date(value);
@@ -152,8 +244,21 @@ export class SyncService {
     return incomingLastModifiedAt > existingLastModifiedAt;
   }
 
+  private shouldApplyProviderIncoming(
+    existing: SyncedProviderEntity | null,
+    incomingLastModifiedAt: Date,
+  ) {
+    if (!existing) return true;
+    const existingLastModifiedAt = this.existingProviderLastModifiedAt(existing);
+    return incomingLastModifiedAt > existingLastModifiedAt;
+  }
+
   private existingLastModifiedAt(account: SyncedAccountEntity) {
     return this.parseDateOrEpoch(account.lastModifiedAt ?? account.updatedAt);
+  }
+
+  private existingProviderLastModifiedAt(provider: SyncedProviderEntity) {
+    return this.parseDateOrEpoch(provider.lastModifiedAt ?? provider.updatedAt);
   }
 
   private parseDateOrEpoch(value: Date | string | undefined) {
@@ -168,5 +273,9 @@ export class SyncService {
 
   private cacheKey(ownerId: string) {
     return `sync:accounts:${ownerId}`;
+  }
+
+  private providerCacheKey(ownerId: string) {
+    return `sync:providers:${ownerId}`;
   }
 }

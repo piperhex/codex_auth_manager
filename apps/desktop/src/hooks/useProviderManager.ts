@@ -15,6 +15,11 @@ import {
 import type { Translate } from "../i18n";
 import type { LocalProxyStatus, Provider, ProviderInput } from "../types";
 
+interface ProviderCloudSync {
+  pushProvider?: (id: string) => Promise<void> | void;
+  deleteProvider?: (id: string) => Promise<void> | void;
+}
+
 function providerErrorMessage(error: unknown, t: Translate) {
   const message = String(error);
   if (message.includes("API key is required for a new provider")) return t("providers.error.apiKeyRequired");
@@ -40,7 +45,11 @@ function providerErrorMessage(error: unknown, t: Translate) {
   return message;
 }
 
-export function useProviderManager(notify: (message: string) => void, t: Translate) {
+export function useProviderManager(
+  notify: (message: string) => void,
+  t: Translate,
+  cloudSync?: ProviderCloudSync,
+) {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [localProxy, setLocalProxy] = useState<LocalProxyStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,6 +81,7 @@ export function useProviderManager(notify: (message: string) => void, t: Transla
       const saved = await saveProviderProfile(provider);
       notify(t("toast.providerSaved"));
       await load();
+      await cloudSync?.pushProvider?.(saved.id);
       return saved;
     } catch (error) {
       notify(providerErrorMessage(error, t));
@@ -79,7 +89,7 @@ export function useProviderManager(notify: (message: string) => void, t: Transla
     } finally {
       setSaving(false);
     }
-  }, [load, notify, t]);
+  }, [cloudSync, load, notify, t]);
 
   const switchProvider = useCallback(async (id: string) => {
     setBusyProviderId(id);
@@ -101,12 +111,13 @@ export function useProviderManager(notify: (message: string) => void, t: Transla
       await switchProviderModel(id, model);
       notify(t("toast.providerModelSwitched"));
       await load();
+      await cloudSync?.pushProvider?.(id);
     } catch (error) {
       notify(providerErrorMessage(error, t));
     } finally {
       setBusyProviderId(null);
     }
-  }, [load, notify, t]);
+  }, [cloudSync, load, notify, t]);
 
   const setModelControl = useCallback(async (id: string, controlledByCodex: boolean) => {
     setBusyProviderId(id);
@@ -114,12 +125,13 @@ export function useProviderManager(notify: (message: string) => void, t: Transla
       await setProviderModelControl(id, controlledByCodex);
       notify(t("toast.providerModelControlSaved"));
       await load();
+      await cloudSync?.pushProvider?.(id);
     } catch (error) {
       notify(providerErrorMessage(error, t));
     } finally {
       setBusyProviderId(null);
     }
-  }, [load, notify, t]);
+  }, [cloudSync, load, notify, t]);
 
   const useOfficialProvider = useCallback(async () => {
     setBusyProviderId("official");
@@ -140,12 +152,13 @@ export function useProviderManager(notify: (message: string) => void, t: Transla
       await removeProvider(id);
       notify(t("toast.providerDeleted"));
       await load();
+      await cloudSync?.deleteProvider?.(id);
     } catch (error) {
       notify(providerErrorMessage(error, t));
     } finally {
       setBusyProviderId(null);
     }
-  }, [load, notify, t]);
+  }, [cloudSync, load, notify, t]);
 
   const startProxy = useCallback(async () => {
     setProxyBusy(true);

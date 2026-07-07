@@ -1,5 +1,6 @@
 import type { UserEntity, UserRole } from '@/modules/user/entities/user.entity';
 import type { SyncAccountDto } from '@/modules/sync/dto/sync-accounts.dto';
+import type { SyncProviderDto } from '@/modules/sync/dto/sync-providers.dto';
 
 export function makeUser(overrides: Partial<UserEntity> = {}): UserEntity {
   return {
@@ -10,8 +11,24 @@ export function makeUser(overrides: Partial<UserEntity> = {}): UserEntity {
     disabled: false,
     refreshTokens: [],
     syncedAccounts: [],
+    syncedProviders: [],
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+export function makeProvider(overrides: Partial<SyncProviderDto> = {}): SyncProviderDto {
+  return {
+    id: 'provider-1',
+    name: 'Gateway',
+    baseUrl: 'https://gateway.example.com/v1',
+    apiKey: 'sk-provider-secret',
+    model: 'gpt-4.1',
+    models: ['gpt-4.1'],
+    modelSelectionControlledByCodex: false,
+    apiFormat: 'openaiResponses',
+    lastModifiedAt: '2026-07-05T00:00:00.000Z',
     ...overrides,
   };
 }

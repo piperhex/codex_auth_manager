@@ -58,13 +58,18 @@ function DashboardApp() {
   const { language, setLanguage, t } = useLanguage();
   const cloud = useCloudAuth(notify, t);
   const accountCloudSync = useMemo(() => ({
+    pushAll: cloud.pushQuietly,
     pushAccount: cloud.pushAccountQuietly,
     deleteAccount: cloud.deleteAccountQuietly,
-  }), [cloud.deleteAccountQuietly, cloud.pushAccountQuietly]);
+  }), [cloud.deleteAccountQuietly, cloud.pushAccountQuietly, cloud.pushQuietly]);
+  const providerCloudSync = useMemo(() => ({
+    pushProvider: cloud.pushProviderQuietly,
+    deleteProvider: cloud.deleteProviderQuietly,
+  }), [cloud.deleteProviderQuietly, cloud.pushProviderQuietly]);
   const floatingBubble = useFloatingBubble(notify);
   const themeColor = useThemeColor(notify);
   const manager = useAccountManager(notify, t, accountCloudSync);
-  const providerManager = useProviderManager(notify, t);
+  const providerManager = useProviderManager(notify, t, providerCloudSync);
   const resetCredits = useResetCredits(manager.accounts, notify, t);
   const activeAccount = manager.accounts.find((account) => account.active) ?? null;
   const markRefreshAll = useCallback(() => {
@@ -129,8 +134,11 @@ function DashboardApp() {
   }, [cloud.login, manager.reload]);
   const syncCloud = useCallback(async () => {
     const result = await cloud.sync();
-    if (result) await manager.reload();
-  }, [cloud.sync, manager.reload]);
+    if (result) {
+      await manager.reload();
+      await providerManager.reload();
+    }
+  }, [cloud.sync, manager.reload, providerManager.reload]);
   const changeFloatingBubble = useCallback((enabled: boolean) => {
     void floatingBubble.setEnabled(enabled);
   }, [floatingBubble.setEnabled]);
@@ -315,7 +323,8 @@ function DashboardApp() {
                 </Tooltip>
                 <Tooltip title={t("actions.exportArchive")}>
                   <button type="button" className="topbar-icon-button" aria-label={t("actions.exportArchive")}
-                    disabled={manager.archiveOperation !== null || !manager.accounts.length}
+                    disabled={manager.archiveOperation !== null
+                      || (!manager.accounts.length && !providerManager.providers.length)}
                     onClick={() => void manager.exportAccountArchive()}>
                     <Download className={manager.archiveOperation === "export" ? "spin" : ""} size={17} />
                     <span>{t("actions.exportArchiveLabel")}</span>

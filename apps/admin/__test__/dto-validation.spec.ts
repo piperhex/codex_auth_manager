@@ -12,7 +12,8 @@ import { LoginDto } from '@/modules/auth/dto/login.dto';
 import { RefreshDto } from '@/modules/auth/dto/refresh.dto';
 import { RegisterDto } from '@/modules/auth/dto/register.dto';
 import { PutSyncAccountsDto, SyncAccountDto } from '@/modules/sync/dto/sync-accounts.dto';
-import { makeAccount } from './fixtures';
+import { PutSyncProvidersDto, SyncProviderDto } from '@/modules/sync/dto/sync-providers.dto';
+import { makeAccount, makeProvider } from './fixtures';
 
 async function messages<T extends object>(type: new () => T, value: object) {
   const errors = await validate(plainToInstance(type, value));
@@ -102,6 +103,40 @@ describe('request DTO validation', () => {
     });
     expect(value.note).toBe('');
     expect(value.expiresAt).toBe('');
+    await expect(validate(value)).resolves.toEqual([]);
+  });
+
+  it('validates nested sync providers and accepts complete provider payloads', async () => {
+    const valid = plainToInstance(PutSyncProvidersDto, { providers: [makeProvider()] });
+    expect(valid.providers[0]).toBeInstanceOf(SyncProviderDto);
+    await expect(validate(valid)).resolves.toEqual([]);
+
+    const invalid = plainToInstance(PutSyncProvidersDto, {
+      providers: [{
+        ...makeProvider(),
+        apiFormat: 'unsupported',
+        models: ['ok', 123],
+        modelSelectionControlledByCodex: 'yes',
+      }],
+    });
+    const errors = await validate(invalid);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].property).toBe('providers');
+    expect(errors[0].children?.[0].children?.map((error) => error.property))
+      .toEqual(expect.arrayContaining(['models', 'modelSelectionControlledByCodex', 'apiFormat']));
+  });
+
+  it('applies provider DTO defaults', async () => {
+    const value = plainToInstance(SyncProviderDto, {
+      id: 'provider-1',
+      name: 'Gateway',
+      baseUrl: 'https://gateway.example.com/v1',
+      apiKey: 'sk-secret',
+      model: 'gpt-4.1',
+      apiFormat: 'openaiResponses',
+    });
+    expect(value.models).toEqual([]);
+    expect(value.modelSelectionControlledByCodex).toBe(false);
     await expect(validate(value)).resolves.toEqual([]);
   });
 });

@@ -17,7 +17,7 @@ use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::{
     auth::{account_fields, validate_auth},
-    models::UsageSummary,
+    models::{ProviderProfile, ProviderSyncPayload, UsageSummary},
     storage::{
         expiration_path, load_expiration, load_note, load_or_init_last_modified, load_usage,
         managed_auth_path, note_path, parse_last_modified, read_json, read_state, resolve_paths,
@@ -37,7 +37,11 @@ struct AccountArchivePayload {
     format_version: u16,
     exported_at: String,
     active_account_id: Option<String>,
+    #[serde(default)]
+    active_provider_id: Option<String>,
     accounts: Vec<AccountArchiveEntry>,
+    #[serde(default)]
+    providers: Vec<ProviderSyncPayload>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -58,6 +62,9 @@ pub(crate) struct AccountArchiveImportResult {
     imported: usize,
     account_ids: Vec<String>,
     active_account_id: Option<String>,
+    providers_imported: usize,
+    provider_ids: Vec<String>,
+    active_provider_id: Option<String>,
 }
 
 #[tauri::command]
@@ -67,8 +74,8 @@ pub(crate) fn export_accounts_archive<R: Runtime>(
 ) -> Result<String, String> {
     let _ = sync_current_into_store(&app);
     let payload = collect_accounts(&app)?;
-    if payload.accounts.is_empty() {
-        return Err("No local accounts to export".to_string());
+    if payload.accounts.is_empty() && payload.providers.is_empty() {
+        return Err("No local accounts or providers to export".to_string());
     }
 
     let output_path = normalize_archive_path(Path::new(&path));
@@ -92,8 +99,14 @@ pub(crate) fn import_accounts_archive<R: Runtime>(
 ) -> Result<AccountArchiveImportResult, String> {
     let payload = decode_archive(Path::new(&path))?;
     let result = apply_archive(&app, payload)?;
-    app.emit("accounts-changed", ())
-        .map_err(|error| error.to_string())?;
+    if !result.account_ids.is_empty() {
+        app.emit("accounts-changed", ())
+            .map_err(|error| error.to_string())?;
+    }
+    if !result.provider_ids.is_empty() {
+        app.emit("providers-changed", ())
+            .map_err(|error| error.to_string())?;
+    }
     crate::system_tray::refresh_menu(&app);
     Ok(result)
 }
@@ -102,7 +115,9 @@ fn collect_accounts<R: Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Result<AccountArchivePayload, String> {
     let paths = resolve_paths(app)?;
-    let active_account_id = read_state(&paths).active_account_id;
+    let state = read_state(&paths);
+    let active_account_id = state.active_account_id;
+    let active_provider_id = state.active_provider_id;
     let mut accounts = Vec::new();
     if paths.accounts.exists() {
         for entry in fs::read_dir(&paths.accounts)
@@ -131,11 +146,14 @@ fn collect_accounts<R: Runtime>(
         }
     }
     accounts.sort_by(|left, right| left.id.cmp(&right.id));
+    let providers = collect_providers(&paths)?;
     Ok(AccountArchivePayload {
-        format_version: 1,
+        format_version: 2,
         exported_at: Utc::now().to_rfc3339(),
         active_account_id,
+        active_provider_id,
         accounts,
+        providers,
     })
 }
 
@@ -143,19 +161,21 @@ fn apply_archive<R: Runtime>(
     app: &tauri::AppHandle<R>,
     payload: AccountArchivePayload,
 ) -> Result<AccountArchiveImportResult, String> {
-    if payload.format_version != 1 {
+    if payload.format_version == 0 || payload.format_version > 2 {
         return Err(format!(
             "Unsupported account archive version: {}",
             payload.format_version
         ));
     }
-    if payload.accounts.is_empty() {
-        return Err("The selected archive does not contain any accounts".to_string());
+    if payload.accounts.is_empty() && payload.providers.is_empty() {
+        return Err("The selected archive does not contain any accounts or providers".to_string());
     }
 
     let paths = resolve_paths(app)?;
     fs::create_dir_all(&paths.accounts)
         .map_err(|error| format!("Failed to create account store: {error}"))?;
+    fs::create_dir_all(&paths.providers)
+        .map_err(|error| format!("Failed to create provider store: {error}"))?;
 
     let mut validated_accounts = Vec::new();
     for account in payload.accounts {
@@ -230,10 +250,89 @@ fn apply_archive<R: Runtime>(
         None
     };
 
+    let mut provider_ids = Vec::new();
+    for provider in payload.providers {
+        let profile = provider_payload_to_profile(&provider)?;
+        let local_profile = crate::providers::read_provider(&paths, &provider.id).ok();
+        let local_modified_at = local_profile
+            .as_ref()
+            .and_then(|_| crate::providers::provider_modified_at(&paths, &provider.id).ok());
+        let archive_modified_at = parse_last_modified(&provider.last_modified_at);
+        let should_apply_archive = local_profile.is_none()
+            || match (local_modified_at.as_ref(), archive_modified_at.as_ref()) {
+                (Some(local), Some(archive)) => archive > local,
+                (None, _) => true,
+                (Some(_), None) => false,
+            };
+
+        if should_apply_archive {
+            crate::providers::write_synced_provider(&paths, profile)?;
+        }
+        if !provider_ids.contains(&provider.id) {
+            provider_ids.push(provider.id);
+        }
+    }
+
+    let active_provider_id = if let Some(id) = payload.active_provider_id.as_deref() {
+        if provider_ids.iter().any(|provider_id| provider_id == id)
+            && crate::providers::activate_provider_for_sync(&paths, id)?
+        {
+            Some(id.to_string())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     Ok(AccountArchiveImportResult {
         imported: account_ids.len(),
         account_ids,
         active_account_id,
+        providers_imported: provider_ids.len(),
+        provider_ids,
+        active_provider_id,
+    })
+}
+
+fn collect_providers(paths: &crate::storage::Paths) -> Result<Vec<ProviderSyncPayload>, String> {
+    crate::providers::list_provider_profiles(paths)?
+        .into_iter()
+        .map(|provider| {
+            let last_modified_at =
+                crate::providers::provider_modified_at(paths, &provider.id)?.to_rfc3339();
+            Ok(provider_payload_from_profile(provider, last_modified_at))
+        })
+        .collect()
+}
+
+fn provider_payload_from_profile(
+    provider: ProviderProfile,
+    last_modified_at: String,
+) -> ProviderSyncPayload {
+    ProviderSyncPayload {
+        id: provider.id,
+        name: provider.name,
+        base_url: provider.base_url,
+        api_key: provider.api_key,
+        model: provider.model,
+        models: provider.models,
+        model_selection_controlled_by_codex: provider.model_selection_controlled_by_codex,
+        api_format: provider.api_format,
+        last_modified_at,
+    }
+}
+
+fn provider_payload_to_profile(provider: &ProviderSyncPayload) -> Result<ProviderProfile, String> {
+    Ok(ProviderProfile {
+        id: provider.id.clone(),
+        name: provider.name.clone(),
+        base_url: provider.base_url.clone(),
+        api_key: provider.api_key.clone(),
+        model: provider.model.clone(),
+        models: provider.models.clone(),
+        model_selection_controlled_by_codex: provider.model_selection_controlled_by_codex,
+        api_format: provider.api_format,
     })
 }
 
@@ -351,14 +450,16 @@ fn decrypt_payload(bytes: &[u8]) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ProviderApiFormat;
     use serde_json::json;
 
     #[test]
     fn archive_keeps_payload_encrypted_inside_plain_zip() {
         let payload = AccountArchivePayload {
-            format_version: 1,
+            format_version: 2,
             exported_at: "2026-07-04T00:00:00Z".to_string(),
             active_account_id: Some("account-1".to_string()),
+            active_provider_id: Some("provider-1".to_string()),
             accounts: vec![AccountArchiveEntry {
                 id: "account-1".to_string(),
                 auth: json!({
@@ -371,12 +472,24 @@ mod tests {
                 usage: UsageSummary::default(),
                 last_modified_at: Some("2026-07-04T00:00:00Z".to_string()),
             }],
+            providers: vec![ProviderSyncPayload {
+                id: "provider-1".to_string(),
+                name: "Gateway".to_string(),
+                base_url: "https://gateway.example.com/v1".to_string(),
+                api_key: "plain-secret-provider-key".to_string(),
+                model: "gpt-4.1".to_string(),
+                models: vec!["gpt-4.1".to_string()],
+                model_selection_controlled_by_codex: false,
+                api_format: ProviderApiFormat::OpenaiResponses,
+                last_modified_at: "2026-07-04T00:00:00Z".to_string(),
+            }],
         };
 
         let archive = encode_archive(&payload).expect("archive should encode");
         let archive_text = String::from_utf8_lossy(&archive);
         assert!(archive_text.contains(ARCHIVE_PAYLOAD_FILE));
         assert!(!archive_text.contains("plain-secret-access-token"));
+        assert!(!archive_text.contains("plain-secret-provider-key"));
         assert!(!archive_text.contains("plain-secret-note"));
 
         let mut zip = ZipArchive::new(Cursor::new(archive)).expect("archive should be a plain zip");
@@ -387,11 +500,13 @@ mod tests {
             .expect("payload should read");
         assert!(encrypted.starts_with(ARCHIVE_MAGIC));
         assert!(!String::from_utf8_lossy(&encrypted).contains("plain-secret-note"));
+        assert!(!String::from_utf8_lossy(&encrypted).contains("plain-secret-provider-key"));
 
         let compressed = decrypt_payload(&encrypted).expect("payload should decrypt");
         let json = gunzip(&compressed).expect("payload should decompress");
         let restored: AccountArchivePayload =
             serde_json::from_slice(&json).expect("payload should decode");
         assert_eq!(restored.accounts[0].note, "plain-secret-note");
+        assert_eq!(restored.providers[0].api_key, "plain-secret-provider-key");
     }
 }

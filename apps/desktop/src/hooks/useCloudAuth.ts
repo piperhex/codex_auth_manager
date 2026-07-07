@@ -2,10 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import {
   loadCloudAuthState,
   deleteCloudAccount,
+  deleteCloudProvider,
   loginCloud,
   logoutCloud,
   pushCloudAccount,
   pushCloudAccounts,
+  pushCloudProvider,
+  pushCloudProviders,
   syncCloudAccounts,
   updateCloudBaseUrl,
 } from "../api/backend";
@@ -134,6 +137,36 @@ export function useCloudAuth(notify: (message: string) => void, t: Translate) {
     }
   }, [load, state.authenticated]);
 
+  const pushProvidersQuietly = useCallback(async () => {
+    if (!state.authenticated) return;
+    try {
+      await pushCloudProviders();
+      await load();
+    } catch {
+      // Provider operations remain local-first if cloud sync is temporarily unavailable.
+    }
+  }, [load, state.authenticated]);
+
+  const pushProviderQuietly = useCallback(async (id: string) => {
+    if (!state.authenticated) return;
+    try {
+      await pushCloudProvider(id);
+      await load();
+    } catch {
+      // Provider operations remain local-first if cloud sync is temporarily unavailable.
+    }
+  }, [load, state.authenticated]);
+
+  const deleteProviderQuietly = useCallback(async (id: string) => {
+    if (!state.authenticated) return;
+    try {
+      await deleteCloudProvider(id);
+      await load();
+    } catch {
+      // Deletion can be retried manually if the cloud is temporarily unreachable.
+    }
+  }, [load, state.authenticated]);
+
   return {
     state,
     loading,
@@ -146,5 +179,8 @@ export function useCloudAuth(notify: (message: string) => void, t: Translate) {
     pushQuietly,
     pushAccountQuietly,
     deleteAccountQuietly,
+    pushProvidersQuietly,
+    pushProviderQuietly,
+    deleteProviderQuietly,
   };
 }

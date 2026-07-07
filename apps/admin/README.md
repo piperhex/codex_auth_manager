@@ -22,7 +22,9 @@ The first registered account becomes an admin. For local development without Kon
 
 The default Docker Compose file does not publish PostgreSQL, Redis, or the backend on host ports. In production, Kong should reach the backend through the external `kong-net` network at `http://codex-switch-backend:8080`. For local host debugging, add a temporary compose override with explicit `ports`.
 
-If production uses `POSTGRES_DB_SYNCHRONIZE=false`, apply `sql/20260704-admin-management.sql` before using the expanded admin console.
+If production uses `POSTGRES_DB_SYNCHRONIZE=false`, apply `sql/20260704-admin-management.sql`,
+`sql/20260705-sync-last-modified.sql`, and `sql/20260707-sync-providers.sql` before using
+the expanded admin console and provider sync.
 
 ## Docker Troubleshooting
 
@@ -109,6 +111,10 @@ In production, configure the desktop app Settings cloud Base URL to the public K
 - `PUT /sync/accounts`
 - `PUT /sync/accounts/:id`
 - `DELETE /sync/accounts/:id`
+- `GET /sync/providers`
+- `PUT /sync/providers`
+- `PUT /sync/providers/:id`
+- `DELETE /sync/providers/:id`
 - `GET /admin`
 - `GET /admin/api/users`
 - `POST /admin/api/users`

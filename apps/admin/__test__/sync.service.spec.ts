@@ -4,11 +4,16 @@ import type { DataSource, Repository } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SyncService } from '@/modules/sync/sync.service';
 import type { SyncedAccountEntity } from '@/modules/sync/entities/synced-account.entity';
-import { makeAccount } from './fixtures';
+import type { SyncedProviderEntity } from '@/modules/sync/entities/synced-provider.entity';
+import { makeAccount, makeProvider } from './fixtures';
 
 describe('SyncService', () => {
   let accounts: {
     find: ReturnType<typeof vi.fn>; findOne: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>;
+    save: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn>;
+  };
+  let providers: {
+    find: ReturnType<typeof vi.fn>; findOne: ReturnType<typeof vi.fn>;
     save: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn>;
   };
   let transactionRepository: {
@@ -24,6 +29,10 @@ describe('SyncService', () => {
       find: vi.fn(), findOne: vi.fn(), update: vi.fn(),
       save: vi.fn(async (value) => value), delete: vi.fn(),
     };
+    providers = {
+      find: vi.fn(), findOne: vi.fn(),
+      save: vi.fn(async (value) => value), delete: vi.fn(),
+    };
     transactionRepository = {
       delete: vi.fn(), save: vi.fn(), create: vi.fn((value) => value),
       update: vi.fn(), findOne: vi.fn(),
@@ -36,6 +45,7 @@ describe('SyncService', () => {
     redis = { get: vi.fn(), set: vi.fn(), del: vi.fn() };
     service = new SyncService(
       accounts as unknown as Repository<SyncedAccountEntity>,
+      providers as unknown as Repository<SyncedProviderEntity>,
       dataSource as unknown as DataSource,
       redis as unknown as Redis,
     );
@@ -158,6 +168,82 @@ describe('SyncService', () => {
     await expect(service.delete('owner-1', 'account-1')).resolves.toEqual({ id: 'account-1' });
     expect(accounts.delete).toHaveBeenCalledWith({ ownerId: 'owner-1', accountId: 'account-1' });
     expect(redis.del).toHaveBeenCalledWith('sync:accounts:owner-1');
+  });
+
+  it('loads and caches synced providers without exposing other owners', async () => {
+    redis.get.mockResolvedValue(null);
+    providers.find.mockResolvedValue([{
+      ownerId: 'owner-1',
+      providerId: 'provider-1',
+      name: 'Gateway',
+      baseUrl: 'https://gateway.example.com/v1',
+      apiKey: 'sk-secret',
+      model: 'gpt-4.1',
+      models: ['gpt-4.1'],
+      modelSelectionControlledByCodex: false,
+      apiFormat: 'openaiResponses',
+      lastModifiedAt: new Date('2026-07-05T00:00:00.000Z'),
+    }]);
+    const expected = { providers: [makeProvider({ apiKey: 'sk-secret' })] };
+
+    await expect(service.listProviders('owner-1')).resolves.toEqual(expected);
+
+    expect(providers.find).toHaveBeenCalledWith({ where: { ownerId: 'owner-1' }, order: { name: 'ASC' } });
+    expect(redis.set).toHaveBeenCalledWith(
+      'sync:providers:owner-1', JSON.stringify(expected), 'EX', 60,
+    );
+  });
+
+  it('upserts a provider when the incoming profile is newer', async () => {
+    const provider = makeProvider();
+    transactionRepository.findOne.mockResolvedValue({
+      id: 'database-id',
+      lastModifiedAt: new Date('2026-07-04T00:00:00.000Z'),
+    });
+
+    await expect(service.upsertProvider('owner-1', provider.id, provider))
+      .resolves.toEqual({ id: provider.id });
+
+    expect(transactionRepository.findOne).toHaveBeenCalledWith({
+      where: { ownerId: 'owner-1', providerId: provider.id },
+    });
+    expect(transactionRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'database-id',
+      ownerId: 'owner-1',
+      providerId: provider.id,
+      apiKey: provider.apiKey,
+      models: provider.models,
+      lastModifiedAt: new Date(provider.lastModifiedAt!),
+    }));
+    expect(transactionRepository.save).toHaveBeenCalled();
+    expect(redis.del).toHaveBeenCalledWith('sync:providers:owner-1');
+  });
+
+  it('keeps an existing provider when an incoming profile is older', async () => {
+    const provider = makeProvider({ lastModifiedAt: '2026-07-05T00:00:00.000Z' });
+    transactionRepository.findOne.mockResolvedValue({
+      id: 'database-id',
+      lastModifiedAt: new Date('2026-07-05T00:00:01.000Z'),
+    });
+
+    await expect(service.upsertProvider('owner-1', provider.id, provider))
+      .resolves.toEqual({ id: provider.id });
+
+    expect(transactionRepository.save).not.toHaveBeenCalled();
+    expect(redis.del).toHaveBeenCalledWith('sync:providers:owner-1');
+  });
+
+  it('rejects a provider upsert when route and body ids differ', async () => {
+    await expect(service.upsertProvider('owner-1', 'route-id', makeProvider({ id: 'body-id' })))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+    expect(redis.del).not.toHaveBeenCalled();
+  });
+
+  it('deletes only the owner-scoped provider and invalidates that owner cache', async () => {
+    await expect(service.deleteProvider('owner-1', 'provider-1')).resolves.toEqual({ id: 'provider-1' });
+    expect(providers.delete).toHaveBeenCalledWith({ ownerId: 'owner-1', providerId: 'provider-1' });
+    expect(redis.del).toHaveBeenCalledWith('sync:providers:owner-1');
   });
 
   it('updates owner-scoped accounts for admin management and deactivates siblings when needed', async () => {

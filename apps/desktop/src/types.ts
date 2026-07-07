@@ -137,4 +137,7 @@ export interface AccountArchiveImportResult {
   imported: number;
   accountIds: string[];
   activeAccountId?: string | null;
+  providersImported: number;
+  providerIds: string[];
+  activeProviderId?: string | null;
 }

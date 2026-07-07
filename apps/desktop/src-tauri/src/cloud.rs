@@ -8,7 +8,10 @@ use tauri::{Emitter, Manager, Runtime};
 
 use crate::{
     auth::{account_fields, validate_auth},
-    models::{AppSettings, CloudAccountPayload, CloudAuthState, CloudSyncResult},
+    models::{
+        AppSettings, CloudAccountPayload, CloudAuthState, CloudSyncResult, ProviderProfile,
+        ProviderSyncPayload,
+    },
     storage::{
         expiration_path, load_expiration, load_note, load_or_init_last_modified, load_usage,
         managed_auth_path, note_path, parse_last_modified, read_app_settings, read_json,
@@ -37,6 +40,12 @@ struct CloudTokenResponse {
 #[serde(rename_all = "camelCase")]
 struct CloudAccountsResponse {
     accounts: Vec<CloudAccountPayload>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CloudProvidersResponse {
+    providers: Vec<ProviderSyncPayload>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -259,6 +268,32 @@ fn collect_local_account<R: Runtime>(
         .ok_or_else(|| format!("Local account {id} does not exist"))
 }
 
+fn collect_local_providers<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<Vec<ProviderSyncPayload>, String> {
+    let paths = resolve_paths(app)?;
+    let mut providers = crate::providers::list_provider_profiles(&paths)?
+        .into_iter()
+        .map(|provider| {
+            let last_modified_at =
+                crate::providers::provider_modified_at(&paths, &provider.id)?.to_rfc3339();
+            Ok(provider_payload_from_profile(provider, last_modified_at))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    providers.sort_by(|left, right| left.id.cmp(&right.id));
+    Ok(providers)
+}
+
+fn collect_local_provider<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    id: &str,
+) -> Result<ProviderSyncPayload, String> {
+    collect_local_providers(app)?
+        .into_iter()
+        .find(|provider| provider.id == id)
+        .ok_or_else(|| format!("Local provider {id} does not exist"))
+}
+
 fn apply_remote_account<R: Runtime>(
     app: &tauri::AppHandle<R>,
     account: &CloudAccountPayload,
@@ -321,6 +356,60 @@ fn apply_remote_account<R: Runtime>(
     Ok(should_apply_remote)
 }
 
+fn apply_remote_provider<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    provider: &ProviderSyncPayload,
+) -> Result<bool, String> {
+    let paths = resolve_paths(app)?;
+    let profile = provider_payload_to_profile(provider);
+    let local_profile = crate::providers::read_provider(&paths, &provider.id).ok();
+    let local_modified_at = local_profile
+        .as_ref()
+        .and_then(|_| crate::providers::provider_modified_at(&paths, &provider.id).ok());
+    let remote_modified_at = parse_last_modified(&provider.last_modified_at);
+    let should_apply_remote = local_profile.is_none()
+        || match (local_modified_at.as_ref(), remote_modified_at.as_ref()) {
+            (Some(local), Some(remote)) => remote > local,
+            (None, _) => true,
+            (Some(_), None) => false,
+        };
+
+    if should_apply_remote {
+        crate::providers::write_synced_provider(&paths, profile)?;
+    }
+    Ok(should_apply_remote)
+}
+
+fn provider_payload_from_profile(
+    provider: ProviderProfile,
+    last_modified_at: String,
+) -> ProviderSyncPayload {
+    ProviderSyncPayload {
+        id: provider.id,
+        name: provider.name,
+        base_url: provider.base_url,
+        api_key: provider.api_key,
+        model: provider.model,
+        models: provider.models,
+        model_selection_controlled_by_codex: provider.model_selection_controlled_by_codex,
+        api_format: provider.api_format,
+        last_modified_at,
+    }
+}
+
+fn provider_payload_to_profile(provider: &ProviderSyncPayload) -> ProviderProfile {
+    ProviderProfile {
+        id: provider.id.clone(),
+        name: provider.name.clone(),
+        base_url: provider.base_url.clone(),
+        api_key: provider.api_key.clone(),
+        model: provider.model.clone(),
+        models: provider.models.clone(),
+        model_selection_controlled_by_codex: provider.model_selection_controlled_by_codex,
+        api_format: provider.api_format,
+    }
+}
+
 fn get_remote_accounts(
     client: &Client,
     settings: &mut AppSettings,
@@ -343,6 +432,28 @@ fn get_remote_accounts(
     Ok(payload.accounts)
 }
 
+fn get_remote_providers(
+    client: &Client,
+    settings: &mut AppSettings,
+    credentials: &mut CloudCredentials,
+) -> Result<Vec<ProviderSyncPayload>, String> {
+    let response = cloud_request(
+        client,
+        settings,
+        credentials,
+        Method::GET,
+        "/sync/providers",
+        None,
+    )?;
+    if !response.status().is_success() {
+        return Err(response_error("Cloud provider download", response));
+    }
+    let payload: CloudProvidersResponse = response
+        .json()
+        .map_err(|error| format!("Cloud provider download response is invalid: {error}"))?;
+    Ok(payload.providers)
+}
+
 fn put_remote_accounts<R: Runtime>(
     app: &tauri::AppHandle<R>,
     client: &Client,
@@ -355,6 +466,20 @@ fn put_remote_accounts<R: Runtime>(
     }
     settings.cloud_last_sync_at = Some(Utc::now().to_rfc3339());
     Ok(accounts.len())
+}
+
+fn put_remote_providers<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    client: &Client,
+    settings: &mut AppSettings,
+    credentials: &mut CloudCredentials,
+) -> Result<usize, String> {
+    let providers = collect_local_providers(app)?;
+    for provider in &providers {
+        upsert_remote_provider_payload(client, settings, credentials, provider)?;
+    }
+    settings.cloud_last_sync_at = Some(Utc::now().to_rfc3339());
+    Ok(providers.len())
 }
 
 fn upsert_remote_account_payload(
@@ -377,6 +502,26 @@ fn upsert_remote_account_payload(
     Ok(())
 }
 
+fn upsert_remote_provider_payload(
+    client: &Client,
+    settings: &mut AppSettings,
+    credentials: &mut CloudCredentials,
+    provider: &ProviderSyncPayload,
+) -> Result<(), String> {
+    let response = cloud_request(
+        client,
+        settings,
+        credentials,
+        Method::PUT,
+        &format!("/sync/providers/{}", provider.id),
+        Some(serde_json::to_value(provider).map_err(|error| error.to_string())?),
+    )?;
+    if !response.status().is_success() {
+        return Err(response_error("Cloud provider upload", response));
+    }
+    Ok(())
+}
+
 fn put_remote_account<R: Runtime>(
     app: &tauri::AppHandle<R>,
     client: &Client,
@@ -386,6 +531,19 @@ fn put_remote_account<R: Runtime>(
 ) -> Result<(), String> {
     let account = collect_local_account(app, id)?;
     upsert_remote_account_payload(client, settings, credentials, &account)?;
+    settings.cloud_last_sync_at = Some(Utc::now().to_rfc3339());
+    Ok(())
+}
+
+fn put_remote_provider<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    client: &Client,
+    settings: &mut AppSettings,
+    credentials: &mut CloudCredentials,
+    id: &str,
+) -> Result<(), String> {
+    let provider = collect_local_provider(app, id)?;
+    upsert_remote_provider_payload(client, settings, credentials, &provider)?;
     settings.cloud_last_sync_at = Some(Utc::now().to_rfc3339());
     Ok(())
 }
@@ -406,6 +564,27 @@ fn delete_remote_account(
     )?;
     if !response.status().is_success() {
         return Err(response_error("Cloud account delete", response));
+    }
+    settings.cloud_last_sync_at = Some(Utc::now().to_rfc3339());
+    Ok(())
+}
+
+fn delete_remote_provider(
+    client: &Client,
+    settings: &mut AppSettings,
+    credentials: &mut CloudCredentials,
+    id: &str,
+) -> Result<(), String> {
+    let response = cloud_request(
+        client,
+        settings,
+        credentials,
+        Method::DELETE,
+        &format!("/sync/providers/{id}"),
+        None,
+    )?;
+    if !response.status().is_success() {
+        return Err(response_error("Cloud provider delete", response));
     }
     settings.cloud_last_sync_at = Some(Utc::now().to_rfc3339());
     Ok(())
@@ -470,6 +649,7 @@ pub(crate) async fn cloud_login<R: Runtime>(
             settings.cloud_user_email = Some(user.email);
         }
         let _ = put_remote_accounts(&app, &client, &mut settings, &mut credentials)?;
+        let _ = put_remote_providers(&app, &client, &mut settings, &mut credentials)?;
         write_app_settings(&app, &settings)?;
         write_cloud_credentials(&app, &credentials)?;
         Ok(cloud_state(&settings, &credentials))
@@ -509,7 +689,8 @@ pub(crate) async fn cloud_push_accounts<R: Runtime>(
         let client = api_client()?;
         let mut settings = read_app_settings(&app)?;
         let mut credentials = read_cloud_credentials(&app);
-        let uploaded = put_remote_accounts(&app, &client, &mut settings, &mut credentials)?;
+        let uploaded = put_remote_accounts(&app, &client, &mut settings, &mut credentials)?
+            + put_remote_providers(&app, &client, &mut settings, &mut credentials)?;
         write_app_settings(&app, &settings)?;
         write_cloud_credentials(&app, &credentials)?;
         Ok(CloudSyncResult {
@@ -543,6 +724,47 @@ pub(crate) async fn cloud_push_account<R: Runtime>(
 }
 
 #[tauri::command]
+pub(crate) async fn cloud_push_providers<R: Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<CloudSyncResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = api_client()?;
+        let mut settings = read_app_settings(&app)?;
+        let mut credentials = read_cloud_credentials(&app);
+        let uploaded = put_remote_providers(&app, &client, &mut settings, &mut credentials)?;
+        write_app_settings(&app, &settings)?;
+        write_cloud_credentials(&app, &credentials)?;
+        Ok(CloudSyncResult {
+            uploaded,
+            downloaded: 0,
+        })
+    })
+    .await
+    .map_err(|error| format!("Cloud provider upload task failed: {error}"))?
+}
+
+#[tauri::command]
+pub(crate) async fn cloud_push_provider<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    id: String,
+) -> Result<CloudSyncResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = api_client()?;
+        let mut settings = read_app_settings(&app)?;
+        let mut credentials = read_cloud_credentials(&app);
+        put_remote_provider(&app, &client, &mut settings, &mut credentials, &id)?;
+        write_app_settings(&app, &settings)?;
+        write_cloud_credentials(&app, &credentials)?;
+        Ok(CloudSyncResult {
+            uploaded: 1,
+            downloaded: 0,
+        })
+    })
+    .await
+    .map_err(|error| format!("Cloud provider upload task failed: {error}"))?
+}
+
+#[tauri::command]
 pub(crate) async fn cloud_delete_account<R: Runtime>(
     app: tauri::AppHandle<R>,
     id: String,
@@ -564,6 +786,27 @@ pub(crate) async fn cloud_delete_account<R: Runtime>(
 }
 
 #[tauri::command]
+pub(crate) async fn cloud_delete_provider<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    id: String,
+) -> Result<CloudSyncResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = api_client()?;
+        let mut settings = read_app_settings(&app)?;
+        let mut credentials = read_cloud_credentials(&app);
+        delete_remote_provider(&client, &mut settings, &mut credentials, &id)?;
+        write_app_settings(&app, &settings)?;
+        write_cloud_credentials(&app, &credentials)?;
+        Ok(CloudSyncResult {
+            uploaded: 0,
+            downloaded: 0,
+        })
+    })
+    .await
+    .map_err(|error| format!("Cloud provider delete task failed: {error}"))?
+}
+
+#[tauri::command]
 pub(crate) async fn cloud_sync_accounts<R: Runtime>(
     app: tauri::AppHandle<R>,
 ) -> Result<CloudSyncResult, String> {
@@ -575,6 +818,10 @@ pub(crate) async fn cloud_sync_accounts<R: Runtime>(
             .into_iter()
             .map(|account| account.id)
             .collect::<HashSet<_>>();
+        let local_provider_ids = collect_local_providers(&app)?
+            .into_iter()
+            .map(|provider| provider.id)
+            .collect::<HashSet<_>>();
         let mut downloaded = 0;
         for account in get_remote_accounts(&client, &mut settings, &mut credentials)? {
             let is_new = !local_ids.contains(&account.id);
@@ -583,11 +830,26 @@ pub(crate) async fn cloud_sync_accounts<R: Runtime>(
                 downloaded += 1;
             }
         }
-        let uploaded = put_remote_accounts(&app, &client, &mut settings, &mut credentials)?;
+        let mut providers_downloaded = 0;
+        for provider in get_remote_providers(&client, &mut settings, &mut credentials)? {
+            let is_new = !local_provider_ids.contains(&provider.id);
+            let applied = apply_remote_provider(&app, &provider)?;
+            if is_new || applied {
+                providers_downloaded += 1;
+            }
+        }
+        downloaded += providers_downloaded;
+        let uploaded = put_remote_accounts(&app, &client, &mut settings, &mut credentials)?
+            + put_remote_providers(&app, &client, &mut settings, &mut credentials)?;
         write_app_settings(&app, &settings)?;
         write_cloud_credentials(&app, &credentials)?;
         if downloaded > 0 {
             app.emit("accounts-changed", ())
+                .map_err(|error| error.to_string())?;
+            crate::system_tray::refresh_menu(&app);
+        }
+        if providers_downloaded > 0 {
+            app.emit("providers-changed", ())
                 .map_err(|error| error.to_string())?;
             crate::system_tray::refresh_menu(&app);
         }

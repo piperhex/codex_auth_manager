@@ -7,7 +7,7 @@ import { SyncController } from '@/modules/sync/sync.controller';
 import type { AuthService } from '@/modules/auth/auth.service';
 import type { SyncService } from '@/modules/sync/sync.service';
 import type { AuthUser } from '@/common/decorators/user.decorator';
-import { makeAccount } from './fixtures';
+import { makeAccount, makeProvider } from './fixtures';
 
 describe('HTTP controllers', () => {
   it('AuthController forwards every endpoint argument and result', async () => {
@@ -40,20 +40,33 @@ describe('HTTP controllers', () => {
     const sync = {
       list: vi.fn().mockResolvedValue('list'), replace: vi.fn().mockResolvedValue('replace'),
       upsert: vi.fn().mockResolvedValue('upsert'), delete: vi.fn().mockResolvedValue('delete'),
+      listProviders: vi.fn().mockResolvedValue('provider-list'),
+      replaceProviders: vi.fn().mockResolvedValue('provider-replace'),
+      upsertProvider: vi.fn().mockResolvedValue('provider-upsert'),
+      deleteProvider: vi.fn().mockResolvedValue('provider-delete'),
     };
     const controller = new SyncController(sync as unknown as SyncService);
     const user: AuthUser = { id: 'owner-1', email: 'owner@example.com', role: 'user' };
     const account = makeAccount();
+    const provider = makeProvider();
 
     await expect(controller.list(user)).resolves.toBe('list');
     await expect(controller.replace(user, { accounts: [account] })).resolves.toBe('replace');
     await expect(controller.upsert(user, account.id, account)).resolves.toBe('upsert');
     await expect(controller.delete(user, account.id)).resolves.toBe('delete');
+    await expect(controller.listProviders(user)).resolves.toBe('provider-list');
+    await expect(controller.replaceProviders(user, { providers: [provider] })).resolves.toBe('provider-replace');
+    await expect(controller.upsertProvider(user, provider.id, provider)).resolves.toBe('provider-upsert');
+    await expect(controller.deleteProvider(user, provider.id)).resolves.toBe('provider-delete');
 
     expect(sync.list).toHaveBeenCalledWith(user.id);
     expect(sync.replace).toHaveBeenCalledWith(user.id, { accounts: [account] });
     expect(sync.upsert).toHaveBeenCalledWith(user.id, account.id, account);
     expect(sync.delete).toHaveBeenCalledWith(user.id, account.id);
+    expect(sync.listProviders).toHaveBeenCalledWith(user.id);
+    expect(sync.replaceProviders).toHaveBeenCalledWith(user.id, { providers: [provider] });
+    expect(sync.upsertProvider).toHaveBeenCalledWith(user.id, provider.id, provider);
+    expect(sync.deleteProvider).toHaveBeenCalledWith(user.id, provider.id);
   });
 
   it('AdminController serves the page and delegates protected user management', async () => {

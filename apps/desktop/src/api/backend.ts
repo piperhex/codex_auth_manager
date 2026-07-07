@@ -370,9 +370,24 @@ export async function pushCloudAccount(id: string): Promise<CloudSyncResult> {
   return invoke<CloudSyncResult>("cloud_push_account", { id });
 }
 
+export async function pushCloudProviders(): Promise<CloudSyncResult> {
+  if (!isDesktopApp) return { uploaded: 0, downloaded: 0 };
+  return invoke<CloudSyncResult>("cloud_push_providers");
+}
+
+export async function pushCloudProvider(id: string): Promise<CloudSyncResult> {
+  if (!isDesktopApp) return { uploaded: 0, downloaded: 0 };
+  return invoke<CloudSyncResult>("cloud_push_provider", { id });
+}
+
 export async function deleteCloudAccount(id: string): Promise<CloudSyncResult> {
   if (!isDesktopApp) return { uploaded: 0, downloaded: 0 };
   return invoke<CloudSyncResult>("cloud_delete_account", { id });
+}
+
+export async function deleteCloudProvider(id: string): Promise<CloudSyncResult> {
+  if (!isDesktopApp) return { uploaded: 0, downloaded: 0 };
+  return invoke<CloudSyncResult>("cloud_delete_provider", { id });
 }
 
 export async function resizeFloatingBubble(expanded: boolean): Promise<void> {
@@ -430,7 +445,7 @@ export async function chooseAndImportAuth(): Promise<ImportAuthResult> {
 export async function chooseAndExportAccountArchive(): Promise<ExportAccountArchiveResult> {
   if (!isDesktopApp) return { status: "preview" };
   const selected = await save({
-    defaultPath: `codex-switch-accounts-${new Date().toISOString().slice(0, 10)}.cs`,
+    defaultPath: `codex-switch-backup-${new Date().toISOString().slice(0, 10)}.cs`,
     filters: [{ name: "Codex Switch backup", extensions: ["cs"] }],
   });
   if (!selected) return { status: "cancelled" };

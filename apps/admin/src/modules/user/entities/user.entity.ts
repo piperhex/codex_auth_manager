@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { RefreshTokenEntity } from '@/modules/auth/entities/refresh-token.entity';
 import { SyncedAccountEntity } from '@/modules/sync/entities/synced-account.entity';
+import { SyncedProviderEntity } from '@/modules/sync/entities/synced-provider.entity';
 
 export type UserRole = 'user' | 'admin';
 
@@ -37,6 +38,9 @@ export class UserEntity {
 
   @OneToMany(() => SyncedAccountEntity, (account) => account.owner)
   syncedAccounts: SyncedAccountEntity[];
+
+  @OneToMany(() => SyncedProviderEntity, (provider) => provider.owner)
+  syncedProviders: SyncedProviderEntity[];
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;

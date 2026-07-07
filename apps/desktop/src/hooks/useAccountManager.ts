@@ -21,6 +21,7 @@ interface RefreshAllOptions {
 }
 
 interface AccountCloudSync {
+  pushAll?: () => Promise<void> | void;
   pushAccount?: (id: string) => Promise<void> | void;
   deleteAccount?: (id: string) => Promise<void> | void;
 }
@@ -109,9 +110,13 @@ export function useAccountManager(
     try {
       const result = await chooseAndImportAccountArchive();
       if (result.status === "imported") {
-        notify(t("toast.archiveImported", { count: result.result.imported }));
+        notify(t("toast.archiveImported", {
+          accounts: result.result.imported,
+          providers: result.result.providersImported,
+        }));
         await load();
         await Promise.allSettled(result.result.accountIds.map((id) => cloudSync?.pushAccount?.(id)));
+        if (result.result.providerIds.length) await cloudSync?.pushAll?.();
       }
     } catch (error) {
       notify(String(error));

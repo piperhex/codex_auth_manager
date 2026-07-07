@@ -57,26 +57,15 @@ pub(crate) fn list_providers<R: Runtime>(
 ) -> Result<Vec<ProviderSummary>, String> {
     let paths = resolve_paths(&app)?;
     let active_provider_id = read_state(&paths).active_provider_id;
-    fs::create_dir_all(&paths.providers)
-        .map_err(|error| format!("Failed to create provider store: {error}"))?;
-
-    let mut providers = Vec::new();
-    for entry in fs::read_dir(&paths.providers)
-        .map_err(|error| format!("Failed to read provider store: {error}"))?
-    {
-        let entry = entry.map_err(|error| error.to_string())?;
-        if !entry.path().is_file() {
-            continue;
-        }
-        if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
-            continue;
-        }
-        let provider = read_provider_file(entry.path())?;
-        providers.push(provider_summary(
-            &provider,
-            active_provider_id.as_deref() == Some(&provider.id),
-        ));
-    }
+    let mut providers = list_provider_profiles(&paths)?
+        .into_iter()
+        .map(|provider| {
+            provider_summary(
+                &provider,
+                active_provider_id.as_deref() == Some(&provider.id),
+            )
+        })
+        .collect::<Vec<_>>();
     providers.sort_by(|left, right| left.name.cmp(&right.name));
     Ok(providers)
 }
@@ -279,6 +268,29 @@ pub(crate) fn apply_local_proxy_config_for_paths(paths: &Paths) -> Result<(), St
     }
 }
 
+pub(crate) fn activate_provider_for_sync(paths: &Paths, id: &str) -> Result<bool, String> {
+    let provider = read_provider(paths, id)?;
+    ensure_not_local_proxy_base_url(&provider.base_url)?;
+    if provider.api_key.trim().is_empty() {
+        return Ok(false);
+    }
+    let proxy_running = crate::local_proxy::is_running();
+    if !proxy_running && provider.api_format != ProviderApiFormat::OpenaiResponses {
+        return Ok(false);
+    }
+
+    let mut state = read_state(paths);
+    backup_codex_config_if_needed(paths, state.active_provider_id.is_none())?;
+    if proxy_running {
+        write_provider_local_proxy_config(paths, &provider)?;
+    } else {
+        write_provider_config(paths, &provider)?;
+    }
+    state.active_provider_id = Some(provider.id);
+    write_state(paths, &state)?;
+    Ok(true)
+}
+
 pub(crate) fn cleanup_stale_local_proxy_config<R: Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Result<(), String> {
@@ -333,6 +345,27 @@ fn provider_path(paths: &Paths, id: &str) -> PathBuf {
     paths.providers.join(format!("{id}.json"))
 }
 
+pub(crate) fn list_provider_profiles(paths: &Paths) -> Result<Vec<ProviderProfile>, String> {
+    fs::create_dir_all(&paths.providers)
+        .map_err(|error| format!("Failed to create provider store: {error}"))?;
+
+    let mut providers = Vec::new();
+    for entry in fs::read_dir(&paths.providers)
+        .map_err(|error| format!("Failed to read provider store: {error}"))?
+    {
+        let entry = entry.map_err(|error| error.to_string())?;
+        if !entry.path().is_file() {
+            continue;
+        }
+        if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        providers.push(read_provider_file(entry.path())?);
+    }
+    providers.sort_by(|left, right| left.id.cmp(&right.id));
+    Ok(providers)
+}
+
 pub(crate) fn read_provider(paths: &Paths, id: &str) -> Result<ProviderProfile, String> {
     validate_provider_id(id)?;
     read_provider_file(provider_path(paths, id))
@@ -349,6 +382,31 @@ fn read_provider_file(path: PathBuf) -> Result<ProviderProfile, String> {
 fn write_provider(paths: &Paths, provider: &ProviderProfile) -> Result<(), String> {
     let value = serde_json::to_value(provider).map_err(|error| error.to_string())?;
     write_json_atomic(&provider_path(paths, &provider.id), &value)
+}
+
+pub(crate) fn write_synced_provider(
+    paths: &Paths,
+    provider: ProviderProfile,
+) -> Result<ProviderProfile, String> {
+    let profile = normalize_synced_provider(provider)?;
+    write_provider(paths, &profile)?;
+    Ok(profile)
+}
+
+pub(crate) fn provider_modified_at(
+    paths: &Paths,
+    id: &str,
+) -> Result<chrono::DateTime<chrono::Utc>, String> {
+    let path = provider_path(paths, id);
+    fs::metadata(&path)
+        .and_then(|metadata| metadata.modified())
+        .map(chrono::DateTime::<chrono::Utc>::from)
+        .map_err(|error| {
+            format!(
+                "Failed to read provider modified time {}: {error}",
+                path.display()
+            )
+        })
 }
 
 fn provider_summary(provider: &ProviderProfile, active: bool) -> ProviderSummary {
@@ -394,6 +452,17 @@ fn normalize_provider_profile(mut provider: ProviderProfile) -> Result<ProviderP
     provider.model = model;
     provider.models = models;
     Ok(provider)
+}
+
+fn normalize_synced_provider(mut provider: ProviderProfile) -> Result<ProviderProfile, String> {
+    validate_provider_id(&provider.id)?;
+    provider.name = require_non_empty("Provider name", &provider.name)?;
+    provider.base_url = normalize_base_url(&provider.base_url)?;
+    provider.api_key = provider.api_key.trim().to_string();
+    if provider.api_key.is_empty() {
+        return Err("Provider API key is empty".to_string());
+    }
+    normalize_provider_profile(provider)
 }
 
 fn push_model_once(models: &mut Vec<String>, model: String) {
