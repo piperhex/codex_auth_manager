@@ -41,7 +41,7 @@ fn create<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> Result<(), 
     let window = WebviewWindowBuilder::new(
         app,
         BUBBLE_LABEL,
-        WebviewUrl::App("index.html?window=bubble".into()),
+        WebviewUrl::App("index.html#bubble".into()),
     )
     .title("Codex Usage")
     .inner_size(COLLAPSED_WIDTH, COLLAPSED_HEIGHT)

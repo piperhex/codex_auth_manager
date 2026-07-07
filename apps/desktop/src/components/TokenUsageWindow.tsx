@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, ConfigProvider, Table, Tag, theme as antdTheme } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import enUS from "antd/locale/en_US";
@@ -67,21 +67,31 @@ export function TokenUsageWindow() {
   const [entries, setEntries] = useState<TokenUsageEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const loadingRef = useRef(false);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
     document.documentElement.classList.add("token-usage-page");
-    return () => document.documentElement.classList.remove("token-usage-page");
+    return () => {
+      mountedRef.current = false;
+      document.documentElement.classList.remove("token-usage-page");
+    };
   }, []);
 
   const load = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     setLoading(true);
     setError(null);
     try {
-      setEntries(await loadTokenUsageEntries());
+      const nextEntries = await loadTokenUsageEntries();
+      if (mountedRef.current) setEntries(nextEntries);
     } catch (error) {
-      setError(String(error));
+      if (mountedRef.current) setError(String(error));
     } finally {
-      setLoading(false);
+      loadingRef.current = false;
+      if (mountedRef.current) setLoading(false);
     }
   }, []);
 

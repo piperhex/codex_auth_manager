@@ -31,6 +31,7 @@ tauri-plugin-opener = "2"
 tiny_http = "0.12"
 url = "2"
 zip = { version = "2", default-features = false }
+rusqlite = { version = "0.32.1", default-features = false, features = ["bundled"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }

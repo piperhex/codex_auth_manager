@@ -426,7 +426,11 @@ function DashboardApp() {
 }
 
 export default function App() {
-  const windowName = new URLSearchParams(window.location.search).get("window");
+  const normalizeWindowName = (value: string | null) => (
+    (value ?? "").replace(/^#\/?/, "").split(/[?#]/)[0]
+  );
+  const windowName = normalizeWindowName(new URLSearchParams(window.location.search).get("window"))
+    || normalizeWindowName(window.location.hash);
   if (windowName === "bubble") {
     return <FloatingUsageBubble />;
   }

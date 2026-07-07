@@ -9,6 +9,7 @@ use std::{
 };
 
 use reqwest::blocking::{Client, Response as ReqwestResponse};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tauri::{Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
@@ -33,11 +34,13 @@ const CUSTOM_TOOL_INPUT_FIELD: &str = "input";
 const CHAT_TOOL_NAME_MAX_LEN: usize = 64;
 const DIAGNOSTIC_LOG_MAX_BYTES: u64 = 2 * 1024 * 1024;
 const DIAGNOSTIC_LOG_FILE_NAME: &str = "local-proxy-diagnostics.jsonl";
-const TOKEN_USAGE_LOG_FILE_NAME: &str = "token-usage.jsonl";
-const TOKEN_USAGE_LOG_MAX_BYTES: u64 = 4 * 1024 * 1024;
+const DIAGNOSTIC_RESPONSE_BODY_MAX_CHARS: usize = 4_000;
+const TOKEN_USAGE_JSONL_FILE_NAME: &str = "token-usage.jsonl";
+const TOKEN_USAGE_DB_FILE_NAME: &str = "token-usage.sqlite3";
+const TOKEN_USAGE_DB_KEEP_ROWS: i64 = 10_000;
 const TOKEN_USAGE_LIST_LIMIT: usize = 500;
 const TOKEN_USAGE_CAPTURE_MAX_BYTES: usize = 4 * 1024 * 1024;
-const TOKEN_USAGE_WINDOW_LABEL: &str = "token-usage";
+pub(crate) const TOKEN_USAGE_WINDOW_LABEL: &str = "token-usage";
 const CUSTOM_TOOL_INPUT_DESCRIPTION: &str =
     "Raw string input for the original custom tool. Preserve formatting exactly.";
 const CUSTOM_TOOL_PRESERVED_METADATA_HEADING: &str = "Original tool definition:";
@@ -297,9 +300,14 @@ impl CodexToolContext {
 }
 
 static RUNTIME: OnceLock<Mutex<Option<ProxyRuntime>>> = OnceLock::new();
+static TOKEN_USAGE_DB_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn runtime() -> &'static Mutex<Option<ProxyRuntime>> {
     RUNTIME.get_or_init(|| Mutex::new(None))
+}
+
+fn token_usage_db_lock() -> &'static Mutex<()> {
+    TOKEN_USAGE_DB_LOCK.get_or_init(|| Mutex::new(()))
 }
 
 pub(crate) fn is_running() -> bool {
@@ -366,50 +374,32 @@ pub(crate) fn export_diagnostic_logs<R: Runtime>(
 pub(crate) fn list_token_usage_entries<R: Runtime>(
     app: tauri::AppHandle<R>,
 ) -> Result<Vec<TokenUsageEntry>, String> {
-    let path = token_usage_log_path(&app)?;
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let file = fs::File::open(&path)
-        .map_err(|error| format!("Failed to open {}: {error}", path.display()))?;
-    let reader = BufReader::new(file);
-    let mut entries = Vec::new();
-    for line in reader.lines() {
-        let line = line.map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if let Ok(entry) = serde_json::from_str::<TokenUsageEntry>(trimmed) {
-            entries.push(entry);
-        }
-    }
-    entries.sort_by(|left, right| right.ts.cmp(&left.ts).then_with(|| right.id.cmp(&left.id)));
-    entries.truncate(TOKEN_USAGE_LIST_LIMIT);
-    Ok(entries)
+    let connection = open_token_usage_db(&app)?;
+    list_token_usage_entries_from_db(&connection, TOKEN_USAGE_LIST_LIMIT)
 }
 
 #[tauri::command]
-pub(crate) fn show_token_usage_window<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
+pub(crate) async fn show_token_usage_window<R: Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(TOKEN_USAGE_WINDOW_LABEL) {
-        window.show().map_err(|error| error.to_string())?;
-        window.set_focus().map_err(|error| error.to_string())?;
-        return Ok(());
+        let _ = window.destroy();
     }
 
-    WebviewWindowBuilder::new(
-        &app,
-        TOKEN_USAGE_WINDOW_LABEL,
-        WebviewUrl::App("index.html?window=token-usage".into()),
-    )
-    .title("Token Usage")
-    .inner_size(980.0, 560.0)
-    .min_inner_size(780.0, 420.0)
-    .resizable(true)
-    .maximizable(true)
-    .build()
-    .map(|_| ())
-    .map_err(|error| error.to_string())
+    WebviewWindowBuilder::new(&app, TOKEN_USAGE_WINDOW_LABEL, token_usage_window_url())
+        .title("Token Usage")
+        .inner_size(980.0, 560.0)
+        .min_inner_size(780.0, 420.0)
+        .resizable(true)
+        .maximizable(true)
+        .closable(true)
+        .build()
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+fn token_usage_window_url() -> WebviewUrl {
+    WebviewUrl::App("index.html#token-usage".into())
 }
 
 pub(crate) fn restore_local_proxy_if_enabled<R: Runtime>(
@@ -711,15 +701,27 @@ fn append_proxy_diagnostic_result<R: Runtime>(
     entry["durationMs"] = json!(duration.as_millis() as u64);
     match result {
         Ok(payload) => {
-            entry["result"] = json!({
+            let mut result = json!({
                 "ok": status_ok(payload.status),
                 "status": payload.status,
                 "contentType": payload.content_type,
-                "bodyKind": match payload.body {
+                "bodyKind": match &payload.body {
                     UpstreamBody::Buffered(_) => "buffered",
                     UpstreamBody::Streaming(_) => "streaming",
                 }
             });
+            if !status_ok(payload.status) {
+                result["responseBody"] = match &payload.body {
+                    UpstreamBody::Buffered(body) => {
+                        diagnostic_response_body(body, payload.content_type.as_deref())
+                    }
+                    UpstreamBody::Streaming(_) => json!({
+                        "captured": false,
+                        "reason": "streaming response body was not buffered"
+                    }),
+                };
+            }
+            entry["result"] = result;
         }
         Err(error) => {
             entry["result"] = json!({
@@ -1042,8 +1044,8 @@ fn record_token_usage_entry<R: Runtime>(
         cached_tokens: usage.cached_tokens,
         total_tokens: usage.total_tokens,
     };
-    if let Err(error) = append_token_usage_log(app, &entry) {
-        eprintln!("failed to write token usage log: {error}");
+    if let Err(error) = append_token_usage_entry(app, &entry) {
+        eprintln!("failed to write token usage entry: {error}");
     }
 }
 
@@ -1174,6 +1176,22 @@ fn diagnostic_scalar_value(value: Option<&Value>) -> Value {
     }
 }
 
+fn diagnostic_response_body(bytes: &[u8], content_type: Option<&str>) -> Value {
+    let (text, utf8) = match std::str::from_utf8(bytes) {
+        Ok(text) => (text.to_string(), true),
+        Err(_) => (String::from_utf8_lossy(bytes).to_string(), false),
+    };
+    json!({
+        "captured": true,
+        "bytes": bytes.len(),
+        "hash": short_hash_bytes(bytes),
+        "contentType": content_type,
+        "utf8": utf8,
+        "truncated": text.chars().count() > DIAGNOSTIC_RESPONSE_BODY_MAX_CHARS,
+        "text": truncate_for_log(&text, DIAGNOSTIC_RESPONSE_BODY_MAX_CHARS)
+    })
+}
+
 fn diagnostic_value_shape(value: Option<&Value>) -> Value {
     let Some(value) = value else {
         return json!({ "present": false });
@@ -1242,28 +1260,6 @@ fn append_diagnostic_log<R: Runtime>(
         .map_err(|error| format!("Failed to write {}: {error}", path.display()))
 }
 
-fn append_token_usage_log<R: Runtime>(
-    app: &tauri::AppHandle<R>,
-    entry: &TokenUsageEntry,
-) -> Result<(), String> {
-    let path = token_usage_log_path(app)?;
-    rotate_token_usage_log_if_needed(&path)?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| "Token usage log path has no parent directory".to_string())?;
-    fs::create_dir_all(parent)
-        .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|error| format!("Failed to open {}: {error}", path.display()))?;
-    serde_json::to_writer(&mut file, entry)
-        .map_err(|error| format!("Failed to serialize token usage log: {error}"))?;
-    file.write_all(b"\n")
-        .map_err(|error| format!("Failed to write {}: {error}", path.display()))
-}
-
 fn rotate_diagnostic_log_if_needed(path: &Path) -> Result<(), String> {
     let Ok(metadata) = fs::metadata(path) else {
         return Ok(());
@@ -1286,28 +1282,6 @@ fn rotate_diagnostic_log_if_needed(path: &Path) -> Result<(), String> {
     })
 }
 
-fn rotate_token_usage_log_if_needed(path: &Path) -> Result<(), String> {
-    let Ok(metadata) = fs::metadata(path) else {
-        return Ok(());
-    };
-    if metadata.len() <= TOKEN_USAGE_LOG_MAX_BYTES {
-        return Ok(());
-    }
-
-    let rotated = path.with_extension("jsonl.old");
-    if rotated.exists() {
-        fs::remove_file(&rotated)
-            .map_err(|error| format!("Failed to remove {}: {error}", rotated.display()))?;
-    }
-    fs::rename(path, &rotated).map_err(|error| {
-        format!(
-            "Failed to rotate token usage log {} to {}: {error}",
-            path.display(),
-            rotated.display()
-        )
-    })
-}
-
 fn diagnostic_log_path<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
     let app_data = app
         .path()
@@ -1316,12 +1290,278 @@ fn diagnostic_log_path<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf,
     Ok(app_data.join("logs").join(DIAGNOSTIC_LOG_FILE_NAME))
 }
 
-fn token_usage_log_path<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+fn append_token_usage_entry<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    entry: &TokenUsageEntry,
+) -> Result<(), String> {
+    let connection = open_token_usage_db(app)?;
+    insert_token_usage_entry(&connection, entry)?;
+    prune_token_usage_entries(&connection)
+}
+
+fn open_token_usage_db<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<Connection, String> {
+    let _guard = token_usage_db_lock()
+        .lock()
+        .map_err(|error| format!("Failed to lock token usage database: {error}"))?;
+    let path = token_usage_db_path(app)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Token usage database path has no parent directory".to_string())?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
+
+    let mut connection = Connection::open(&path)
+        .map_err(|error| format!("Failed to open {}: {error}", path.display()))?;
+    connection
+        .busy_timeout(Duration::from_secs(3))
+        .map_err(|error| format!("Failed to configure {}: {error}", path.display()))?;
+    init_token_usage_schema(&connection)?;
+    let jsonl_path = token_usage_jsonl_path(app)?;
+    migrate_token_usage_jsonl_if_needed(&mut connection, &jsonl_path)?;
+    Ok(connection)
+}
+
+fn init_token_usage_schema(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute_batch(
+            r#"
+            PRAGMA journal_mode = WAL;
+            CREATE TABLE IF NOT EXISTS token_usage_entries (
+                id TEXT PRIMARY KEY,
+                ts INTEGER NOT NULL,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                duration_ms INTEGER,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                reasoning_tokens INTEGER,
+                cached_tokens INTEGER,
+                total_tokens INTEGER,
+                created_at_ms INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS token_usage_entries_ts_id
+                ON token_usage_entries (ts DESC, id DESC);
+            CREATE TABLE IF NOT EXISTS token_usage_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            "#,
+        )
+        .map_err(|error| format!("Failed to initialize token usage database: {error}"))
+}
+
+fn migrate_token_usage_jsonl_if_needed(
+    connection: &mut Connection,
+    path: &Path,
+) -> Result<(), String> {
+    let migrated = connection
+        .query_row(
+            "SELECT value FROM token_usage_meta WHERE key = 'jsonl_migrated'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("Failed to read token usage migration state: {error}"))?
+        .is_some();
+    if migrated {
+        return Ok(());
+    }
+
+    if path.exists() {
+        import_token_usage_jsonl(connection, path)?;
+        prune_token_usage_entries(connection)?;
+    }
+    connection
+        .execute(
+            "INSERT OR REPLACE INTO token_usage_meta (key, value) VALUES ('jsonl_migrated', '1')",
+            [],
+        )
+        .map_err(|error| format!("Failed to write token usage migration state: {error}"))?;
+    Ok(())
+}
+
+fn import_token_usage_jsonl(connection: &mut Connection, path: &Path) -> Result<usize, String> {
+    let file = fs::File::open(path).map_err(|error| {
+        format!(
+            "Failed to open legacy token usage log {}: {error}",
+            path.display()
+        )
+    })?;
+    let reader = BufReader::new(file);
+    let transaction = connection
+        .transaction()
+        .map_err(|error| format!("Failed to start token usage migration: {error}"))?;
+    let mut imported = 0;
+    {
+        let mut statement = transaction
+            .prepare(
+                r#"
+                INSERT OR IGNORE INTO token_usage_entries (
+                    id, ts, provider, model, duration_ms, input_tokens, output_tokens,
+                    reasoning_tokens, cached_tokens, total_tokens, created_at_ms
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                "#,
+            )
+            .map_err(|error| format!("Failed to prepare token usage migration: {error}"))?;
+        for line in reader.lines() {
+            let line = line.map_err(|error| {
+                format!(
+                    "Failed to read legacy token usage log {}: {error}",
+                    path.display()
+                )
+            })?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let Ok(entry) = serde_json::from_str::<TokenUsageEntry>(trimmed) else {
+                continue;
+            };
+            imported += insert_token_usage_entry_with_statement(&mut statement, &entry)?;
+        }
+    }
+    transaction
+        .commit()
+        .map_err(|error| format!("Failed to commit token usage migration: {error}"))?;
+    Ok(imported)
+}
+
+fn insert_token_usage_entry(
+    connection: &Connection,
+    entry: &TokenUsageEntry,
+) -> Result<(), String> {
+    connection
+        .execute(
+            r#"
+            INSERT OR IGNORE INTO token_usage_entries (
+                id, ts, provider, model, duration_ms, input_tokens, output_tokens,
+                reasoning_tokens, cached_tokens, total_tokens, created_at_ms
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "#,
+            token_usage_params(entry),
+        )
+        .map(|_| ())
+        .map_err(|error| format!("Failed to insert token usage entry: {error}"))
+}
+
+fn insert_token_usage_entry_with_statement(
+    statement: &mut rusqlite::Statement<'_>,
+    entry: &TokenUsageEntry,
+) -> Result<usize, String> {
+    statement
+        .execute(token_usage_params(entry))
+        .map_err(|error| format!("Failed to import token usage entry: {error}"))
+}
+
+fn list_token_usage_entries_from_db(
+    connection: &Connection,
+    limit: usize,
+) -> Result<Vec<TokenUsageEntry>, String> {
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT id, ts, provider, model, duration_ms, input_tokens, output_tokens,
+                   reasoning_tokens, cached_tokens, total_tokens
+            FROM token_usage_entries
+            ORDER BY ts DESC, id DESC
+            LIMIT ?1
+            "#,
+        )
+        .map_err(|error| format!("Failed to query token usage entries: {error}"))?;
+    let rows = statement
+        .query_map(params![usize_to_i64(limit)], |row| {
+            Ok(TokenUsageEntry {
+                id: row.get(0)?,
+                ts: i64_to_u64(row.get::<_, i64>(1)?),
+                provider: row.get(2)?,
+                model: row.get(3)?,
+                duration_ms: opt_i64_to_u64(row.get(4)?),
+                input_tokens: opt_i64_to_u64(row.get(5)?),
+                output_tokens: opt_i64_to_u64(row.get(6)?),
+                reasoning_tokens: opt_i64_to_u64(row.get(7)?),
+                cached_tokens: opt_i64_to_u64(row.get(8)?),
+                total_tokens: opt_i64_to_u64(row.get(9)?),
+            })
+        })
+        .map_err(|error| format!("Failed to read token usage entries: {error}"))?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("Failed to parse token usage entries: {error}"))
+}
+
+fn prune_token_usage_entries(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute(
+            r#"
+            DELETE FROM token_usage_entries
+            WHERE id IN (
+                SELECT id FROM token_usage_entries
+                ORDER BY ts DESC, id DESC
+                LIMIT -1 OFFSET ?1
+            )
+            "#,
+            params![TOKEN_USAGE_DB_KEEP_ROWS],
+        )
+        .map(|_| ())
+        .map_err(|error| format!("Failed to prune token usage entries: {error}"))
+}
+
+fn token_usage_params(entry: &TokenUsageEntry) -> [rusqlite::types::Value; 11] {
+    [
+        rusqlite::types::Value::Text(entry.id.clone()),
+        rusqlite::types::Value::Integer(u64_to_i64(entry.ts)),
+        rusqlite::types::Value::Text(entry.provider.clone()),
+        rusqlite::types::Value::Text(entry.model.clone()),
+        optional_u64_value(entry.duration_ms),
+        optional_u64_value(entry.input_tokens),
+        optional_u64_value(entry.output_tokens),
+        optional_u64_value(entry.reasoning_tokens),
+        optional_u64_value(entry.cached_tokens),
+        optional_u64_value(entry.total_tokens),
+        rusqlite::types::Value::Integer(u128_to_i64(unix_millis())),
+    ]
+}
+
+fn optional_u64_value(value: Option<u64>) -> rusqlite::types::Value {
+    value
+        .map(|value| rusqlite::types::Value::Integer(u64_to_i64(value)))
+        .unwrap_or(rusqlite::types::Value::Null)
+}
+
+fn opt_i64_to_u64(value: Option<i64>) -> Option<u64> {
+    value.and_then(|value| u64::try_from(value).ok())
+}
+
+fn i64_to_u64(value: i64) -> u64 {
+    u64::try_from(value).unwrap_or(0)
+}
+
+fn u64_to_i64(value: u64) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+fn u128_to_i64(value: u128) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+fn usize_to_i64(value: usize) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+fn token_usage_db_path<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
     let app_data = app
         .path()
         .app_data_dir()
         .map_err(|error| format!("Failed to locate app data directory: {error}"))?;
-    Ok(app_data.join("logs").join(TOKEN_USAGE_LOG_FILE_NAME))
+    Ok(app_data.join(TOKEN_USAGE_DB_FILE_NAME))
+}
+
+fn token_usage_jsonl_path<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Failed to locate app data directory: {error}"))?;
+    Ok(app_data.join("logs").join(TOKEN_USAGE_JSONL_FILE_NAME))
 }
 
 fn models_response_for_target(target: &ActiveTarget) -> Value {
@@ -1586,6 +1826,16 @@ fn stream_response(response: ReqwestResponse) -> Result<UpstreamPayload, String>
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
+    if !status_ok(status) {
+        let body = response
+            .bytes()
+            .map_err(|error| format!("Failed to read upstream error response: {error}"))?;
+        return Ok(UpstreamPayload {
+            status,
+            content_type,
+            body: UpstreamBody::Buffered(body.to_vec()),
+        });
+    }
     Ok(UpstreamPayload {
         status,
         content_type,
@@ -3145,6 +3395,68 @@ mod tests {
         assert_eq!(entry["query"]["present"], true);
         assert!(!serialized.contains("probe=secret"));
         assert!(entry.get("responses").is_none());
+    }
+
+    #[test]
+    fn non_success_upstream_response_is_buffered_for_diagnostics() {
+        let server = Server::http("127.0.0.1:0").unwrap();
+        let addr = server.server_addr().to_ip().unwrap();
+        let handle = thread::spawn(move || {
+            let request = server.recv().unwrap();
+            let response = Response::from_string("{\"error\":\"bad upstream key\"}")
+                .with_status_code(StatusCode(401))
+                .with_header(Header::from_bytes("Content-Type", "application/json").unwrap());
+            request.respond(response).unwrap();
+        });
+
+        let response = Client::new()
+            .get(format!("http://{addr}/fail"))
+            .send()
+            .unwrap();
+        let payload = stream_response(response).unwrap();
+        handle.join().unwrap();
+
+        assert_eq!(payload.status, 401);
+        let body = match payload.body {
+            UpstreamBody::Buffered(body) => body,
+            UpstreamBody::Streaming(_) => panic!("non-success responses should be buffered"),
+        };
+        let diagnostic = diagnostic_response_body(&body, payload.content_type.as_deref());
+        assert_eq!(diagnostic["captured"], true);
+        assert_eq!(diagnostic["text"], "{\"error\":\"bad upstream key\"}");
+        assert_eq!(diagnostic["truncated"], false);
+    }
+
+    #[test]
+    fn token_usage_database_lists_recent_entries_with_limit() {
+        let connection = Connection::open_in_memory().unwrap();
+        init_token_usage_schema(&connection).unwrap();
+        for index in 0..(TOKEN_USAGE_LIST_LIMIT + 2) {
+            insert_token_usage_entry(
+                &connection,
+                &TokenUsageEntry {
+                    id: format!("entry-{index:03}"),
+                    ts: index as u64,
+                    provider: "Provider".to_string(),
+                    model: "gpt-test".to_string(),
+                    duration_ms: Some(10),
+                    input_tokens: Some(index as u64),
+                    output_tokens: Some(1),
+                    reasoning_tokens: Some(0),
+                    cached_tokens: Some(0),
+                    total_tokens: Some(index as u64 + 1),
+                },
+            )
+            .unwrap();
+        }
+
+        let entries =
+            list_token_usage_entries_from_db(&connection, TOKEN_USAGE_LIST_LIMIT).unwrap();
+
+        assert_eq!(entries.len(), TOKEN_USAGE_LIST_LIMIT);
+        assert_eq!(entries[0].id, "entry-501");
+        assert_eq!(entries[TOKEN_USAGE_LIST_LIMIT - 1].id, "entry-002");
+        assert!(entries.iter().all(|entry| entry.id != "entry-001"));
     }
 
     #[test]

@@ -61,6 +61,12 @@ pub fn run() {
                     let _ = window.hide();
                 }
             }
+            if window.label() == local_proxy::TOKEN_USAGE_WINDOW_LABEL {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.destroy();
+                }
+            }
             if window.label() == floating_bubble::BUBBLE_LABEL
                 && matches!(event, tauri::WindowEvent::Moved(_))
             {

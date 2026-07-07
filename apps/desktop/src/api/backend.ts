@@ -263,7 +263,7 @@ export async function loadTokenUsageEntries(): Promise<TokenUsageEntry[]> {
 
 export async function showTokenUsageWindow(): Promise<void> {
   if (!isDesktopApp) {
-    window.open(`${window.location.pathname}?window=token-usage`, "_blank", "noopener,noreferrer");
+    window.open(`${window.location.pathname}?cache=${Date.now()}#token-usage`, "_blank", "noopener,noreferrer");
     return;
   }
   await invoke("show_token_usage_window");

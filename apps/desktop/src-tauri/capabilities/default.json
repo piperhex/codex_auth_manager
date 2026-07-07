@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Permissions for the main Codex Switch window",
-  "windows": ["main", "usage-bubble"],
+  "windows": ["main", "usage-bubble", "token-usage"],
   "permissions": [
     "core:default",
     "core:event:default",
