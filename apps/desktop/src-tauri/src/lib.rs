@@ -86,7 +86,7 @@ pub fn run() {
             commands::refresh_usage,
             commands::fetch_reset_credits,
             commands::consume_reset_credit,
-            commands::restart_codex,
+            commands::restart_chatgpt,
             providers::list_providers,
             providers::save_provider,
             providers::switch_provider,

@@ -79,8 +79,8 @@ h1 { margin: 5px 0 0; font: 700 26px/1.1 Manrope, sans-serif; letter-spacing: -.
 .refresh-all { border: 1px solid #d8e0d9; border-radius: 9px; background: white; color: #3d4b42; padding: 9px 13px; display: flex; align-items: center; gap: 7px; white-space: nowrap; cursor: pointer; font-size: 12px; }
 .refresh-all:hover:not(:disabled) { border-color: #9db9a7; color: var(--green); }
 .refresh-all:disabled { opacity: .55; cursor: default; }
-.restart-codex-button { border-color: #f0c8c5; color: #b42318; background: #fff8f7; }
-.restart-codex-button:hover:not(:disabled) { border-color: #d92d20; color: #b42318; background: #fff1f0; }
+.restart-chatgpt-button { border-color: #f0c8c5; color: #b42318; background: #fff8f7; }
+.restart-chatgpt-button:hover:not(:disabled) { border-color: #d92d20; color: #b42318; background: #fff1f0; }
 .topbar-icon-button { min-width: 38px; height: 38px; padding: 0 12px; border: 1px solid #d8e0d9; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; color: #3d4b42; background: white; cursor: pointer; font-size: 12px; white-space: nowrap; }
 .topbar-icon-button:hover:not(:disabled) { border-color: #9db9a7; color: var(--green); }
 .topbar-icon-button:disabled { opacity: .55; cursor: default; }

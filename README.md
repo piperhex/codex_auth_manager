@@ -16,7 +16,7 @@ Codex Switch is a local-first Tauri 2 desktop application for signing in to, sto
 - Atomically switches `$CODEX_HOME/auth.json` (defaults to `~/.codex/auth.json`)
 - Displays account email, plan, 5-hour / weekly usage, and reset credits
 - Refreshes one or all accounts manually or on a timer
-- Provides a best-effort **Restart Codex** action from the dashboard and tray after switching accounts
+- Provides a best-effort **Restart ChatGPT** action from the dashboard and tray after switching accounts
 - Adds system tray account switching and an optional always-on-top floating usage bubble
 - Supports local UI language, accent color, and floating-bubble preferences
 - Keeps tokens in the Rust backend and out of the React UI and application logs
@@ -118,11 +118,11 @@ The release workflow builds Windows x64, Windows ARM64, Ubuntu/Linux x64, and ma
 1. Select **Add account**, then sign in through the app, use the system browser, or import an existing `auth.json` file.
 2. Refresh usage from the account list. Expand a row to view its reset credits.
 3. Select **Switch** to atomically replace the `auth.json` file currently used by Codex.
-4. Use **Restart Codex** from the dashboard or tray after switching if a running Codex process may still be using cached credentials.
+4. Use **Restart ChatGPT** from the dashboard or tray after switching if a running ChatGPT/Codex process may still be using cached credentials.
 
 The Settings page provides language selection, accent color, floating usage bubble control, a global auto-refresh timer for all saved accounts, and an independent timer that refreshes whichever account is currently active.
 
-The system tray menu can show the dashboard, switch accounts, restart Codex, or quit the app. The floating usage bubble shows the active account's 5-hour quota, refreshes that account on left click, expands on hover, can be dragged to a new position, and exposes the same quick actions through its context menu.
+The system tray menu can show the dashboard, switch accounts, restart ChatGPT, or quit the app. The floating usage bubble shows the active account's 5-hour quota, refreshes that account on left click, expands on hover, can be dragged to a new position, and exposes the same quick actions through its context menu.
 
 The application honors the `CODEX_HOME` environment variable and falls back to `~/.codex` when it is not set. Managed account copies are stored under `codex-switch/accounts` in the operating system's application data directory.
 
@@ -170,4 +170,4 @@ Codex Switch is licensed under the [Apache License 2.0](LICENSE), the same licen
 - The application currently targets desktop environments.
 - macOS release builds are ad-hoc signed, but not notarized unless Apple Developer signing/notarization credentials are added to CI.
 - Embedded login depends on WebView and identity-provider policies; use the system browser if it fails.
-- Restarting Codex is best effort and depends on local process discovery plus the platform's ability to relaunch `codex`.
+- Restarting ChatGPT is best effort and depends on local process discovery plus the platform's ability to relaunch ChatGPT or the legacy `codex` entry point.

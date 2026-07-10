@@ -32,9 +32,20 @@ use crate::{
     },
 };
 
-const CODEX_COMMAND: &str = "codex";
+const CHATGPT_COMMAND: &str = "chatgpt";
+#[cfg(unix)]
+const LEGACY_CODEX_COMMAND: &str = "codex";
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+#[cfg(target_os = "windows")]
+enum ChatGptLaunchTarget {
+    ShellApp(String),
+    Executable(String),
+}
+
+#[cfg(not(target_os = "windows"))]
+type ChatGptLaunchTarget = String;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -170,11 +181,11 @@ pub(crate) fn delete_account<R: Runtime>(
 }
 
 #[tauri::command]
-pub(crate) fn restart_codex() -> Result<(), String> {
-    let launch_target = codex_launch_target();
-    stop_codex_processes()?;
+pub(crate) fn restart_chatgpt() -> Result<(), String> {
+    let launch_target = chatgpt_launch_target();
+    stop_chatgpt_processes()?;
     thread::sleep(Duration::from_millis(450));
-    start_codex(launch_target.as_deref())
+    start_chatgpt(launch_target.as_ref())
 }
 
 fn api_client() -> Result<Client, String> {
@@ -462,42 +473,78 @@ fn sync_active_auth(paths: &Paths, id: &str, auth: &Value) -> Result<(), String>
 }
 
 #[cfg(target_os = "windows")]
-fn codex_launch_target() -> Option<String> {
+fn chatgpt_launch_target() -> Option<ChatGptLaunchTarget> {
     windows_powershell_line(
-        "(Get-Process -Name codex -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Path)",
+        "$app = Get-StartApps | Where-Object { $_.Name -eq 'ChatGPT' -and $_.AppID -like 'OpenAI.Codex_*' } | Select-Object -First 1; if ($app) { $app.AppID }",
     )
-    .and_then(|path| normalize_windows_codex_target(&path))
+    .map(ChatGptLaunchTarget::ShellApp)
     .or_else(|| {
         windows_powershell_line(
-            "(Get-Command codex -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)",
+            "$app = Get-StartApps | Where-Object { $_.AppID -like 'OpenAI.Codex_*' -or $_.AppID -eq 'com.openai.codex' } | Select-Object -First 1; if ($app) { $app.AppID }",
         )
-        .and_then(|path| normalize_windows_codex_target(&path))
+        .map(ChatGptLaunchTarget::ShellApp)
+    })
+    .or_else(|| {
+        windows_powershell_line(
+            "(Get-Process -Name ChatGPT -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Path)",
+        )
+        .and_then(|path| normalize_windows_chatgpt_target(&path))
+        .map(ChatGptLaunchTarget::Executable)
+    })
+    .or_else(|| {
+        windows_powershell_line(
+            "(Get-Process -Name codex -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Path)",
+        )
+        .and_then(|path| normalize_windows_chatgpt_target(&path))
+        .map(ChatGptLaunchTarget::Executable)
+    })
+    .or_else(|| {
+        windows_powershell_line(
+            "(Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty InstallLocation)",
+        )
+        .and_then(|path| {
+            let target = Path::new(&path).join("app").join("ChatGPT.exe");
+            if target.exists() {
+                Some(target.as_os_str().to_string_lossy().into_owned())
+            } else {
+                None
+            }
+        })
+        .map(ChatGptLaunchTarget::Executable)
     })
 }
 
 #[cfg(not(target_os = "windows"))]
-fn codex_launch_target() -> Option<String> {
+fn chatgpt_launch_target() -> Option<ChatGptLaunchTarget> {
     None
 }
 
 #[cfg(target_os = "windows")]
-fn stop_codex_processes() -> Result<(), String> {
-    let output = windows_hidden_command("taskkill")
-        .args(["/F", "/T", "/FI", "IMAGENAME eq codex.exe"])
+fn stop_chatgpt_processes() -> Result<(), String> {
+    let output = windows_hidden_command("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "$processes = Get-Process -Name ChatGPT,codex -ErrorAction SilentlyContinue; if ($processes) { $processes | Stop-Process -Force -ErrorAction Stop }",
+        ])
         .output()
-        .map_err(|error| format!("停止 Codex 失败：{error}"))?;
+        .map_err(|error| format!("停止 ChatGPT 失败：{error}"))?;
     if output.status.success() {
         Ok(())
     } else {
-        Err(command_output_error("停止 Codex 失败", &output))
+        Err(command_output_error("停止 ChatGPT 失败", &output))
     }
 }
 
 #[cfg(unix)]
-fn stop_codex_processes() -> Result<(), String> {
-    stop_unix_process(CODEX_COMMAND)?;
+fn stop_chatgpt_processes() -> Result<(), String> {
+    stop_unix_process(CHATGPT_COMMAND)?;
+    stop_unix_process(LEGACY_CODEX_COMMAND)?;
     #[cfg(target_os = "macos")]
-    stop_unix_process("Codex")?;
+    {
+        stop_unix_process("ChatGPT")?;
+        stop_unix_process("Codex")?;
+    }
     Ok(())
 }
 
@@ -506,17 +553,32 @@ fn stop_unix_process(name: &str) -> Result<(), String> {
     let status = Command::new("pkill")
         .args(["-x", name])
         .status()
-        .map_err(|error| format!("停止 Codex 失败：{error}"))?;
+        .map_err(|error| format!("停止 ChatGPT 失败：{error}"))?;
     if status.success() || status.code() == Some(1) {
         Ok(())
     } else {
-        Err(status_error("停止 Codex 失败", status))
+        Err(status_error("停止 ChatGPT 失败", status))
     }
 }
 
 #[cfg(target_os = "windows")]
-fn start_codex(target: Option<&str>) -> Result<(), String> {
-    let target = target.unwrap_or(CODEX_COMMAND);
+fn start_chatgpt(target: Option<&ChatGptLaunchTarget>) -> Result<(), String> {
+    match target {
+        Some(ChatGptLaunchTarget::ShellApp(app_id)) => {
+            let app_uri = format!("shell:AppsFolder\\{app_id}");
+            windows_hidden_command("explorer.exe")
+                .arg(app_uri)
+                .spawn()
+                .map(|_| ())
+                .map_err(|error| format!("启动 ChatGPT 失败：{error}"))
+        }
+        Some(ChatGptLaunchTarget::Executable(target)) => start_windows_executable(target),
+        None => start_windows_executable(CHATGPT_COMMAND),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn start_windows_executable(target: &str) -> Result<(), String> {
     let mut command = windows_hidden_command(target);
     if let Some(parent) = Path::new(target)
         .parent()
@@ -527,7 +589,7 @@ fn start_codex(target: Option<&str>) -> Result<(), String> {
     command
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("启动 Codex 失败：{error}"))
+        .map_err(|error| format!("启动 ChatGPT 失败：{error}"))
 }
 
 #[cfg(target_os = "windows")]
@@ -555,20 +617,24 @@ fn windows_powershell_line(script: &str) -> Option<String> {
 }
 
 #[cfg(target_os = "windows")]
-fn normalize_windows_codex_target(path: &str) -> Option<String> {
+fn normalize_windows_chatgpt_target(path: &str) -> Option<String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return None;
     }
 
     let target = Path::new(trimmed);
+    if is_chatgpt_exe(target) {
+        return Some(trimmed.to_string());
+    }
+
     if is_codex_exe(target) {
         if let Some(resources) = target
             .parent()
             .filter(|parent| is_dir_named(parent, "resources"))
         {
             if let Some(app_dir) = resources.parent() {
-                let app_target = app_dir.join("Codex.exe");
+                let app_target = app_dir.join("ChatGPT.exe");
                 if app_target.exists() {
                     return Some(app_target.as_os_str().to_string_lossy().into_owned());
                 }
@@ -577,6 +643,14 @@ fn normalize_windows_codex_target(path: &str) -> Option<String> {
     }
 
     Some(trimmed.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn is_chatgpt_exe(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.eq_ignore_ascii_case("ChatGPT.exe"))
+        .unwrap_or(false)
 }
 
 #[cfg(target_os = "windows")]
@@ -596,7 +670,11 @@ fn is_dir_named(path: &Path, expected: &str) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-fn start_codex(_target: Option<&str>) -> Result<(), String> {
+fn start_chatgpt(_target: Option<&ChatGptLaunchTarget>) -> Result<(), String> {
+    if matches!(Command::new("open").args(["-a", "ChatGPT"]).status(), Ok(status) if status.success())
+    {
+        return Ok(());
+    }
     if matches!(Command::new("open").args(["-a", "Codex"]).status(), Ok(status) if status.success())
     {
         return Ok(());
@@ -607,39 +685,52 @@ fn start_codex(_target: Option<&str>) -> Result<(), String> {
             "-e",
             "tell application \"Terminal\" to activate",
             "-e",
-            "tell application \"Terminal\" to do script \"codex\"",
+            "tell application \"Terminal\" to do script \"chatgpt || codex\"",
         ])
         .status()
-        .map_err(|error| format!("启动 Codex 失败：{error}"))?;
+        .map_err(|error| format!("启动 ChatGPT 失败：{error}"))?;
     if status.success() {
         Ok(())
     } else {
-        Err(status_error("启动 Codex 失败", status))
+        Err(status_error("启动 ChatGPT 失败", status))
     }
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn start_codex(_target: Option<&str>) -> Result<(), String> {
+fn start_chatgpt(_target: Option<&ChatGptLaunchTarget>) -> Result<(), String> {
     let terminals: &[(&str, &[&str])] = &[
-        ("x-terminal-emulator", &["-e", CODEX_COMMAND]),
-        ("gnome-terminal", &["--", CODEX_COMMAND]),
-        ("konsole", &["-e", CODEX_COMMAND]),
-        ("xfce4-terminal", &["-e", CODEX_COMMAND]),
-        ("xterm", &["-e", CODEX_COMMAND]),
+        (
+            "x-terminal-emulator",
+            &["-e", "sh", "-lc", "exec chatgpt || exec codex"],
+        ),
+        (
+            "gnome-terminal",
+            &["--", "sh", "-lc", "exec chatgpt || exec codex"],
+        ),
+        (
+            "konsole",
+            &["-e", "sh", "-lc", "exec chatgpt || exec codex"],
+        ),
+        (
+            "xfce4-terminal",
+            &["-e", "sh", "-lc", "exec chatgpt || exec codex"],
+        ),
+        ("xterm", &["-e", "sh", "-lc", "exec chatgpt || exec codex"]),
     ];
 
     for (program, args) in terminals {
         match Command::new(program).args(*args).spawn() {
             Ok(_) => return Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(format!("启动 Codex 失败：{error}")),
+            Err(error) => return Err(format!("启动 ChatGPT 失败：{error}")),
         }
     }
 
-    Command::new(CODEX_COMMAND)
+    Command::new(CHATGPT_COMMAND)
         .spawn()
+        .or_else(|_| Command::new(LEGACY_CODEX_COMMAND).spawn())
         .map(|_| ())
-        .map_err(|error| format!("启动 Codex 失败：{error}"))
+        .map_err(|error| format!("启动 ChatGPT 失败：{error}"))
 }
 
 fn command_output_error(action: &str, output: &Output) -> String {

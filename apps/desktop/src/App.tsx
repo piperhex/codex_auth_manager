@@ -4,7 +4,7 @@ import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
 import { BarChart3, CalendarClock, Check, CircleHelp, Cloud, Download, Github, LogIn, LogOut, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Upload, UploadCloud, UserRound } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { checkForUpdate, chooseAndExportDiagnosticLogs, consumeResetCredit, isDesktopApp, openManagedFolder, restartCodex, showTokenUsageWindow } from "./api/backend";
+import { checkForUpdate, chooseAndExportDiagnosticLogs, consumeResetCredit, isDesktopApp, openManagedFolder, restartChatGpt, showTokenUsageWindow } from "./api/backend";
 import { HelpModal, type HelpVersionState } from "./components/modals/HelpModal";
 import { FloatingUsageBubble } from "./components/FloatingUsageBubble";
 import { TokenUsageWindow } from "./components/TokenUsageWindow";
@@ -51,7 +51,7 @@ function DashboardApp() {
   const [helpVersionState, setHelpVersionState] = useState<HelpVersionState>({ status: "checking" });
   const [availableUpdate, setAvailableUpdate] = useState<UpdateInfo | null>(null);
   const [lastRefreshAllAt, setLastRefreshAllAt] = useState<string | null>(storedRefreshAllTime);
-  const [restartingCodex, setRestartingCodex] = useState(false);
+  const [restartingChatGpt, setRestartingChatGpt] = useState(false);
   const [exportingLogs, setExportingLogs] = useState(false);
   const [resetCreditBusyAccountId, setResetCreditBusyAccountId] = useState<string | null>(null);
   const helpVersionRequestId = useRef(0);
@@ -221,15 +221,15 @@ function DashboardApp() {
     markRefreshAll();
     void manager.refreshAll();
   };
-  const restartCodexProcess = useCallback(async () => {
-    setRestartingCodex(true);
+  const restartChatGptProcess = useCallback(async () => {
+    setRestartingChatGpt(true);
     try {
-      await restartCodex();
-      notify(isDesktopApp ? t("toast.codexRestarted") : t("toast.previewRestartCodex"));
+      await restartChatGpt();
+      notify(isDesktopApp ? t("toast.chatGptRestarted") : t("toast.previewRestartChatGpt"));
     } catch (error) {
       notify(String(error));
     } finally {
-      setRestartingCodex(false);
+      setRestartingChatGpt(false);
     }
   }, [notify, t]);
   const openTokenUsage = useCallback(async () => {
@@ -357,14 +357,14 @@ function DashboardApp() {
                   disabled={resetCredits.refreshingAll || !manager.accounts.length}>
                   <CalendarClock className={resetCredits.refreshingAll ? "spin" : ""} size={17} />{t("actions.refreshResetCredits")}
                 </button>
-                <Popconfirm title={t("actions.restartCodexConfirmTitle")}
-                  description={t("actions.restartCodexConfirmDescription")}
-                  okText={t("actions.restartCodex")} cancelText={t("table.cancel")}
-                  okButtonProps={{ danger: true }} disabled={restartingCodex}
-                  onConfirm={() => void restartCodexProcess()}>
-                  <Tooltip title={t("actions.restartCodexHint")}>
-                    <button className="refresh-all restart-codex-button" disabled={restartingCodex}>
-                      <RotateCcw className={restartingCodex ? "spin" : ""} size={17} />{t("actions.restartCodex")}
+                <Popconfirm title={t("actions.restartChatGptConfirmTitle")}
+                  description={t("actions.restartChatGptConfirmDescription")}
+                  okText={t("actions.restartChatGpt")} cancelText={t("table.cancel")}
+                  okButtonProps={{ danger: true }} disabled={restartingChatGpt}
+                  onConfirm={() => void restartChatGptProcess()}>
+                  <Tooltip title={t("actions.restartChatGptHint")}>
+                    <button className="refresh-all restart-chatgpt-button" disabled={restartingChatGpt}>
+                      <RotateCcw className={restartingChatGpt ? "spin" : ""} size={17} />{t("actions.restartChatGpt")}
                     </button>
                   </Tooltip>
                 </Popconfirm>
@@ -377,14 +377,14 @@ function DashboardApp() {
                     <BarChart3 size={17} />Token 汇总
                   </button>
                 </Tooltip>
-                <Popconfirm title={t("actions.restartCodexConfirmTitle")}
-                  description={t("actions.restartCodexConfirmDescription")}
-                  okText={t("actions.restartCodex")} cancelText={t("table.cancel")}
-                  okButtonProps={{ danger: true }} disabled={restartingCodex}
-                  onConfirm={() => void restartCodexProcess()}>
-                  <Tooltip title={t("actions.restartCodexHint")}>
-                    <button className="refresh-all restart-codex-button" disabled={restartingCodex}>
-                      <RotateCcw className={restartingCodex ? "spin" : ""} size={17} />{t("actions.restartCodex")}
+                <Popconfirm title={t("actions.restartChatGptConfirmTitle")}
+                  description={t("actions.restartChatGptConfirmDescription")}
+                  okText={t("actions.restartChatGpt")} cancelText={t("table.cancel")}
+                  okButtonProps={{ danger: true }} disabled={restartingChatGpt}
+                  onConfirm={() => void restartChatGptProcess()}>
+                  <Tooltip title={t("actions.restartChatGptHint")}>
+                    <button className="refresh-all restart-chatgpt-button" disabled={restartingChatGpt}>
+                      <RotateCcw className={restartingChatGpt ? "spin" : ""} size={17} />{t("actions.restartChatGpt")}
                     </button>
                   </Tooltip>
                 </Popconfirm>

@@ -12,7 +12,7 @@ use crate::{
 
 const TRAY_ID: &str = "main-tray";
 const DASHBOARD_ID: &str = "tray:dashboard";
-const RESTART_CODEX_ID: &str = "tray:restart-codex";
+const RESTART_CHATGPT_ID: &str = "tray:restart-chatgpt";
 const QUIT_ID: &str = "tray:quit";
 const ACCOUNT_PREFIX: &str = "tray:account:";
 const OFFICIAL_PROVIDER_ID: &str = "tray:provider-official";
@@ -75,9 +75,9 @@ pub(crate) fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent
         show_dashboard(app);
         return;
     }
-    if id == RESTART_CODEX_ID {
-        if let Err(error) = commands::restart_codex() {
-            eprintln!("failed to restart Codex from menu: {error}");
+    if id == RESTART_CHATGPT_ID {
+        if let Err(error) = commands::restart_chatgpt() {
+            eprintln!("failed to restart ChatGPT from menu: {error}");
         }
         return;
     }
@@ -156,8 +156,8 @@ pub(crate) fn build_menu<R: Runtime>(
     )?)?;
     menu.append(&MenuItem::with_id(
         app,
-        RESTART_CODEX_ID,
-        "重启 Codex",
+        RESTART_CHATGPT_ID,
+        "重启 ChatGPT",
         true,
         None::<&str>,
     )?)?;

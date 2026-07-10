@@ -73,11 +73,11 @@ The frontend only receives redacted models such as `AccountSummary`, `UsageSumma
 3. The optional floating bubble runs as a separate frameless, transparent, always-on-top Tauri window. It uses the same redacted dashboard data and backend events as the main window.
 4. The tray and floating-bubble context menu are rebuilt after account changes so active-account checkmarks and usage labels stay current.
 
-### Restart Codex
+### Restart ChatGPT
 
-1. The dashboard button or tray menu calls `restart_codex`.
-2. On Windows, the backend tries to discover the current Codex executable path, stops `codex.exe` with `taskkill /F /T`, then relaunches the discovered target or `codex` on `PATH`.
-3. On macOS and Linux, the backend stops matching Codex processes with `pkill`, then uses the platform launch strategy available for that OS.
+1. The dashboard button or tray menu calls `restart_chatgpt`.
+2. On Windows, the backend prefers the StartApps/AppX ChatGPT entry, falls back to discovered `ChatGPT.exe` paths, stops both `ChatGPT` and legacy `codex` processes, then relaunches ChatGPT.
+3. On macOS and Linux, the backend stops matching ChatGPT and legacy Codex processes with `pkill`, then uses the platform launch strategy available for that OS.
 4. Restart is best effort. It does not read, write, or log credentials.
 
 ## Persisted Data Layout

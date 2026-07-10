@@ -505,8 +505,8 @@ export async function consumeResetCredit(id: string): Promise<void> {
   if (isDesktopApp) await invoke("consume_reset_credit", { id });
 }
 
-export async function restartCodex(): Promise<void> {
-  if (isDesktopApp) await invoke("restart_codex");
+export async function restartChatGpt(): Promise<void> {
+  if (isDesktopApp) await invoke("restart_chatgpt");
 }
 
 export async function openManagedFolder(target: "codexHome" | "accountStore"): Promise<void> {
