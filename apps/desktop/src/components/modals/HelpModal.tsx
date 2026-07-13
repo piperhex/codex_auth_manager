@@ -1,14 +1,15 @@
-import { CalendarClock, CircleHelp, Clock3, RefreshCw, RotateCcw, ShieldCheck, UserRound, X } from "lucide-react";
+import { CalendarClock, CircleHelp, Clock3, Download, RefreshCw, RotateCcw, ShieldCheck, UserRound, X } from "lucide-react";
 import type { Translate } from "../../i18n";
 
 export type HelpVersionState =
   | { status: "checking" }
   | { status: "latest" }
-  | { status: "available"; latestVersion: string }
+  | { status: "available"; latestVersion: string; releaseUrl: string }
   | { status: "error" };
 
 interface HelpModalProps {
   onClose: () => void;
+  onDownload: (releaseUrl: string) => void;
   version: string;
   versionState: HelpVersionState;
   t: Translate;
@@ -21,7 +22,7 @@ function versionStatusLabel(state: HelpVersionState, t: Translate) {
   return t("help.version.checking");
 }
 
-export function HelpModal({ onClose, version, versionState, t }: HelpModalProps) {
+export function HelpModal({ onClose, onDownload, version, versionState, t }: HelpModalProps) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <section className="modal help-modal" role="dialog" aria-modal="true" aria-labelledby="help-modal-title"
@@ -45,6 +46,11 @@ export function HelpModal({ onClose, version, versionState, t }: HelpModalProps)
             <span className={`help-version-status ${versionState.status}`} role="status" aria-live="polite">
               {versionStatusLabel(versionState, t)}
             </span>
+            {versionState.status === "available" && (
+              <button type="button" className="help-update-button" onClick={() => onDownload(versionState.releaseUrl)}>
+                <Download size={12} />{t("update.download")}
+              </button>
+            )}
           </div>
         </div>
       </section>

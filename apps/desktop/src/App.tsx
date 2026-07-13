@@ -201,7 +201,7 @@ function DashboardApp() {
       .then((update) => {
         if (helpVersionRequestId.current !== requestId) return;
         setHelpVersionState(update
-          ? { status: "available", latestVersion: update.latestVersion }
+          ? { status: "available", latestVersion: update.latestVersion, releaseUrl: update.releaseUrl }
           : { status: "latest" });
       })
       .catch(() => {
@@ -256,10 +256,7 @@ function DashboardApp() {
     }
     window.open(REPOSITORY_URL, "_blank", "noopener,noreferrer");
   };
-  const openRelease = () => {
-    if (!availableUpdate) return;
-    const releaseUrl = availableUpdate.releaseUrl;
-    setAvailableUpdate(null);
+  const openRelease = (releaseUrl: string) => {
     if (isDesktopApp) {
       void openUrl(releaseUrl).catch((error) => notify(String(error)));
       return;
@@ -457,10 +454,13 @@ function DashboardApp() {
         {showLogin && <LoginModal onClose={() => setShowLogin(false)} onStart={startLogin} onImport={importAuth} t={t} />}
         {showCloudLogin && <CloudLoginModal loading={cloud.loading} onClose={() => setShowCloudLogin(false)}
           onLogin={loginCloudAccount} t={t} />}
-        {showHelp && <HelpModal onClose={() => setShowHelp(false)} version={manager.info?.version ?? "0.1.0"}
+        {showHelp && <HelpModal onClose={() => setShowHelp(false)} onDownload={openRelease} version={manager.info?.version ?? "0.1.0"}
           versionState={helpVersionState} t={t} />}
         {availableUpdate && <UpdateModal update={availableUpdate} onClose={() => setAvailableUpdate(null)}
-          onIgnore={ignoreUpdate} onDownload={openRelease} t={t} />}
+          onIgnore={ignoreUpdate} onDownload={() => {
+            setAvailableUpdate(null);
+            openRelease(availableUpdate.releaseUrl);
+          }} t={t} />}
         {toast && <div className="toast"><Check size={17} />{toast}</div>}
       </div>
     </ConfigProvider>

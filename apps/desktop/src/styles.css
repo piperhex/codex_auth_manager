@@ -250,6 +250,8 @@ h1 { margin: 5px 0 0; font: 700 26px/1.1 Manrope, sans-serif; letter-spacing: -.
 .help-version b { color: var(--green-dark); font: 700 11px Manrope, sans-serif; }
 .help-version-details { display: flex; align-items: center; gap: 7px; }
 .help-version-status { padding: 3px 7px; border-radius: 999px; color: #68756d; background: #eef2ee; font-size: 9px; font-weight: 700; line-height: 1.2; }
+.help-update-button { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border: 0; border-radius: 999px; color: #fff; background: var(--green); font: 700 9px/1.2 Manrope, sans-serif; cursor: pointer; }
+.help-update-button:hover { background: var(--green-dark); }
 .help-version-status.latest { color: var(--green-dark); background: var(--green-soft); }
 .help-version-status.available { color: #9a5a0a; background: #fff0d5; }
 .help-version-status.error { color: #a24646; background: #f9e7e7; }
