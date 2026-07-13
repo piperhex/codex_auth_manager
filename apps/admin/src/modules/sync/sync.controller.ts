@@ -15,6 +15,15 @@ export class SyncController {
     return this.sync.list(user.id);
   }
 
+  /**
+   * Mobile clients only need the data rendered in the account overview.  Keep
+   * the encrypted/synchronised auth payload on the desktop-only sync route.
+   */
+  @Get('accounts/summary')
+  listSummary(@CurrentUser() user: AuthUser) {
+    return this.sync.listSummary(user.id);
+  }
+
   @Put('accounts')
   replace(@CurrentUser() user: AuthUser, @Body() dto: PutSyncAccountsDto) {
     return this.sync.replace(user.id, dto);

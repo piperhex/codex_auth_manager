@@ -115,6 +115,19 @@ export class SyncService {
     return payload;
   }
 
+  async listSummary(ownerId: string) {
+    const rows = await this.accounts.find({
+      where: { ownerId },
+      order: { email: 'ASC' },
+    });
+    return {
+      accounts: rows.map((row) => {
+        const { auth: _auth, ...account } = this.toDto(row);
+        return account;
+      }),
+    };
+  }
+
   async replaceProviders(ownerId: string, dto: PutSyncProvidersDto) {
     await this.dataSource.transaction(async (manager) => {
       const repo = manager.getRepository(SyncedProviderEntity);

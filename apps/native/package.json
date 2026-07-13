@@ -1,0 +1,24 @@
+{
+  "name": "@codex-switch/native",
+  "version": "0.1.0",
+  "private": true,
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "node ./scripts/expo.cjs start",
+    "android": "node ./scripts/expo.cjs start --android",
+    "ios": "node ./scripts/expo.cjs start --ios",
+    "export:android": "node ./scripts/expo.cjs export --platform android --output-dir node_modules/.expo-export",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "expo": "^53.0.0",
+    "expo-secure-store": "~14.2.0",
+    "expo-status-bar": "~2.2.3",
+    "react": "19.0.0",
+    "react-native": "0.79.5"
+  },
+  "devDependencies": {
+    "@types/react": "~19.0.10",
+    "typescript": "~5.8.3"
+  }
+}

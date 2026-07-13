@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Codex Switch",
+    "slug": "codex-switch",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#f7faf7"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    },
+    "android": {
+      "package": "com.codexswitch.mobile",
+      "usesCleartextTraffic": true,
+      "adaptiveIcon": {
+        "backgroundColor": "#f7faf7"
+      }
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}

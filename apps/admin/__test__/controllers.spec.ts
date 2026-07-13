@@ -39,6 +39,7 @@ describe('HTTP controllers', () => {
   it('SyncController scopes all operations to the authenticated user', async () => {
     const sync = {
       list: vi.fn().mockResolvedValue('list'), replace: vi.fn().mockResolvedValue('replace'),
+      listSummary: vi.fn().mockResolvedValue('summary'),
       upsert: vi.fn().mockResolvedValue('upsert'), delete: vi.fn().mockResolvedValue('delete'),
       listProviders: vi.fn().mockResolvedValue('provider-list'),
       replaceProviders: vi.fn().mockResolvedValue('provider-replace'),
@@ -51,6 +52,7 @@ describe('HTTP controllers', () => {
     const provider = makeProvider();
 
     await expect(controller.list(user)).resolves.toBe('list');
+    await expect(controller.listSummary(user)).resolves.toBe('summary');
     await expect(controller.replace(user, { accounts: [account] })).resolves.toBe('replace');
     await expect(controller.upsert(user, account.id, account)).resolves.toBe('upsert');
     await expect(controller.delete(user, account.id)).resolves.toBe('delete');
@@ -60,6 +62,7 @@ describe('HTTP controllers', () => {
     await expect(controller.deleteProvider(user, provider.id)).resolves.toBe('provider-delete');
 
     expect(sync.list).toHaveBeenCalledWith(user.id);
+    expect(sync.listSummary).toHaveBeenCalledWith(user.id);
     expect(sync.replace).toHaveBeenCalledWith(user.id, { accounts: [account] });
     expect(sync.upsert).toHaveBeenCalledWith(user.id, account.id, account);
     expect(sync.delete).toHaveBeenCalledWith(user.id, account.id);

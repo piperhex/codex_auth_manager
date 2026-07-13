@@ -194,6 +194,27 @@ describe('SyncService', () => {
     );
   });
 
+  it('returns the mobile account overview without the synced auth payload', async () => {
+    accounts.find.mockResolvedValue([{
+      ownerId: 'owner-1', accountId: 'account-1', email: 'a@example.com', note: 'primary',
+      expiresAt: '', plan: 'Plus', codexAccountId: null, active: true,
+      usage: { primary: { remainingPercent: 80 } },
+      lastModifiedAt: new Date('2026-07-05T00:00:00.000Z'),
+      auth: { accessToken: 'must-not-leave-the-server' },
+    }]);
+
+    const result = await service.listSummary('owner-1');
+
+    expect(result).toEqual({
+      accounts: [expect.objectContaining({
+        id: 'account-1', email: 'a@example.com', usage: { primary: { remainingPercent: 80 } },
+      })],
+    });
+    expect(result.accounts[0]).not.toHaveProperty('auth');
+    expect(accounts.find).toHaveBeenCalledWith({ where: { ownerId: 'owner-1' }, order: { email: 'ASC' } });
+    expect(redis.get).not.toHaveBeenCalled();
+  });
+
   it('upserts a provider when the incoming profile is newer', async () => {
     const provider = makeProvider();
     transactionRepository.findOne.mockResolvedValue({
