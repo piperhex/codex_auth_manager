@@ -203,7 +203,8 @@ jobs:
         working-directory: apps/native
         run: |
           chmod +x android/gradlew
-          android/gradlew assembleRelease --no-daemon
+          cd android
+          ./gradlew assembleRelease --no-daemon
 
       - name: Prepare APK asset
         run: cp apps/native/android/app/build/outputs/apk/release/app-release.apk apps/native/CodexSwitch-android.apk
@@ -248,6 +249,10 @@ jobs:
       - name: Generate iOS project
         working-directory: apps/native
         run: npm run prebuild:ios
+
+      - name: Install iOS Pods
+        working-directory: apps/native/ios
+        run: pod install
 
       - name: Build unsigned iOS Release app
         working-directory: apps/native
