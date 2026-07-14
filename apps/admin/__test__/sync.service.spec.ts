@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SyncService } from '@/modules/sync/sync.service';
 import type { SyncedAccountEntity } from '@/modules/sync/entities/synced-account.entity';
 import type { SyncedProviderEntity } from '@/modules/sync/entities/synced-provider.entity';
+import type { SystemAccountBindingEntity } from '@/modules/sync/entities/system-account-binding.entity';
+import type { SystemAccountEntity } from '@/modules/sync/entities/system-account.entity';
 import { makeAccount, makeProvider } from './fixtures';
 
 describe('SyncService', () => {
@@ -14,6 +16,15 @@ describe('SyncService', () => {
   };
   let providers: {
     find: ReturnType<typeof vi.fn>; findOne: ReturnType<typeof vi.fn>;
+    save: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn>;
+  };
+  let systemAccounts: {
+    find: ReturnType<typeof vi.fn>; findAndCount: ReturnType<typeof vi.fn>;
+    findOne: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>;
+    save: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn>;
+  };
+  let systemBindings: {
+    find: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>;
     save: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn>;
   };
   let transactionRepository: {
@@ -33,6 +44,20 @@ describe('SyncService', () => {
       find: vi.fn(), findOne: vi.fn(),
       save: vi.fn(async (value) => value), delete: vi.fn(),
     };
+    systemAccounts = {
+      find: vi.fn().mockResolvedValue([]),
+      findAndCount: vi.fn(),
+      findOne: vi.fn(),
+      create: vi.fn((value) => value),
+      save: vi.fn(async (value) => value),
+      delete: vi.fn(),
+    };
+    systemBindings = {
+      find: vi.fn().mockResolvedValue([]),
+      create: vi.fn((value) => value),
+      save: vi.fn(async (value) => value),
+      delete: vi.fn().mockResolvedValue({ affected: 0 }),
+    };
     transactionRepository = {
       delete: vi.fn(), save: vi.fn(), create: vi.fn((value) => value),
       update: vi.fn(), findOne: vi.fn(),
@@ -46,6 +71,8 @@ describe('SyncService', () => {
     service = new SyncService(
       accounts as unknown as Repository<SyncedAccountEntity>,
       providers as unknown as Repository<SyncedProviderEntity>,
+      systemAccounts as unknown as Repository<SystemAccountEntity>,
+      systemBindings as unknown as Repository<SystemAccountBindingEntity>,
       dataSource as unknown as DataSource,
       redis as unknown as Redis,
     );
@@ -82,6 +109,44 @@ describe('SyncService', () => {
     redis.get.mockResolvedValue('{not-json');
     await expect(service.list('owner-1')).rejects.toBeInstanceOf(SyntaxError);
     expect(accounts.find).not.toHaveBeenCalled();
+  });
+
+  it('merges assigned system-pool accounts into user sync and lets the pool version win collisions', async () => {
+    redis.get.mockResolvedValue(null);
+    accounts.find.mockResolvedValue([{
+      ownerId: 'owner-1', accountId: 'managed-1', email: 'old@example.com', note: 'personal copy',
+      expiresAt: '', plan: 'Free', codexAccountId: null, active: true, usage: {},
+      lastModifiedAt: new Date('2026-07-01T00:00:00.000Z'), auth: { token: 'old' },
+    }]);
+    systemBindings.find.mockResolvedValue([{
+      systemAccountId: '10000000-0000-4000-8000-000000000001',
+      userId: 'owner-1',
+      account: {
+        id: '10000000-0000-4000-8000-000000000001',
+        syncAccountId: 'managed-1',
+        email: 'official@example.com',
+        note: 'system copy',
+        expiresAt: '',
+        plan: 'Plus',
+        codexAccountId: 'workspace-1',
+        usage: { used: 1 },
+        auth: { tokens: { access_token: 'managed' } },
+        lastModifiedAt: new Date('2026-07-14T00:00:00.000Z'),
+      },
+    }]);
+
+    const result = await service.list('owner-1');
+
+    expect(result.accounts).toHaveLength(1);
+    expect(result.accounts[0]).toMatchObject({
+      id: 'managed-1',
+      email: 'official@example.com',
+      note: 'system copy',
+      active: false,
+    });
+    expect(redis.set).toHaveBeenCalledWith(
+      'sync:accounts:owner-1', JSON.stringify(result), 'EX', 60,
+    );
   });
 
   it('atomically upserts all provided accounts and applies optional defaults', async () => {
@@ -170,6 +235,22 @@ describe('SyncService', () => {
     expect(redis.del).toHaveBeenCalledWith('sync:accounts:owner-1');
   });
 
+  it('does not let an assigned user overwrite or delete a system-pool account', async () => {
+    systemBindings.find.mockResolvedValue([{
+      systemAccountId: '10000000-0000-4000-8000-000000000001',
+      userId: 'owner-1',
+      account: { syncAccountId: 'account-1' },
+    }]);
+
+    await expect(service.upsert('owner-1', 'account-1', makeAccount()))
+      .resolves.toEqual({ id: 'account-1' });
+    await expect(service.delete('owner-1', 'account-1'))
+      .resolves.toEqual({ id: 'account-1' });
+
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+    expect(accounts.delete).not.toHaveBeenCalled();
+  });
+
   it('loads and caches synced providers without exposing other owners', async () => {
     redis.get.mockResolvedValue(null);
     providers.find.mockResolvedValue([{
@@ -213,6 +294,62 @@ describe('SyncService', () => {
     expect(result.accounts[0]).not.toHaveProperty('auth');
     expect(accounts.find).toHaveBeenCalledWith({ where: { ownerId: 'owner-1' }, order: { email: 'ASC' } });
     expect(redis.get).not.toHaveBeenCalled();
+  });
+
+  it('derives official account identity from auth.json and never returns the credential in pool data', async () => {
+    const claims = {
+      email: 'official@example.com',
+      sub: 'chatgpt-user-1',
+      'https://api.openai.com/auth': {
+        chatgpt_plan_type: 'plus',
+        chatgpt_account_id: 'workspace-1',
+      },
+    };
+    const token = `e30.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.sig`;
+    const auth = { tokens: { id_token: token, access_token: token, refresh_token: 'secret' } };
+    systemAccounts.findOne.mockResolvedValue(null);
+    systemAccounts.save.mockImplementationOnce(async (value) => ({
+      id: '10000000-0000-4000-8000-000000000001',
+      createdAt: new Date('2026-07-14T00:00:00.000Z'),
+      updatedAt: new Date('2026-07-14T00:00:00.000Z'),
+      bindings: [],
+      ...value,
+    }));
+
+    const result = await service.createSystemAccount({ auth, note: 'shared' });
+
+    expect(result).toMatchObject({
+      id: '10000000-0000-4000-8000-000000000001',
+      email: 'official@example.com',
+      plan: 'plus',
+      accountId: 'workspace-1',
+      note: 'shared',
+      boundUserCount: 0,
+    });
+    expect(result.syncAccountId).toMatch(/^[a-f0-9]{24}$/);
+    expect(result).not.toHaveProperty('auth');
+    expect(systemAccounts.create).toHaveBeenCalledWith(expect.objectContaining({ auth }));
+  });
+
+  it('bulk binds pool accounts idempotently and invalidates every affected user cache', async () => {
+    const accountId = '10000000-0000-4000-8000-000000000001';
+    const userIds = ['20000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000002'];
+    systemAccounts.find.mockResolvedValue([{ id: accountId }]);
+    systemBindings.find.mockResolvedValue([{
+      systemAccountId: accountId,
+      userId: userIds[0],
+    }]);
+
+    await expect(service.bindSystemAccounts([accountId], userIds)).resolves.toEqual({ count: 1 });
+
+    expect(systemBindings.save).toHaveBeenCalledWith([{
+      systemAccountId: accountId,
+      userId: userIds[1],
+    }]);
+    expect(redis.del).toHaveBeenCalledWith(
+      `sync:accounts:${userIds[0]}`,
+      `sync:accounts:${userIds[1]}`,
+    );
   });
 
   it('upserts a provider when the incoming profile is newer', async () => {

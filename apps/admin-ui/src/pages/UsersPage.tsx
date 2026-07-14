@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { Avatar, Badge, Button, Input, Select, Space, Table, Tag, Tooltip, Typography } from "antd";
 import type { TableColumnsType, TablePaginationConfig } from "antd";
-import { Database, Edit3, KeyRound, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from "lucide-react";
+import { Database, Edit3, KeyRound, Link2, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { labelForRole } from "../i18n";
 import { useI18n } from "../i18n-context";
 import { formatDate } from "../utils/format";
@@ -18,6 +19,7 @@ interface UsersPageProps {
   onEditUser: (user: UserRow) => void;
   onResetPassword: (user: UserRow) => void;
   onOpenAccounts: (user: UserRow) => void;
+  onBindPoolAccounts: (users: UserRow[]) => void;
   onRequestApproval: (user: UserRow) => void;
   onDeleteUser: (user: UserRow) => void;
 }
@@ -33,11 +35,13 @@ export function UsersPage({
   onEditUser,
   onFiltersChange,
   onLoadUsers,
+  onBindPoolAccounts,
   onOpenAccounts,
   onRequestApproval,
   onResetPassword,
 }: UsersPageProps) {
   const { language, t } = useI18n();
+  const [selectedUserIds, setSelectedUserIds] = useState<React.Key[]>([]);
   const activeVisibleUsers = users.items.filter((item) => !item.disabled).length;
   const adminVisibleUsers = users.items.filter((item) => item.role === "admin").length;
 
@@ -148,6 +152,15 @@ export function UsersPage({
         </div>
         <div className="toolbar-right">
           <Button icon={<RefreshCw size={15} />} onClick={() => onLoadUsers()}>{t("common.refresh")}</Button>
+          <Button
+            icon={<Link2 size={15} />}
+            disabled={!selectedUserIds.length}
+            onClick={() => onBindPoolAccounts(
+              users.items.filter((user) => selectedUserIds.includes(user.id)),
+            )}
+          >
+            {t("users.batchBindAccounts", { count: selectedUserIds.length })}
+          </Button>
           <Button type="primary" icon={<Plus size={15} />} onClick={onCreateUser}>{t("users.create")}</Button>
         </div>
       </div>
@@ -157,6 +170,10 @@ export function UsersPage({
           loading={loading}
           columns={columns}
           dataSource={users.items}
+          rowSelection={{
+            selectedRowKeys: selectedUserIds,
+            onChange: setSelectedUserIds,
+          }}
           pagination={{
             current: users.page,
             pageSize: users.pageSize,

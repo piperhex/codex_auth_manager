@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayNotEmpty,
+  IsArray,
   IsEmail,
   IsBoolean,
   IsIn,
@@ -7,6 +9,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -38,6 +41,64 @@ export class ListAuditLogsQueryDto extends PageQueryDto {
   @IsString()
   @MaxLength(80)
   action?: string;
+}
+
+export class ListSystemAccountsQueryDto extends PageQueryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  search?: string;
+}
+
+export class CreateSystemAccountDto {
+  @IsObject()
+  auth: Record<string, unknown>;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  note?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  expiresAt?: string;
+
+  @IsOptional()
+  @IsObject()
+  usage?: Record<string, unknown>;
+}
+
+export class UpdateSystemAccountDto {
+  @IsOptional()
+  @IsObject()
+  auth?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  note?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  expiresAt?: string;
+
+  @IsOptional()
+  @IsObject()
+  usage?: Record<string, unknown>;
+}
+
+export class ChangeSystemAccountBindingsDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsUUID('4', { each: true })
+  systemAccountIds: string[];
+
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsUUID('4', { each: true })
+  userIds: string[];
 }
 
 export class CreateInvitationDto {

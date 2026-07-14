@@ -151,6 +151,7 @@ fn open_embedded_login_window<R: Runtime + 'static>(
             .inner_size(520.0, 720.0)
             .min_inner_size(420.0, 620.0)
             .center()
+            .incognito(true)
             .build()?;
             window.show()?;
             window.set_focus()?;

@@ -1,6 +1,6 @@
 export type Role = "user" | "admin";
 export type UserStatus = "active" | "disabled";
-export type MenuKey = "users" | "audit" | "invitations" | "approvals";
+export type MenuKey = "users" | "officialAccounts" | "audit" | "invitations" | "approvals";
 
 export interface AuthTokens {
   accessToken: string;
@@ -41,6 +41,23 @@ export interface SyncAccount {
   active: boolean;
   usage: Record<string, unknown>;
   auth: Record<string, unknown>;
+  source?: "personal" | "system";
+  systemAccountId?: string;
+}
+
+export interface SystemAccount {
+  id: string;
+  syncAccountId: string;
+  email: string;
+  note: string;
+  expiresAt: string;
+  plan: string;
+  accountId?: string | null;
+  usage: Record<string, unknown>;
+  lastModifiedAt: string;
+  boundUserCount: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface SyncProvider {

@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { CreateAdminUserDto, UpdateAdminUserDto } from '@/modules/admin/dto/admin-user.dto';
 import {
   CreateApprovalRequestDto,
+  ChangeSystemAccountBindingsDto,
+  CreateSystemAccountDto,
   CreateInvitationDto,
   ReviewApprovalRequestDto,
   UpdateAdminSyncedAccountDto,
@@ -104,6 +106,27 @@ describe('request DTO validation', () => {
     expect(value.note).toBe('');
     expect(value.expiresAt).toBe('');
     await expect(validate(value)).resolves.toEqual([]);
+  });
+
+  it('validates official account credentials and bulk binding identifiers', async () => {
+    await expect(messages(CreateSystemAccountDto, {
+      auth: 'not-an-object',
+      note: 'x'.repeat(1001),
+    })).resolves.toEqual(expect.arrayContaining([
+      'auth must be an object',
+      'note must be shorter than or equal to 1000 characters',
+    ]));
+    await expect(messages(ChangeSystemAccountBindingsDto, {
+      systemAccountIds: [],
+      userIds: ['not-a-uuid'],
+    })).resolves.toEqual(expect.arrayContaining([
+      'systemAccountIds should not be empty',
+      'each value in userIds must be a UUID',
+    ]));
+    await expect(messages(ChangeSystemAccountBindingsDto, {
+      systemAccountIds: ['10000000-0000-4000-8000-000000000001'],
+      userIds: ['20000000-0000-4000-8000-000000000001'],
+    })).resolves.toEqual([]);
   });
 
   it('validates nested sync providers and accepts complete provider payloads', async () => {

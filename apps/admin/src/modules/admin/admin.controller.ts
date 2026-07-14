@@ -24,11 +24,15 @@ import {
 } from './dto/admin-user.dto';
 import {
   CreateApprovalRequestDto,
+  ChangeSystemAccountBindingsDto,
+  CreateSystemAccountDto,
   CreateInvitationDto,
   ListAuditLogsQueryDto,
+  ListSystemAccountsQueryDto,
   PageQueryDto,
   ReviewApprovalRequestDto,
   UpdateAdminSyncedAccountDto,
+  UpdateSystemAccountDto,
 } from './dto/admin-management.dto';
 
 @Controller('admin')
@@ -105,6 +109,58 @@ export class AdminController {
     @Param('accountId') accountId: string,
   ) {
     return this.admin.deleteUserAccount(user, id, accountId);
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Get('api/official-accounts')
+  listSystemAccounts(@Query() query: ListSystemAccountsQueryDto) {
+    return this.admin.listSystemAccounts(query);
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('api/official-accounts')
+  createSystemAccount(@CurrentUser() user: AuthUser, @Body() dto: CreateSystemAccountDto) {
+    return this.admin.createSystemAccount(user, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Patch('api/official-accounts/:id')
+  updateSystemAccount(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateSystemAccountDto,
+  ) {
+    return this.admin.updateSystemAccount(user, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Delete('api/official-accounts/:id')
+  deleteSystemAccount(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.admin.deleteSystemAccount(user, id);
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Get('api/official-accounts/:id/bindings')
+  listSystemAccountBindings(@Param('id') id: string) {
+    return this.admin.listSystemAccountBindings(id);
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('api/official-accounts/bind')
+  bindSystemAccounts(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ChangeSystemAccountBindingsDto,
+  ) {
+    return this.admin.bindSystemAccounts(user, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('api/official-accounts/unbind')
+  unbindSystemAccounts(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ChangeSystemAccountBindingsDto,
+  ) {
+    return this.admin.unbindSystemAccounts(user, dto);
   }
 
   @UseGuards(JwtAuthGuard, AdminGuard)

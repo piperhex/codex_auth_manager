@@ -20,6 +20,10 @@ describe('AdminService', () => {
   let sync: {
     list: ReturnType<typeof vi.fn>; updateForAdmin: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>; listProviders: ReturnType<typeof vi.fn>;
+    listForAdmin: ReturnType<typeof vi.fn>; listSystemAccounts: ReturnType<typeof vi.fn>;
+    createSystemAccount: ReturnType<typeof vi.fn>; updateSystemAccount: ReturnType<typeof vi.fn>;
+    deleteSystemAccount: ReturnType<typeof vi.fn>; listSystemAccountBindingIds: ReturnType<typeof vi.fn>;
+    bindSystemAccounts: ReturnType<typeof vi.fn>; unbindSystemAccounts: ReturnType<typeof vi.fn>;
   };
   let auditLogs: {
     create: ReturnType<typeof vi.fn>; save: ReturnType<typeof vi.fn>; findAndCount: ReturnType<typeof vi.fn>;
@@ -39,7 +43,13 @@ describe('AdminService', () => {
       listUsers: vi.fn(), createUser: vi.fn(), updateUser: vi.fn(),
       deleteUser: vi.fn(), changePassword: vi.fn(), findById: vi.fn(),
     };
-    sync = { list: vi.fn(), updateForAdmin: vi.fn(), delete: vi.fn(), listProviders: vi.fn() };
+    sync = {
+      list: vi.fn(), updateForAdmin: vi.fn(), delete: vi.fn(), listProviders: vi.fn(),
+      listForAdmin: vi.fn(), listSystemAccounts: vi.fn(), createSystemAccount: vi.fn(),
+      updateSystemAccount: vi.fn(), deleteSystemAccount: vi.fn(),
+      listSystemAccountBindingIds: vi.fn(), bindSystemAccounts: vi.fn(),
+      unbindSystemAccounts: vi.fn(),
+    };
     auditLogs = {
       create: vi.fn((value) => value),
       save: vi.fn(async (value) => value),
@@ -132,6 +142,25 @@ describe('AdminService', () => {
 
     expect(users.findById).toHaveBeenCalledWith(owner.id);
     expect(sync.listProviders).toHaveBeenCalledWith(owner.id);
+  });
+
+  it('validates target users, binds official pool accounts, and records an audit log', async () => {
+    const target = makeUser({ id: '20000000-0000-4000-8000-000000000001' });
+    const dto = {
+      systemAccountIds: ['10000000-0000-4000-8000-000000000001'],
+      userIds: [target.id],
+    };
+    users.findById.mockResolvedValue(target);
+    sync.bindSystemAccounts.mockResolvedValue({ count: 1 });
+
+    await expect(service.bindSystemAccounts(actor, dto)).resolves.toEqual({ count: 1 });
+
+    expect(users.findById).toHaveBeenCalledWith(target.id);
+    expect(sync.bindSystemAccounts).toHaveBeenCalledWith(dto.systemAccountIds, dto.userIds);
+    expect(auditLogs.save).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'official-account.bind',
+      metadata: expect.objectContaining({ createdBindings: 1, userIds: dto.userIds }),
+    }));
   });
 
   it('requires a different admin to approve privileged requests and applies approved changes', async () => {

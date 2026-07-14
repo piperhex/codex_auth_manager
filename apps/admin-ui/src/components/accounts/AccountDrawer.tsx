@@ -1,6 +1,6 @@
 import { Badge, Button, Drawer, Table, Tabs, Tag, Typography } from "antd";
 import type { TableColumnsType } from "antd";
-import { Edit3, Trash2 } from "lucide-react";
+import { Edit3, Trash2, Unlink } from "lucide-react";
 import { useI18n } from "../../i18n-context";
 import { formatDate } from "../../utils/format";
 import type { SyncAccount, SyncProvider, UserRow } from "../../types";
@@ -14,6 +14,7 @@ interface AccountDrawerProps {
   onClose: () => void;
   onEditAccount: (account: SyncAccount) => void;
   onDeleteAccount: (account: SyncAccount) => void;
+  onRemoveBinding: (account: SyncAccount) => void;
 }
 
 export function AccountDrawer({
@@ -25,12 +26,23 @@ export function AccountDrawer({
   onClose,
   onDeleteAccount,
   onEditAccount,
+  onRemoveBinding,
 }: AccountDrawerProps) {
   const { language, t } = useI18n();
   const accountColumns: TableColumnsType<SyncAccount> = [
     { title: t("common.email"), dataIndex: "email" },
     { title: t("common.note"), dataIndex: "note", ellipsis: true },
     { title: t("common.plan"), dataIndex: "plan", width: 120 },
+    {
+      title: t("accounts.source"),
+      dataIndex: "source",
+      width: 110,
+      render: (source: SyncAccount["source"]) => (
+        <Tag color={source === "system" ? "blue" : "default"}>
+          {t(source === "system" ? "accounts.sourceSystem" : "accounts.sourcePersonal")}
+        </Tag>
+      ),
+    },
     {
       title: t("common.status"),
       dataIndex: "active",
@@ -43,7 +55,15 @@ export function AccountDrawer({
     {
       title: t("common.actions"),
       width: 110,
-      render: (_, row) => (
+      render: (_, row) => row.source === "system" ? (
+        <Button
+          danger
+          className="icon-button"
+          title={t("accounts.removeBinding")}
+          icon={<Unlink size={15} />}
+          onClick={() => onRemoveBinding(row)}
+        />
+      ) : (
         <div className="table-actions">
           <Button className="icon-button" icon={<Edit3 size={15} />} onClick={() => onEditAccount(row)} />
           <Button
@@ -122,7 +142,7 @@ export function AccountDrawer({
                 columns={accountColumns}
                 dataSource={accounts}
                 pagination={false}
-                scroll={{ x: 760 }}
+                scroll={{ x: 880 }}
               />
             ),
           },

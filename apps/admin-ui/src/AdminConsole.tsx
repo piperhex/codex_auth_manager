@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { App as AntApp } from "antd";
 import { AccountDrawer } from "./components/accounts/AccountDrawer";
 import { AccountEditModal } from "./components/accounts/AccountEditModal";
+import { BatchBindSystemAccountsModal } from "./components/accounts/BatchBindSystemAccountsModal";
+import { SystemAccountBindingModal } from "./components/accounts/SystemAccountBindingModal";
+import { SystemAccountModal } from "./components/accounts/SystemAccountModal";
 import { AdminShell } from "./components/layout/AdminShell";
 import { ApprovalModal } from "./components/modals/ApprovalModal";
 import { InvitationModal } from "./components/modals/InvitationModal";
@@ -14,6 +17,7 @@ import { useAuthenticatedApi } from "./hooks/useAuthenticatedApi";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { AuditLogsPage } from "./pages/AuditLogsPage";
 import { InvitationsPage } from "./pages/InvitationsPage";
+import { OfficialAccountsPage } from "./pages/OfficialAccountsPage";
 import { UsersPage } from "./pages/UsersPage";
 import type {
   ApprovalRequest,
@@ -25,6 +29,7 @@ import type {
   Profile,
   SyncAccount,
   SyncProvider,
+  SystemAccount,
   UserFilters,
   UserRow,
 } from "./types";
@@ -40,6 +45,7 @@ const emptyUsers: PageResult<UserRow> = { items: [], total: 0, page: 1, pageSize
 const emptyAuditLogs: PageResult<AuditLog> = { items: [], total: 0, page: 1, pageSize: 20 };
 const emptyInvitations: PageResult<Invitation> = { items: [], total: 0, page: 1, pageSize: 20 };
 const emptyApprovals: PageResult<ApprovalRequest> = { items: [], total: 0, page: 1, pageSize: 20 };
+const emptySystemAccounts: PageResult<SystemAccount> = { items: [], total: 0, page: 1, pageSize: 20 };
 
 export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
   const { message, modal } = AntApp.useApp();
@@ -50,6 +56,9 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
   const [users, setUsers] = useState<PageResult<UserRow>>(emptyUsers);
   const [userFilters, setUserFilters] = useState<UserFilters>({});
   const [usersLoading, setUsersLoading] = useState(false);
+  const [systemAccounts, setSystemAccounts] = useState<PageResult<SystemAccount>>(emptySystemAccounts);
+  const [systemAccountSearch, setSystemAccountSearch] = useState("");
+  const [systemAccountsLoading, setSystemAccountsLoading] = useState(false);
   const [auditLogs, setAuditLogs] = useState<PageResult<AuditLog>>(emptyAuditLogs);
   const [auditSearch, setAuditSearch] = useState("");
   const [auditLoading, setAuditLoading] = useState(false);
@@ -68,6 +77,15 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
   const [providers, setProviders] = useState<SyncProvider[]>([]);
   const [providersLoading, setProvidersLoading] = useState(false);
   const [editingAccount, setEditingAccount] = useState<SyncAccount | null>(null);
+  const [systemAccountModalOpen, setSystemAccountModalOpen] = useState(false);
+  const [editingSystemAccount, setEditingSystemAccount] = useState<SystemAccount | null>(null);
+  const [bindingSystemAccount, setBindingSystemAccount] = useState<SystemAccount | null>(null);
+  const [bindingUsers, setBindingUsers] = useState<UserRow[]>([]);
+  const [boundUserIds, setBoundUserIds] = useState<string[]>([]);
+  const [bindingsLoading, setBindingsLoading] = useState(false);
+  const [batchBindingUsers, setBatchBindingUsers] = useState<UserRow[]>([]);
+  const [batchBindingAccounts, setBatchBindingAccounts] = useState<SystemAccount[]>([]);
+  const [batchBindingsLoading, setBatchBindingsLoading] = useState(false);
   const [invitationOpen, setInvitationOpen] = useState(false);
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [approvalUsers, setApprovalUsers] = useState<UserRow[]>([]);
@@ -128,6 +146,22 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
     }
   }, [api, auditLogs.page, auditLogs.pageSize, auditSearch, message]);
 
+  const loadSystemAccounts = useCallback(async (
+    page = systemAccounts.page,
+    pageSize = systemAccounts.pageSize,
+  ) => {
+    setSystemAccountsLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+      if (systemAccountSearch.trim()) params.set("search", systemAccountSearch.trim());
+      setSystemAccounts(await api<PageResult<SystemAccount>>(`/admin/api/official-accounts?${params}`));
+    } catch (error) {
+      message.error((error as Error).message);
+    } finally {
+      setSystemAccountsLoading(false);
+    }
+  }, [api, message, systemAccountSearch, systemAccounts.page, systemAccounts.pageSize]);
+
   const loadInvitations = useCallback(async (page = invitations.page, pageSize = invitations.pageSize) => {
     setInvitationLoading(true);
     try {
@@ -181,10 +215,20 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
   useEffect(() => {
     if (!auth?.accessToken || !profile) return;
     if (activeKey === "users") void loadUsers();
+    if (activeKey === "officialAccounts") void loadSystemAccounts();
     if (activeKey === "audit") void loadAuditLogs();
     if (activeKey === "invitations") void loadInvitations();
     if (activeKey === "approvals") void loadApprovals();
-  }, [activeKey, auth?.accessToken, loadApprovals, loadAuditLogs, loadInvitations, loadUsers, profile]);
+  }, [
+    activeKey,
+    auth?.accessToken,
+    loadApprovals,
+    loadAuditLogs,
+    loadInvitations,
+    loadSystemAccounts,
+    loadUsers,
+    profile,
+  ]);
 
   if (!auth?.accessToken) {
     return <LoginView onAuth={saveAuth} />;
@@ -209,7 +253,94 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
     await loadUsers();
   }
 
+  async function loadEveryUser() {
+    const first = await api<PageResult<UserRow>>("/admin/api/users?page=1&pageSize=100");
+    const items = [...first.items];
+    for (let page = 2; items.length < first.total; page += 1) {
+      const next = await api<PageResult<UserRow>>(`/admin/api/users?page=${page}&pageSize=100`);
+      if (!next.items.length) break;
+      items.push(...next.items);
+    }
+    return items;
+  }
+
+  async function loadEverySystemAccount() {
+    const first = await api<PageResult<SystemAccount>>("/admin/api/official-accounts?page=1&pageSize=100");
+    const items = [...first.items];
+    for (let page = 2; items.length < first.total; page += 1) {
+      const next = await api<PageResult<SystemAccount>>(`/admin/api/official-accounts?page=${page}&pageSize=100`);
+      if (!next.items.length) break;
+      items.push(...next.items);
+    }
+    return items;
+  }
+
+  async function openSystemAccountBindings(account: SystemAccount) {
+    setBindingSystemAccount(account);
+    setBindingsLoading(true);
+    try {
+      const [allUsers, bindings] = await Promise.all([
+        loadEveryUser(),
+        api<{ userIds: string[] }>(`/admin/api/official-accounts/${account.id}/bindings`),
+      ]);
+      setBindingUsers(allUsers);
+      setBoundUserIds(bindings.userIds);
+    } catch (error) {
+      message.error((error as Error).message);
+      setBindingSystemAccount(null);
+    } finally {
+      setBindingsLoading(false);
+    }
+  }
+
+  async function openBatchBinding(selectedUsers: UserRow[]) {
+    if (!selectedUsers.length) return;
+    setBatchBindingUsers(selectedUsers);
+    setBatchBindingsLoading(true);
+    try {
+      setBatchBindingAccounts(await loadEverySystemAccount());
+    } catch (error) {
+      message.error((error as Error).message);
+      setBatchBindingUsers([]);
+    } finally {
+      setBatchBindingsLoading(false);
+    }
+  }
+
   const renderPage = () => {
+    if (activeKey === "officialAccounts") {
+      return (
+        <OfficialAccountsPage
+          accounts={systemAccounts}
+          loading={systemAccountsLoading}
+          search={systemAccountSearch}
+          onSearchChange={setSystemAccountSearch}
+          onLoadAccounts={loadSystemAccounts}
+          onCreate={() => {
+            setEditingSystemAccount(null);
+            setSystemAccountModalOpen(true);
+          }}
+          onEdit={(account) => {
+            setEditingSystemAccount(account);
+            setSystemAccountModalOpen(true);
+          }}
+          onBind={(account) => void openSystemAccountBindings(account)}
+          onDelete={(account) => {
+            modal.confirm({
+              title: t("officialAccounts.deleteTitle"),
+              content: account.email,
+              okButtonProps: { danger: true },
+              onOk: async () => {
+                await api(`/admin/api/official-accounts/${account.id}`, { method: "DELETE" });
+                message.success(t("common.deleted"));
+                await loadSystemAccounts();
+              },
+            });
+          }}
+        />
+      );
+    }
+
     if (activeKey === "audit") {
       return (
         <AuditLogsPage
@@ -261,6 +392,7 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
         pendingApprovalCount={pendingApprovalCount}
         onFiltersChange={setUserFilters}
         onLoadUsers={loadUsers}
+        onBindPoolAccounts={(selectedUsers) => void openBatchBinding(selectedUsers)}
         onCreateUser={() => {
           setEditingUser(null);
           setUserModalOpen(true);
@@ -343,6 +475,25 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
             },
           });
         }}
+        onRemoveBinding={(account) => {
+          if (!accountUser || !account.systemAccountId) return;
+          modal.confirm({
+            title: t("accounts.removeBindingTitle"),
+            content: account.email,
+            okButtonProps: { danger: true },
+            onOk: async () => {
+              await api("/admin/api/official-accounts/unbind", {
+                method: "POST",
+                body: JSON.stringify({
+                  systemAccountIds: [account.systemAccountId],
+                  userIds: [accountUser.id],
+                }),
+              });
+              message.success(t("officialAccounts.bindingsUpdated"));
+              await loadAccounts(accountUser);
+            },
+          });
+        }}
       />
       <AccountEditModal
         api={api}
@@ -350,6 +501,40 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
         account={editingAccount}
         onClose={() => setEditingAccount(null)}
         onSaved={loadAccounts}
+      />
+      <SystemAccountModal
+        open={systemAccountModalOpen}
+        account={editingSystemAccount}
+        api={api}
+        onClose={() => {
+          setSystemAccountModalOpen(false);
+          setEditingSystemAccount(null);
+        }}
+        onSaved={loadSystemAccounts}
+      />
+      <SystemAccountBindingModal
+        account={bindingSystemAccount}
+        api={api}
+        users={bindingUsers}
+        boundUserIds={boundUserIds}
+        loading={bindingsLoading}
+        onClose={() => {
+          setBindingSystemAccount(null);
+          setBindingUsers([]);
+          setBoundUserIds([]);
+        }}
+        onSaved={loadSystemAccounts}
+      />
+      <BatchBindSystemAccountsModal
+        api={api}
+        users={batchBindingUsers}
+        accounts={batchBindingAccounts}
+        loading={batchBindingsLoading}
+        onClose={() => {
+          setBatchBindingUsers([]);
+          setBatchBindingAccounts([]);
+        }}
+        onSaved={loadSystemAccounts}
       />
       <ProfileModal open={profileOpen} profile={profile} onClose={() => setProfileOpen(false)} />
       <ProfilePasswordModal

@@ -3,6 +3,7 @@ import { Avatar, Button, Dropdown, Layout, Menu, Segmented, Space, Tooltip, Typo
 import type { MenuProps } from "antd";
 import {
   FileClock,
+  BadgeCheck,
   GitPullRequest,
   KeyRound,
   Languages,
@@ -31,6 +32,7 @@ interface AdminShellProps {
 
 const menuLabelKeys: Record<MenuKey, TranslationKey> = {
   users: "nav.users",
+  officialAccounts: "nav.officialAccounts",
   audit: "nav.audit",
   invitations: "nav.invitations",
   approvals: "nav.approvals",
@@ -50,6 +52,7 @@ export function AdminShell({
   const { language, setLanguage, t } = useI18n();
   const menuItems = useMemo<MenuProps["items"]>(() => [
     { key: "users", icon: <Users size={17} />, label: t("nav.users") },
+    { key: "officialAccounts", icon: <BadgeCheck size={17} />, label: t("nav.officialAccounts") },
     { key: "audit", icon: <FileClock size={17} />, label: t("nav.audit") },
     { key: "invitations", icon: <MailPlus size={17} />, label: t("nav.invitations") },
     { key: "approvals", icon: <GitPullRequest size={17} />, label: t("nav.approvals") },

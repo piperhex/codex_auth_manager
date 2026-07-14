@@ -14,12 +14,16 @@ import type { SyncAccountDto } from '@/modules/sync/dto/sync-accounts.dto';
 import type { SyncProviderDto } from '@/modules/sync/dto/sync-providers.dto';
 import type { CreateAdminUserDto, ListAdminUsersQueryDto, UpdateAdminUserDto } from './dto/admin-user.dto';
 import type {
+  ChangeSystemAccountBindingsDto,
   CreateApprovalRequestDto,
+  CreateSystemAccountDto,
   CreateInvitationDto,
   ListAuditLogsQueryDto,
+  ListSystemAccountsQueryDto,
   PageQueryDto,
   ReviewApprovalRequestDto,
   UpdateAdminSyncedAccountDto,
+  UpdateSystemAccountDto,
 } from './dto/admin-management.dto';
 import { AdminApprovalRequestEntity } from './entities/admin-approval-request.entity';
 import { AdminAuditLogEntity } from './entities/admin-audit-log.entity';
@@ -82,7 +86,7 @@ export class AdminService {
 
   async listUserAccounts(ownerId: string) {
     await this.ensureUser(ownerId);
-    return this.sync.list(ownerId);
+    return this.sync.listForAdmin(ownerId);
   }
 
   async listUserProviders(ownerId: string): Promise<{ providers: AdminSyncedProviderDto[] }> {
@@ -112,6 +116,60 @@ export class AdminService {
     await this.ensureUser(ownerId);
     const result = await this.sync.delete(ownerId, accountId);
     await this.record(actor, 'sync-account.delete', 'sync-account', accountId, null, { ownerId });
+    return result;
+  }
+
+  listSystemAccounts(query: ListSystemAccountsQueryDto) {
+    const { page, pageSize } = this.page(query);
+    return this.sync.listSystemAccounts(page, pageSize, query.search);
+  }
+
+  async createSystemAccount(actor: AuthUser, dto: CreateSystemAccountDto) {
+    const account = await this.sync.createSystemAccount(dto);
+    await this.record(actor, 'official-account.create', 'official-account', account.id, account.email, {
+      syncAccountId: account.syncAccountId,
+    });
+    return account;
+  }
+
+  async updateSystemAccount(actor: AuthUser, id: string, dto: UpdateSystemAccountDto) {
+    const account = await this.sync.updateSystemAccount(id, dto);
+    await this.record(actor, 'official-account.update', 'official-account', id, account.email, {
+      fields: Object.keys(dto),
+      authChanged: dto.auth !== undefined,
+    });
+    return account;
+  }
+
+  async deleteSystemAccount(actor: AuthUser, id: string) {
+    const result = await this.sync.deleteSystemAccount(id);
+    await this.record(actor, 'official-account.delete', 'official-account', id);
+    return result;
+  }
+
+  listSystemAccountBindings(id: string) {
+    return this.sync.listSystemAccountBindingIds(id);
+  }
+
+  async bindSystemAccounts(actor: AuthUser, dto: ChangeSystemAccountBindingsDto) {
+    await this.ensureUsers(dto.userIds);
+    const result = await this.sync.bindSystemAccounts(dto.systemAccountIds, dto.userIds);
+    await this.record(actor, 'official-account.bind', 'official-account', null, null, {
+      systemAccountIds: dto.systemAccountIds,
+      userIds: dto.userIds,
+      createdBindings: result.count,
+    });
+    return result;
+  }
+
+  async unbindSystemAccounts(actor: AuthUser, dto: ChangeSystemAccountBindingsDto) {
+    await this.ensureUsers(dto.userIds);
+    const result = await this.sync.unbindSystemAccounts(dto.systemAccountIds, dto.userIds);
+    await this.record(actor, 'official-account.unbind', 'official-account', null, null, {
+      systemAccountIds: dto.systemAccountIds,
+      userIds: dto.userIds,
+      removedBindings: result.count,
+    });
     return result;
   }
 
@@ -263,6 +321,10 @@ export class AdminService {
     const user = await this.users.findById(id);
     if (!user) throw new NotFoundException('User not found');
     return user;
+  }
+
+  private async ensureUsers(ids: string[]) {
+    await Promise.all([...new Set(ids)].map((id) => this.ensureUser(id)));
   }
 
   private async record(

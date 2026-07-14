@@ -81,6 +81,13 @@ describe('HTTP controllers', () => {
       listUserProviders: vi.fn().mockResolvedValue('providers'),
       updateUserAccount: vi.fn().mockResolvedValue('account-updated'),
       deleteUserAccount: vi.fn().mockResolvedValue('account-deleted'),
+      listSystemAccounts: vi.fn().mockResolvedValue('system-accounts'),
+      createSystemAccount: vi.fn().mockResolvedValue('system-account-created'),
+      updateSystemAccount: vi.fn().mockResolvedValue('system-account-updated'),
+      deleteSystemAccount: vi.fn().mockResolvedValue('system-account-deleted'),
+      listSystemAccountBindings: vi.fn().mockResolvedValue('system-account-bindings'),
+      bindSystemAccounts: vi.fn().mockResolvedValue('system-account-bound'),
+      unbindSystemAccounts: vi.fn().mockResolvedValue('system-account-unbound'),
       listAuditLogs: vi.fn().mockResolvedValue('logs'),
       listInvitations: vi.fn().mockResolvedValue('invitations'),
       createInvitation: vi.fn().mockResolvedValue('invitation'),
@@ -111,6 +118,21 @@ describe('HTTP controllers', () => {
       .resolves.toBe('account-updated');
     await expect(controller.deleteUserAccount(actor, 'user-1', 'account-1'))
       .resolves.toBe('account-deleted');
+    await expect(controller.listSystemAccounts({ page: 1 })).resolves.toBe('system-accounts');
+    await expect(controller.createSystemAccount(actor, { auth: { tokens: {} } }))
+      .resolves.toBe('system-account-created');
+    await expect(controller.updateSystemAccount(actor, 'system-account-1', { note: 'updated' }))
+      .resolves.toBe('system-account-updated');
+    await expect(controller.deleteSystemAccount(actor, 'system-account-1'))
+      .resolves.toBe('system-account-deleted');
+    await expect(controller.listSystemAccountBindings('system-account-1'))
+      .resolves.toBe('system-account-bindings');
+    const bindingDto = {
+      systemAccountIds: ['10000000-0000-4000-8000-000000000001'],
+      userIds: ['20000000-0000-4000-8000-000000000001'],
+    };
+    await expect(controller.bindSystemAccounts(actor, bindingDto)).resolves.toBe('system-account-bound');
+    await expect(controller.unbindSystemAccounts(actor, bindingDto)).resolves.toBe('system-account-unbound');
     await expect(controller.listAuditLogs({ page: 1 })).resolves.toBe('logs');
     await expect(controller.listInvitations({ page: 1 })).resolves.toBe('invitations');
     await expect(controller.createInvitation(actor, { email: 'invite@example.com' }))
@@ -128,5 +150,7 @@ describe('HTTP controllers', () => {
     });
     expect(admin.updateUser).toHaveBeenCalledWith(actor, 'user-1', { disabled: true });
     expect(admin.listUserProviders).toHaveBeenCalledWith('user-1');
+    expect(admin.bindSystemAccounts).toHaveBeenCalledWith(actor, bindingDto);
+    expect(admin.unbindSystemAccounts).toHaveBeenCalledWith(actor, bindingDto);
   });
 });

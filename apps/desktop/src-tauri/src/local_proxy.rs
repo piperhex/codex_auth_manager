@@ -775,7 +775,9 @@ fn auto_switch_official_account<R: Runtime>(
         return Ok(None);
     }
 
-    let Some(target) = account_with_lowest_primary_usage(&refreshed_accounts, &current_id) else {
+    let Some(target) =
+        account_with_lowest_remaining_primary_quota(&refreshed_accounts, &current_id)
+    else {
         return Ok(None);
     };
     let target_id = target.id.clone();
@@ -783,21 +785,23 @@ fn auto_switch_official_account<R: Runtime>(
     Ok(Some(target_id))
 }
 
-fn account_with_lowest_primary_usage<'a>(
+fn account_with_lowest_remaining_primary_quota<'a>(
     accounts: &'a [AccountSummary],
     current_id: &str,
 ) -> Option<&'a AccountSummary> {
     accounts
         .iter()
         .filter(|account| account.id != current_id)
-        .filter_map(|account| primary_usage_score(&account.usage).map(|score| (account, score)))
+        .filter_map(|account| {
+            primary_remaining_quota_score(&account.usage).map(|score| (account, score))
+        })
         .min_by(|(_, left), (_, right)| {
             left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
         })
         .map(|(account, _)| account)
 }
 
-fn primary_usage_score(usage: &UsageSummary) -> Option<f64> {
+fn primary_remaining_quota_score(usage: &UsageSummary) -> Option<f64> {
     if usage.error.is_some() {
         return None;
     }
@@ -805,7 +809,7 @@ fn primary_usage_score(usage: &UsageSummary) -> Option<f64> {
     if primary.remaining_percent <= 0.0 {
         return None;
     }
-    Some(primary.used_percent)
+    Some(primary.remaining_percent)
 }
 
 fn active_target<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<ActiveTarget, String> {
@@ -3524,17 +3528,17 @@ mod tests {
     }
 
     #[test]
-    fn quota_switch_prefers_the_account_with_lowest_primary_usage() {
+    fn quota_switch_prefers_the_account_with_lowest_remaining_primary_quota() {
         let accounts = vec![
             account_with_usage("current", 0.0, 80.0),
-            account_with_usage("lowest-usage", 90.0, 1.0),
+            account_with_usage("lowest-remaining", 5.0, 1.0),
             account_with_usage("more-remaining", 72.0, 99.0),
             account_with_usage("exhausted", 0.0, 99.0),
         ];
 
-        let selected = account_with_lowest_primary_usage(&accounts, "current").unwrap();
+        let selected = account_with_lowest_remaining_primary_quota(&accounts, "current").unwrap();
 
-        assert_eq!(selected.id, "lowest-usage");
+        assert_eq!(selected.id, "lowest-remaining");
     }
 
     #[test]

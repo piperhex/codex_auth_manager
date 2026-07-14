@@ -1,12 +1,12 @@
 # Codex Switch Backend
 
-NestJS backend for Codex Switch cloud login and account synchronization.
+NestJS backend for Codex Switch cloud login, account and Provider synchronization, the read-only mobile summary, and administration.
 
 ## Stack
 
 - NestJS + TypeORM
-- PostgreSQL for users, refresh tokens, and synced accounts
-- Redis for cached profiles and account lists
+- PostgreSQL for users, refresh tokens, synchronized accounts and Providers, admin data, and the official account pool
+- Redis for cached profiles, account lists, and Provider lists
 - JWT dual token authentication
 - Access tokens compatible with your existing Kong JWT plugin
 - React + Ant Design admin console at `/admin`
@@ -23,8 +23,9 @@ The first registered account becomes an admin. For local development without Kon
 The default Docker Compose file does not publish PostgreSQL, Redis, or the backend on host ports. In production, Kong should reach the backend through the external `kong-net` network at `http://codex-switch-backend:8080`. For local host debugging, add a temporary compose override with explicit `ports`.
 
 If production uses `POSTGRES_DB_SYNCHRONIZE=false`, apply `sql/20260704-admin-management.sql`,
-`sql/20260705-sync-last-modified.sql`, and `sql/20260707-sync-providers.sql` before using
-the expanded admin console and provider sync.
+`sql/20260705-sync-last-modified.sql`, `sql/20260707-sync-providers.sql`, and
+`sql/20260714-system-account-pool.sql` before using the expanded admin console, provider sync,
+and official account pool.
 
 ## Docker Troubleshooting
 
@@ -100,6 +101,14 @@ If your Kong is declarative or DB-less, adapt `kong/existing-kong.example.yml` i
 
 In production, configure the desktop app Settings cloud Base URL to the public Kong route, for example `https://api.example.com`.
 
+## Credential and Official Account Handling
+
+Desktop synchronization uploads complete account `auth` payloads and Provider API keys. The backend stores them in PostgreSQL so server access, database backups, admin access, and operational tooling are part of the credential trust boundary. Use HTTPS at the public gateway, restrict PostgreSQL and Redis to private networks, and never copy production payloads into logs or test fixtures.
+
+The mobile client uses `GET /sync/accounts/summary`, which removes `auth` from every account. It reads the latest data synchronized by a desktop client and does not contact Codex APIs itself.
+
+Admins can add credentials to the official account pool and bind one or more pool entries to users. Bound entries are merged into the user's effective `/sync/accounts` list. A bound official entry wins over a personal entry with the same stable sync ID; user-side updates and deletes do not modify the official copy. Edit, unbind, or delete those entries through the official-account admin APIs. All pool mutations and binding changes are written to the admin audit log.
+
 ## API
 
 - `POST /auth/register`
@@ -108,6 +117,7 @@ In production, configure the desktop app Settings cloud Base URL to the public K
 - `POST /auth/logout`
 - `GET /auth/me`
 - `GET /sync/accounts`
+- `GET /sync/accounts/summary`
 - `PUT /sync/accounts`
 - `PUT /sync/accounts/:id`
 - `DELETE /sync/accounts/:id`
@@ -122,8 +132,16 @@ In production, configure the desktop app Settings cloud Base URL to the public K
 - `DELETE /admin/api/users/:id`
 - `PATCH /admin/api/profile/password`
 - `GET /admin/api/users/:id/accounts`
+- `GET /admin/api/users/:id/providers`
 - `PATCH /admin/api/users/:id/accounts/:accountId`
 - `DELETE /admin/api/users/:id/accounts/:accountId`
+- `GET /admin/api/official-accounts`
+- `POST /admin/api/official-accounts`
+- `PATCH /admin/api/official-accounts/:id`
+- `DELETE /admin/api/official-accounts/:id`
+- `GET /admin/api/official-accounts/:id/bindings`
+- `POST /admin/api/official-accounts/bind`
+- `POST /admin/api/official-accounts/unbind`
 - `GET /admin/api/audit-logs`
 - `GET /admin/api/invitations`
 - `POST /admin/api/invitations`
