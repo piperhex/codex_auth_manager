@@ -49,15 +49,15 @@ export function UsageMeter({ window: usageWindow, resetWindow, resetCreditsCount
       <div className="table-usage-head">
         <strong className={tone}>{remaining}%</strong>
         <span>{t("usage.remaining")}</span>
-      </div>
-      <Progress percent={remaining} showInfo={false} size="small" strokeColor={usageStroke(remaining)} />
-      <span className="usage-reset">
-        <span>{tableResetLabel(usageWindow.resetsAt, language, resetWindow, now)}</span>
         {resetCreditsCount !== undefined && (
           <span className="usage-reset-credits">
             {t("usage.resetCreditsRemaining", { count: resetCreditsCount ?? "-" })}
           </span>
         )}
+      </div>
+      <Progress percent={remaining} showInfo={false} size="small" strokeColor={usageStroke(remaining)} />
+      <span className="usage-reset">
+        <span>{tableResetLabel(usageWindow.resetsAt, language, resetWindow, now)}</span>
       </span>
     </div>
   );
