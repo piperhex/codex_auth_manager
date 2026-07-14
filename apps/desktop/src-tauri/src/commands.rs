@@ -526,7 +526,7 @@ pub(crate) fn update_account_note<R: Runtime>(
     Ok(())
 }
 
-fn refresh_usage_blocking<R: Runtime>(
+pub(crate) fn refresh_usage_blocking<R: Runtime>(
     app: tauri::AppHandle<R>,
     id: String,
 ) -> Result<UsageSummary, String> {

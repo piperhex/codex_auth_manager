@@ -299,6 +299,7 @@ h1 { margin: 5px 0 0; font: 700 26px/1.1 Manrope, sans-serif; letter-spacing: -.
 .provider-official-main > div.provider-proxy-copy { display: flex; align-items: baseline; gap: 8px; }
 .provider-proxy-copy strong, .provider-proxy-copy span, .provider-proxy-copy small { flex: 0 0 auto; white-space: nowrap; }
 .provider-proxy-copy small { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.proxy-auto-switch { display: inline-flex; align-items: center; gap: 5px; color: #5d6a62; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .proxy-start-confirm-description { display: block; max-width: 320px; line-height: 1.6; white-space: normal; word-break: break-word; }
 .provider-avatar { width: 30px; height: 30px; flex: 0 0 auto; border-radius: 8px; display: grid; place-items: center; color: var(--green-dark); background: var(--green-soft); }
 .provider-avatar.official { color: #234f34; background: #dcebdd; }

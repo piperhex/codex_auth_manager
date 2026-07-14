@@ -3,7 +3,7 @@ use std::{
     fs::{self, OpenOptions},
     io::{self, BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock, TryLockError},
     thread::{self, JoinHandle},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -18,7 +18,10 @@ use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 use crate::{
     auth::{account_fields, token_string, validate_auth},
     codex_api::{refresh_tokens, token_expiring, ORIGINATOR},
-    models::{LocalProxyStatus, ProviderApiFormat, ProviderProfile, TokenUsageEntry},
+    models::{
+        AccountSummary, LocalProxyStatus, ProviderApiFormat, ProviderProfile, TokenUsageEntry,
+        UsageSummary,
+    },
     providers::{self, LOCAL_PROXY_BASE_URL, LOCAL_PROXY_HOST, LOCAL_PROXY_PORT},
     storage::{
         managed_auth_path, read_json, read_state, resolve_paths, write_json_atomic,
@@ -302,6 +305,7 @@ impl CodexToolContext {
 
 static RUNTIME: OnceLock<Mutex<Option<ProxyRuntime>>> = OnceLock::new();
 static TOKEN_USAGE_DB_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static AUTO_SWITCH_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn runtime() -> &'static Mutex<Option<ProxyRuntime>> {
     RUNTIME.get_or_init(|| Mutex::new(None))
@@ -311,6 +315,10 @@ fn token_usage_db_lock() -> &'static Mutex<()> {
     TOKEN_USAGE_DB_LOCK.get_or_init(|| Mutex::new(()))
 }
 
+fn auto_switch_lock() -> &'static Mutex<()> {
+    AUTO_SWITCH_LOCK.get_or_init(|| Mutex::new(()))
+}
+
 pub(crate) fn is_running() -> bool {
     runtime()
         .lock()
@@ -318,18 +326,24 @@ pub(crate) fn is_running() -> bool {
         .unwrap_or(false)
 }
 
-fn status() -> LocalProxyStatus {
+fn status<R: Runtime>(app: &tauri::AppHandle<R>) -> LocalProxyStatus {
+    let auto_switch_on_quota_exhaustion = resolve_paths(app)
+        .map(|paths| read_state(&paths).auto_switch_on_quota_exhaustion)
+        .unwrap_or(false);
     LocalProxyStatus {
         running: is_running(),
         address: LOCAL_PROXY_HOST.to_string(),
         port: LOCAL_PROXY_PORT,
         base_url: LOCAL_PROXY_BASE_URL.to_string(),
+        auto_switch_on_quota_exhaustion,
     }
 }
 
 #[tauri::command]
-pub(crate) fn get_local_proxy_status() -> Result<LocalProxyStatus, String> {
-    Ok(status())
+pub(crate) fn get_local_proxy_status<R: Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<LocalProxyStatus, String> {
+    Ok(status(&app))
 }
 
 #[tauri::command]
@@ -444,7 +458,7 @@ pub(crate) fn start_local_proxy<R: Runtime>(
     app.emit("providers-changed", ())
         .map_err(|error| error.to_string())?;
     crate::system_tray::refresh_menu(&app);
-    Ok(status())
+    Ok(status(&app))
 }
 
 #[tauri::command]
@@ -461,7 +475,26 @@ pub(crate) fn stop_local_proxy<R: Runtime>(
     app.emit("providers-changed", ())
         .map_err(|error| error.to_string())?;
     crate::system_tray::refresh_menu(&app);
-    Ok(status())
+    Ok(status(&app))
+}
+
+#[tauri::command]
+pub(crate) fn set_auto_switch_on_quota_exhaustion<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    enabled: bool,
+) -> Result<LocalProxyStatus, String> {
+    if enabled && !is_running() {
+        return Err(
+            "Start the local proxy before enabling automatic account switching".to_string(),
+        );
+    }
+    let paths = resolve_paths(&app)?;
+    let mut state = read_state(&paths);
+    state.auto_switch_on_quota_exhaustion = enabled;
+    write_state(&paths, &state)?;
+    app.emit("providers-changed", ())
+        .map_err(|error| error.to_string())?;
+    Ok(status(&app))
 }
 
 fn set_local_proxy_enabled(paths: &Paths, enabled: bool) -> Result<(), String> {
@@ -624,7 +657,10 @@ fn handle_proxy_request<R: Runtime>(
     let usage_context = token_usage_context(method, path, &body, &target, started_at);
     let result = match target {
         ActiveTarget::Official { model } => {
-            forward_official(app, method, url, headers, body, &model)
+            let response = forward_official(app, method, url, headers, body.clone(), &model);
+            retry_official_request_after_quota_switch(app, response, || {
+                forward_official(app, method, url, headers, body, &model)
+            })
         }
         ActiveTarget::Provider(provider) => {
             if is_responses_endpoint(path) && provider.api_format == ProviderApiFormat::OpenaiChat {
@@ -637,6 +673,139 @@ fn handle_proxy_request<R: Runtime>(
     let result = attach_token_usage_capture(app, usage_context, result);
     append_proxy_diagnostic_result(app, diagnostic, &result, started_at.elapsed());
     result
+}
+
+fn retry_official_request_after_quota_switch<R: Runtime, F>(
+    app: &tauri::AppHandle<R>,
+    response: Result<UpstreamPayload, String>,
+    retry: F,
+) -> Result<UpstreamPayload, String>
+where
+    F: FnOnce() -> Result<UpstreamPayload, String>,
+{
+    let response = response?;
+    if !is_official_quota_exhaustion(&response) {
+        return Ok(response);
+    }
+
+    match auto_switch_official_account(app) {
+        Ok(Some(_)) => retry(),
+        Ok(None) => Ok(response),
+        Err(error) => {
+            eprintln!(
+                "failed to automatically switch official account after quota exhaustion: {error}"
+            );
+            Ok(response)
+        }
+    }
+}
+
+fn is_official_quota_exhaustion(payload: &UpstreamPayload) -> bool {
+    if payload.status == 429 {
+        return true;
+    }
+    if payload.status != 403 {
+        return false;
+    }
+    let UpstreamBody::Buffered(body) = &payload.body else {
+        return false;
+    };
+    let message = String::from_utf8_lossy(body).to_ascii_lowercase();
+    [
+        "quota",
+        "usage_limit",
+        "rate_limit",
+        "rate limit",
+        "limit reached",
+        "额度",
+        "配额",
+    ]
+    .iter()
+    .any(|signal| message.contains(signal))
+}
+
+fn auto_switch_official_account<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<Option<String>, String> {
+    let paths = resolve_paths(app)?;
+    let state = read_state(&paths);
+    if !state.auto_switch_on_quota_exhaustion || state.active_provider_id.is_some() {
+        return Ok(None);
+    }
+    let Some(current_id) = state.active_account_id else {
+        return Ok(None);
+    };
+
+    let _switch_guard = match auto_switch_lock().try_lock() {
+        Ok(guard) => guard,
+        Err(TryLockError::WouldBlock) => return Ok(None),
+        Err(TryLockError::Poisoned(_)) => {
+            return Err("Automatic account switching lock is poisoned".to_string());
+        }
+    };
+
+    // The quota result that triggered this flow can be stale, so refresh every saved
+    // official account before choosing a replacement instead of relying on cached usage.
+    let accounts = crate::commands::list_accounts(app.clone())?;
+    let refreshed_accounts = accounts
+        .into_iter()
+        .filter_map(|mut account| {
+            match crate::commands::refresh_usage_blocking(app.clone(), account.id.clone()) {
+                Ok(usage) => {
+                    account.usage = usage;
+                    Some(account)
+                }
+                Err(error) => {
+                    eprintln!(
+                        "failed to refresh usage for {} during automatic switch: {error}",
+                        account.id
+                    );
+                    None
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // Do not overwrite a manual switch or a Provider switch made while usage was refreshing.
+    let state = read_state(&paths);
+    if !state.auto_switch_on_quota_exhaustion
+        || state.active_provider_id.is_some()
+        || state.active_account_id.as_deref() != Some(&current_id)
+    {
+        return Ok(None);
+    }
+
+    let Some(target) = account_with_lowest_primary_usage(&refreshed_accounts, &current_id) else {
+        return Ok(None);
+    };
+    let target_id = target.id.clone();
+    crate::commands::switch_account(app.clone(), target_id.clone())?;
+    Ok(Some(target_id))
+}
+
+fn account_with_lowest_primary_usage<'a>(
+    accounts: &'a [AccountSummary],
+    current_id: &str,
+) -> Option<&'a AccountSummary> {
+    accounts
+        .iter()
+        .filter(|account| account.id != current_id)
+        .filter_map(|account| primary_usage_score(&account.usage).map(|score| (account, score)))
+        .min_by(|(_, left), (_, right)| {
+            left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(account, _)| account)
+}
+
+fn primary_usage_score(usage: &UsageSummary) -> Option<f64> {
+    if usage.error.is_some() {
+        return None;
+    }
+    let primary = usage.primary.as_ref()?;
+    if primary.remaining_percent <= 0.0 {
+        return None;
+    }
+    Some(primary.used_percent)
 }
 
 fn active_target<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<ActiveTarget, String> {
@@ -3322,8 +3491,70 @@ fn unix_millis() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::UsageWindow;
     use std::io::{Cursor, Read};
     use std::sync::mpsc;
+
+    fn account_with_usage(id: &str, primary: f64, secondary: f64) -> AccountSummary {
+        AccountSummary {
+            id: id.to_string(),
+            email: format!("{id}@example.com"),
+            note: String::new(),
+            expires_at: String::new(),
+            plan: String::new(),
+            account_id: None,
+            active: id == "current",
+            usage: UsageSummary {
+                primary: Some(UsageWindow {
+                    used_percent: 100.0 - primary,
+                    remaining_percent: primary,
+                    resets_at: None,
+                    window_minutes: Some(300),
+                }),
+                secondary: Some(UsageWindow {
+                    used_percent: 100.0 - secondary,
+                    remaining_percent: secondary,
+                    resets_at: None,
+                    window_minutes: Some(10_080),
+                }),
+                fetched_at: None,
+                error: None,
+            },
+        }
+    }
+
+    #[test]
+    fn quota_switch_prefers_the_account_with_lowest_primary_usage() {
+        let accounts = vec![
+            account_with_usage("current", 0.0, 80.0),
+            account_with_usage("lowest-usage", 90.0, 1.0),
+            account_with_usage("more-remaining", 72.0, 99.0),
+            account_with_usage("exhausted", 0.0, 99.0),
+        ];
+
+        let selected = account_with_lowest_primary_usage(&accounts, "current").unwrap();
+
+        assert_eq!(selected.id, "lowest-usage");
+    }
+
+    #[test]
+    fn quota_exhaustion_detection_ignores_unrelated_forbidden_responses() {
+        let quota_payload = UpstreamPayload {
+            status: 403,
+            content_type: Some("application/json".to_string()),
+            response_headers: Vec::new(),
+            body: UpstreamBody::Buffered(br#"{"error":{"code":"insufficient_quota"}}"#.to_vec()),
+        };
+        let forbidden_payload = UpstreamPayload {
+            status: 403,
+            content_type: Some("application/json".to_string()),
+            response_headers: Vec::new(),
+            body: UpstreamBody::Buffered(br#"{"error":{"code":"forbidden"}}"#.to_vec()),
+        };
+
+        assert!(is_official_quota_exhaustion(&quota_payload));
+        assert!(!is_official_quota_exhaustion(&forbidden_payload));
+    }
 
     #[test]
     fn upstream_url_avoids_duplicate_v1() {

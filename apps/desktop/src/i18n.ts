@@ -155,6 +155,8 @@ const translations = {
     "providers.proxy.stop": "Stop proxy",
     "providers.proxy.cancel": "Cancel",
     "providers.proxy.startConfirmTitle": "Start local proxy?",
+    "providers.proxy.autoSwitch": "Auto switch",
+    "providers.proxy.autoSwitchTooltip": "Official account mode only. When quota is exhausted, refresh all saved account usage, switch to the account with the lowest primary usage, then retry this request once.",
     "providers.section.title": "Third-party providers",
     "providers.empty.title": "No third-party providers",
     "providers.action.add": "Add provider",
@@ -304,6 +306,8 @@ const translations = {
     "toast.providerDeleted": "Provider deleted",
     "toast.localProxyStarted": "Local proxy started. Provider switching now uses hot routing.",
     "toast.localProxyStopped": "Local proxy stopped and official Codex config restored.",
+    "toast.proxyAutoSwitchEnabled": "Automatic official-account switching is enabled",
+    "toast.proxyAutoSwitchDisabled": "Automatic official-account switching is disabled",
   },
   zh: {
     "nav.aria": "主导航",
@@ -449,6 +453,8 @@ const translations = {
     "providers.proxy.stop": "停止代理",
     "providers.proxy.cancel": "取消",
     "providers.proxy.startConfirmTitle": "启动本地代理？",
+    "providers.proxy.autoSwitch": "自动切号",
+    "providers.proxy.autoSwitchTooltip": "仅在官方账号模式生效。额度耗尽后会刷新所有已保存账号的用量，切换到主用量最低的账号，并自动重试当前请求一次。",
     "providers.section.title": "三方 Provider",
     "providers.empty.title": "还没有三方 Provider",
     "providers.action.add": "添加 Provider",
@@ -598,6 +604,8 @@ const translations = {
     "toast.providerDeleted": "Provider 已删除",
     "toast.localProxyStarted": "本地代理已启动，现在切换 Provider 会走热路由。",
     "toast.localProxyStopped": "本地代理已停止，并已恢复官方 Codex 配置。",
+    "toast.proxyAutoSwitchEnabled": "已开启官方账号自动切换",
+    "toast.proxyAutoSwitchDisabled": "已关闭官方账号自动切换",
   },
 } as const;
 

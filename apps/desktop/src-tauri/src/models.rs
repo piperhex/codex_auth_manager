@@ -50,6 +50,8 @@ pub(crate) struct ManagerStateFile {
     pub(crate) active_provider_id: Option<String>,
     #[serde(default)]
     pub(crate) local_proxy_enabled: bool,
+    #[serde(default)]
+    pub(crate) auto_switch_on_quota_exhaustion: bool,
 }
 
 #[derive(Serialize)]
@@ -107,6 +109,7 @@ pub(crate) struct LocalProxyStatus {
     pub(crate) address: String,
     pub(crate) port: u16,
     pub(crate) base_url: String,
+    pub(crate) auto_switch_on_quota_exhaustion: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -267,5 +270,6 @@ mod tests {
 
         assert_eq!(state.active_account_id.as_deref(), Some("account-1"));
         assert!(!state.local_proxy_enabled);
+        assert!(!state.auto_switch_on_quota_exhaustion);
     }
 }

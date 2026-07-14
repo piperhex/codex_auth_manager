@@ -21,6 +21,7 @@ export function AccountsPage({
   resetCreditBusyAccountId,
   onStartProxy,
   onStopProxy,
+  onAutoSwitchChange,
   privacyMode,
   language,
   t,
@@ -41,6 +42,7 @@ export function AccountsPage({
   resetCreditBusyAccountId: string | null;
   onStartProxy: () => void;
   onStopProxy: () => void;
+  onAutoSwitchChange: (enabled: boolean) => void;
   privacyMode: boolean;
   language: Language;
   t: Translate;
@@ -49,7 +51,8 @@ export function AccountsPage({
   const proxyCard = (
     <div className="home-proxy-wrap">
       <LocalProxyCard localProxy={localProxy} proxyBusy={proxyBusy}
-        onStartProxy={onStartProxy} onStopProxy={onStopProxy} t={t} />
+        onStartProxy={onStartProxy} onStopProxy={onStopProxy}
+        onAutoSwitchChange={onAutoSwitchChange} t={t} />
     </div>
   );
   if (loading) {

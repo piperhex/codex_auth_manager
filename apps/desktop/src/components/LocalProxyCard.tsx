@@ -1,4 +1,4 @@
-import { Button, Popconfirm, Tag } from "antd";
+import { Button, Popconfirm, Switch, Tag, Tooltip } from "antd";
 import { Power, PowerOff, RadioTower } from "lucide-react";
 import type { Translate } from "../i18n";
 import type { LocalProxyStatus } from "../types";
@@ -8,6 +8,7 @@ interface LocalProxyCardProps {
   proxyBusy: boolean;
   onStartProxy: () => void;
   onStopProxy: () => void;
+  onAutoSwitchChange: (enabled: boolean) => void;
   t: Translate;
 }
 
@@ -16,6 +17,7 @@ export function LocalProxyCard({
   proxyBusy,
   onStartProxy,
   onStopProxy,
+  onAutoSwitchChange,
   t,
 }: LocalProxyCardProps) {
   const proxyRunning = Boolean(localProxy?.running);
@@ -52,6 +54,15 @@ export function LocalProxyCard({
             disabled={proxyBusy} onConfirm={onStartProxy}>
             {actionButton}
           </Popconfirm>
+        )}
+        {proxyRunning && (
+          <Tooltip title={t("providers.proxy.autoSwitchTooltip")}>
+            <span className="proxy-auto-switch">
+              <Switch size="small" checked={localProxy?.autoSwitchOnQuotaExhaustion ?? false}
+                disabled={proxyBusy} onChange={onAutoSwitchChange} />
+              <span>{t("providers.proxy.autoSwitch")}</span>
+            </span>
+          </Tooltip>
         )}
       </div>
     </section>

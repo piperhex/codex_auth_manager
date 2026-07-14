@@ -101,6 +101,7 @@ pub fn run() {
             local_proxy::show_token_usage_window,
             local_proxy::start_local_proxy,
             local_proxy::stop_local_proxy,
+            local_proxy::set_auto_switch_on_quota_exhaustion,
             update::check_for_update,
             floating_bubble::get_app_settings,
             floating_bubble::set_floating_bubble,

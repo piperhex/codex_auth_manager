@@ -6,6 +6,7 @@ import {
   loadProviders,
   removeProvider,
   saveProviderProfile,
+  setLocalProxyAutoSwitch,
   setProviderModelControl,
   startLocalProxy,
   stopLocalProxy,
@@ -186,6 +187,19 @@ export function useProviderManager(
     }
   }, [load, notify, t]);
 
+  const setProxyAutoSwitch = useCallback(async (enabled: boolean) => {
+    setProxyBusy(true);
+    try {
+      setLocalProxy(await setLocalProxyAutoSwitch(enabled));
+      notify(t(enabled ? "toast.proxyAutoSwitchEnabled" : "toast.proxyAutoSwitchDisabled"));
+      await load();
+    } catch (error) {
+      notify(providerErrorMessage(error, t));
+    } finally {
+      setProxyBusy(false);
+    }
+  }, [load, notify, t]);
+
   return {
     providers,
     localProxy,
@@ -202,6 +216,7 @@ export function useProviderManager(
     deleteProvider,
     startProxy,
     stopProxy,
+    setProxyAutoSwitch,
     reload: load,
   };
 }

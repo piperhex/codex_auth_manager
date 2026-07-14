@@ -435,7 +435,8 @@ function DashboardApp() {
               onSwitch={switchProvider} onSwitchModel={switchProviderModel}
               onModelControlChange={setProviderModelControl}
               onDisable={useOfficialProvider} onDelete={deleteProvider}
-              onStartProxy={providerManager.startProxy} onStopProxy={providerManager.stopProxy} t={t} />
+              onStartProxy={providerManager.startProxy} onStopProxy={providerManager.stopProxy}
+              onAutoSwitchChange={providerManager.setProxyAutoSwitch} t={t} />
           </section>
           <section className="page-panel" hidden={page !== "accounts"}>
             <MemoAccountsPage accounts={manager.accounts} loading={manager.loading}
@@ -450,6 +451,7 @@ function DashboardApp() {
               onUseResetCredit={(id) => void useResetCredit(id)}
               resetCreditBusyAccountId={resetCreditBusyAccountId}
               onStartProxy={providerManager.startProxy} onStopProxy={providerManager.stopProxy}
+              onAutoSwitchChange={providerManager.setProxyAutoSwitch}
               privacyMode={privacyMode.enabled}
               language={language} t={t} />
           </section>

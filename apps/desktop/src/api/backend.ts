@@ -31,6 +31,7 @@ const CLOUD_BASE_URL_PREVIEW_KEY = "codex-switch:cloud-base-url";
 const CLOUD_USER_PREVIEW_KEY = "codex-switch:cloud-user-email";
 const PROVIDERS_PREVIEW_KEY = "codex-switch:providers";
 const LOCAL_PROXY_PREVIEW_KEY = "codex-switch:local-proxy-running";
+const LOCAL_PROXY_AUTO_SWITCH_PREVIEW_KEY = "codex-switch:local-proxy-auto-switch";
 const THEME_COLOR_EVENT = "codex-switch:theme-color-changed";
 const BUBBLE_RESET_DISPLAY_EVENT = "bubble-reset-display-changed";
 const LANGUAGE_EVENT = "codex-switch:language-changed";
@@ -103,6 +104,7 @@ function previewLocalProxyStatus(): LocalProxyStatus {
     address: "127.0.0.1",
     port: 15722,
     baseUrl: "http://127.0.0.1:15722/v1",
+    autoSwitchOnQuotaExhaustion: window.localStorage.getItem(LOCAL_PROXY_AUTO_SWITCH_PREVIEW_KEY) === "true",
   };
 }
 
@@ -298,6 +300,17 @@ export async function stopLocalProxy(): Promise<LocalProxyStatus> {
     return previewLocalProxyStatus();
   }
   return invoke<LocalProxyStatus>("stop_local_proxy");
+}
+
+export async function setLocalProxyAutoSwitch(enabled: boolean): Promise<LocalProxyStatus> {
+  if (!isDesktopApp) {
+    if (enabled && !previewLocalProxyStatus().running) {
+      throw new Error("Start the local proxy before enabling automatic account switching");
+    }
+    window.localStorage.setItem(LOCAL_PROXY_AUTO_SWITCH_PREVIEW_KEY, String(enabled));
+    return previewLocalProxyStatus();
+  }
+  return invoke<LocalProxyStatus>("set_auto_switch_on_quota_exhaustion", { enabled });
 }
 
 export async function updateFloatingBubble(enabled: boolean): Promise<AppSettings> {
