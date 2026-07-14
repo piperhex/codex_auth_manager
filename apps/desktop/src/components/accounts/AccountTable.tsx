@@ -157,7 +157,8 @@ export function AccountTable({
       sortOrder: usageSort?.column === "fiveHours" ? usageSort.order : null,
       // OpenAI currently reports the primary (5-hour) quota with a weekly reset window.
       // Render its reset time like the weekly quota so it does not show a misleading 5-hour countdown.
-      render: (_, account) => <UsageMeter window={account.usage.primary} resetWindow="oneWeek" language={language} t={t} />,
+      render: (_, account) => <UsageMeter window={account.usage.primary} resetWindow="oneWeek"
+        resetCreditsCount={resetCreditsCount(resetCredits[account.id])} language={language} t={t} />,
     },
     {
       title: t("table.oneWeek"), key: "oneWeek", width: 110,
