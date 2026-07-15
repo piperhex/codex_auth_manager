@@ -4,7 +4,7 @@ Codex Switch is a local-first Tauri 2 desktop application for signing in to, sto
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![Release](https://img.shields.io/github/v/release/piperhex/codex-switch)](https://github.com/piperhex/codex-switch/releases)
 
-QQ group for discussion and support: `1051213898`.
+QQ技术交流群: `1051213898`.
 
 ![Codex Switch account dashboard](docs/assets/codex-switch-dashboard.png)
 
