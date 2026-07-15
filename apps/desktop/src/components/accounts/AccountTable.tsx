@@ -226,7 +226,10 @@ export function AccountTable({
     <div className="account-table-wrap">
       <Table rowKey="id" size="small" columns={columns} dataSource={accounts} pagination={false}
         onChange={handleTableChange}
-        rowClassName={(account) => (account.active ? "active-row" : "")}
+        rowClassName={(account) => [
+          account.active ? "active-row" : "",
+          account.usage.error || !account.autoSwitchEnabled ? "account-alert-row" : "",
+        ].filter(Boolean).join(" ")}
         onRow={(account) => ({
           title: t("note.doubleClick"),
           onDoubleClick: (event) => {

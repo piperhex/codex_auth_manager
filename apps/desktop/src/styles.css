@@ -101,6 +101,8 @@ main.accounts-main .accounts-page .account-table-wrap { flex: 1; min-height: 0; 
 .account-table-wrap .ant-table-tbody > tr.active-row > td { background: var(--green-selection); }
 .account-table-wrap .ant-table-tbody > tr.active-row:hover > td { background: var(--green-selection-hover); }
 .account-table-wrap .ant-table-tbody > tr.active-row > td:first-child { box-shadow: inset 4px 0 0 var(--green-accent); }
+.account-table-wrap .ant-table-tbody > tr.account-alert-row > td { background: #fff1f0; }
+.account-table-wrap .ant-table-tbody > tr.account-alert-row:hover > td { background: #ffe4e1; }
 .account-table-wrap .ant-table-tbody > tr:hover > td { background: #f6faf7; }
 .account-table-wrap .ant-table-cell { padding: 8px 16px !important; }
 .account-table-wrap .ant-table-expand-icon-col { width: 32px !important; min-width: 32px !important; }
