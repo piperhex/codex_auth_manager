@@ -603,8 +603,15 @@ pub(crate) fn refresh_usage_blocking<R: Runtime>(
                 if save_usage(&usage_path(&paths, &id), &cached).is_ok() {
                     let _ = touch_account_modified(&paths, &id);
                 }
-                let disable_error =
-                    set_account_auto_switch_enabled_for_paths(&paths, &id, false).err();
+                // A usage refresh can fail for temporary reasons (for example, a network
+                // disconnect or timeout). Do not turn a transient failure into a persisted
+                // account exclusion. Only disable accounts after an explicit authentication
+                // rejection from the upstream API.
+                let disable_error = if should_disable_account_auto_switch(&error) {
+                    set_account_auto_switch_enabled_for_paths(&paths, &id, false).err()
+                } else {
+                    None
+                };
                 let _ = app.emit("accounts-changed", ());
                 crate::system_tray::refresh_menu(&app);
                 if let Some(disable_error) = disable_error {
@@ -614,6 +621,14 @@ pub(crate) fn refresh_usage_blocking<R: Runtime>(
             Err(error)
         }
     }
+}
+
+fn should_disable_account_auto_switch(error: &str) -> bool {
+    // `try_refresh_usage_blocking` includes the upstream HTTP status in these errors.
+    // Treat only definite authentication/authorization failures as permanent enough to
+    // remove the account from automatic switching. Network errors, timeouts, 5xx, parsing
+    // errors, and refresh-token endpoint failures remain retryable.
+    error.contains("HTTP 401") || error.contains("HTTP 403")
 }
 
 fn try_refresh_usage_blocking<R: Runtime>(
@@ -1047,7 +1062,7 @@ fn status_error(action: &str, status: std::process::ExitStatus) -> String {
 mod compatible_json_import_tests {
     use super::{
         normalize_compatible_json_auth, parse_compatible_json_auth_values,
-        update_disabled_account_ids,
+        should_disable_account_auto_switch, update_disabled_account_ids,
     };
     use crate::models::ManagerStateFile;
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -1129,5 +1144,25 @@ mod compatible_json_import_tests {
         assert!(update_disabled_account_ids(&mut state, "account-a", true));
         assert!(!update_disabled_account_ids(&mut state, "account-a", true));
         assert_eq!(state.disabled_account_ids, ["account-b"]);
+    }
+
+    #[test]
+    fn usage_refresh_failures_only_disable_for_explicit_auth_rejections() {
+        assert!(should_disable_account_auto_switch(
+            "Codex usage endpoint returned HTTP 401 Unauthorized"
+        ));
+        assert!(should_disable_account_auto_switch(
+            "Codex usage endpoint returned HTTP 403 Forbidden"
+        ));
+
+        assert!(!should_disable_account_auto_switch(
+            "failed to read Codex usage: error sending request"
+        ));
+        assert!(!should_disable_account_auto_switch(
+            "failed to read Codex usage: operation timed out"
+        ));
+        assert!(!should_disable_account_auto_switch(
+            "Codex usage endpoint returned HTTP 503 Service Unavailable"
+        ));
     }
 }
