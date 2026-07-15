@@ -88,8 +88,21 @@ function resetCreditsCount(state?: ResetCreditsLoadState) {
   return state?.status === "loaded" ? state.data.credits.length : null;
 }
 
-function needsAccountAttention(account: Account) {
-  return Boolean(account.usage.error) || !account.autoSwitchEnabled;
+function needsAccountAttention(account: Account, hotSwitchEnabled: boolean) {
+  return Boolean(account.usage.error) || (hotSwitchEnabled && !account.autoSwitchEnabled);
+}
+
+function compareKeepingAttentionLast(
+  left: Account,
+  right: Account,
+  hotSwitchEnabled: boolean,
+  sortOrder: UsageSortOrder | null | undefined,
+  compare: (left: Account, right: Account) => number,
+) {
+  const attentionOrder = Number(needsAccountAttention(left, hotSwitchEnabled))
+    - Number(needsAccountAttention(right, hotSwitchEnabled));
+  if (attentionOrder !== 0) return sortOrder === "descend" ? -attentionOrder : attentionOrder;
+  return compare(left, right);
 }
 
 export function AccountTable({
@@ -113,8 +126,9 @@ export function AccountTable({
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [usageSort, setUsageSort] = useState<UsageSortPreference | null>(loadUsageSortPreference);
   const orderedAccounts = useMemo(() => [...accounts].sort(
-    (left, right) => Number(needsAccountAttention(left)) - Number(needsAccountAttention(right)),
-  ), [accounts]);
+    (left, right) => Number(needsAccountAttention(left, hotSwitchEnabled))
+      - Number(needsAccountAttention(right, hotSwitchEnabled)),
+  ), [accounts, hotSwitchEnabled]);
   const handleTableChange: NonNullable<TableProps<Account>["onChange"]> = (_, __, sorter) => {
     const activeSorter = Array.isArray(sorter) ? sorter[0] : sorter;
     const nextSort = isUsageSortColumn(activeSorter.columnKey) && isUsageSortOrder(activeSorter.order)
@@ -129,14 +143,20 @@ export function AccountTable({
     Table.EXPAND_COLUMN as ColumnsType<Account>[number],
     {
       title: t("table.account"), dataIndex: "email", width: 100, fixed: "left",
-      sorter: (left, right) => left.email.localeCompare(right.email),
+      sorter: (left, right, sortOrder) => compareKeepingAttentionLast(
+        left,
+        right,
+        hotSwitchEnabled,
+        sortOrder,
+        (first, second) => first.email.localeCompare(second.email),
+      ),
       filters: [
         { text: t("table.filterNormal"), value: "normal" },
         { text: t("table.filterError"), value: "error" },
       ],
       onFilter: (value, account) => value === "error"
-        ? needsAccountAttention(account)
-        : !needsAccountAttention(account),
+        ? needsAccountAttention(account, hotSwitchEnabled)
+        : !needsAccountAttention(account, hotSwitchEnabled),
       render: (_, account) => (
         <div className="account-cell">
           <div className="table-avatar">{initials(account.email)}</div>
@@ -171,7 +191,13 @@ export function AccountTable({
     },
     {
       title: t("table.fiveHours"), key: "fiveHours", width: 110,
-      sorter: (left, right) => compareUsageRemaining(left, right, "primary"),
+      sorter: (left, right, sortOrder) => compareKeepingAttentionLast(
+        left,
+        right,
+        hotSwitchEnabled,
+        sortOrder,
+        (first, second) => compareUsageRemaining(first, second, "primary"),
+      ),
       sortOrder: usageSort?.column === "fiveHours" ? usageSort.order : null,
       // OpenAI currently reports the primary (5-hour) quota with a weekly reset window.
       // Render its reset time like the weekly quota so it does not show a misleading 5-hour countdown.
@@ -180,7 +206,13 @@ export function AccountTable({
     },
     {
       title: t("table.oneWeek"), key: "oneWeek", width: 110,
-      sorter: (left, right) => compareUsageRemaining(left, right, "secondary"),
+      sorter: (left, right, sortOrder) => compareKeepingAttentionLast(
+        left,
+        right,
+        hotSwitchEnabled,
+        sortOrder,
+        (first, second) => compareUsageRemaining(first, second, "secondary"),
+      ),
       sortOrder: usageSort?.column === "oneWeek" ? usageSort.order : null,
       render: (_, account) => <UsageMeter window={account.usage.secondary} resetWindow="oneWeek"
         resetCreditsCount={resetCreditsCount(resetCredits[account.id])} language={language} t={t} />,
@@ -223,13 +255,15 @@ export function AccountTable({
                   disabled={account.active} icon={<Trash2 size={14} />} />
               </Tooltip>
             </Popconfirm>
-            <Tooltip title={t("table.autoSwitchTooltip")}>
-              <Switch size="small" checked={account.autoSwitchEnabled}
-                checkedChildren={t("table.enabled")} unCheckedChildren={t("table.disabled")}
-                loading={autoSwitchBusyAccountId === account.id}
-                disabled={autoSwitchBusyAccountId !== null && autoSwitchBusyAccountId !== account.id}
-                onChange={(enabled) => onAutoSwitchEnabledChange(account.id, enabled)} />
-            </Tooltip>
+            {hotSwitchEnabled && (
+              <Tooltip title={t("table.autoSwitchTooltip")}>
+                <Switch size="small" checked={account.autoSwitchEnabled}
+                  checkedChildren={t("table.enabled")} unCheckedChildren={t("table.disabled")}
+                  loading={autoSwitchBusyAccountId === account.id}
+                  disabled={autoSwitchBusyAccountId !== null && autoSwitchBusyAccountId !== account.id}
+                  onChange={(enabled) => onAutoSwitchEnabledChange(account.id, enabled)} />
+              </Tooltip>
+            )}
           </Space>
         );
       },
@@ -242,7 +276,7 @@ export function AccountTable({
         onChange={handleTableChange}
         rowClassName={(account) => [
           account.active ? "active-row" : "",
-          needsAccountAttention(account) ? "account-alert-row" : "",
+          needsAccountAttention(account, hotSwitchEnabled) ? "account-alert-row" : "",
         ].filter(Boolean).join(" ")}
         onRow={(account) => ({
           title: t("note.doubleClick"),

@@ -2,6 +2,7 @@ use std::{
     fs,
     path::Path,
     process::{Command, Output},
+    sync::{Mutex, OnceLock},
     thread,
     time::Duration,
 };
@@ -22,7 +23,7 @@ use crate::{
         consume_reset_credit_request, parse_reset_credits, parse_usage, refresh_tokens,
         reset_credits_request, token_expiring, usage_request,
     },
-    models::{AccountSummary, AppInfo, ResetCreditsSummary, UsageSummary},
+    models::{AccountSummary, AppInfo, ManagerStateFile, ResetCreditsSummary, UsageSummary},
     storage::{
         account_dir, expiration_path, import_value, load_expiration, load_note, load_usage,
         managed_auth_path, note_path, read_json, read_state, resolve_paths, save_expiration,
@@ -37,6 +38,12 @@ const CHATGPT_COMMAND: &str = "chatgpt";
 const LEGACY_CODEX_COMMAND: &str = "codex";
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+static ACCOUNT_AUTO_SWITCH_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn account_auto_switch_state_lock() -> &'static Mutex<()> {
+    ACCOUNT_AUTO_SWITCH_STATE_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 #[cfg(target_os = "windows")]
 enum ChatGptLaunchTarget {
@@ -393,19 +400,43 @@ pub(crate) fn set_account_auto_switch_enabled<R: Runtime>(
         return Err("Account does not exist".to_string());
     }
 
-    let mut state = read_state(&paths);
-    if enabled {
-        state
-            .disabled_account_ids
-            .retain(|account_id| account_id != &id);
-    } else if !state.disabled_account_ids.contains(&id) {
-        state.disabled_account_ids.push(id);
-        state.disabled_account_ids.sort();
-    }
-    write_state(&paths, &state)?;
+    set_account_auto_switch_enabled_for_paths(&paths, &id, enabled)?;
     app.emit("accounts-changed", ())
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+fn update_disabled_account_ids(state: &mut ManagerStateFile, id: &str, enabled: bool) -> bool {
+    let was_disabled = state
+        .disabled_account_ids
+        .iter()
+        .any(|account_id| account_id == id);
+    let should_be_disabled = !enabled;
+    if enabled {
+        state
+            .disabled_account_ids
+            .retain(|account_id| account_id != id);
+    } else if !was_disabled {
+        state.disabled_account_ids.push(id.to_string());
+        state.disabled_account_ids.sort();
+    }
+    was_disabled != should_be_disabled
+}
+
+fn set_account_auto_switch_enabled_for_paths(
+    paths: &Paths,
+    id: &str,
+    enabled: bool,
+) -> Result<bool, String> {
+    let _guard = account_auto_switch_state_lock()
+        .lock()
+        .map_err(|_| "Account auto-switch state lock is poisoned".to_string())?;
+    let mut state = read_state(&paths);
+    let changed = update_disabled_account_ids(&mut state, id, enabled);
+    if changed {
+        write_state(paths, &state)?;
+    }
+    Ok(changed)
 }
 
 #[tauri::command]
@@ -421,14 +452,7 @@ pub(crate) fn delete_account<R: Runtime>(
     if target.exists() {
         fs::remove_dir_all(&target).map_err(|error| format!("删除账户失败：{error}"))?;
     }
-    let mut state = read_state(&paths);
-    let disabled_count = state.disabled_account_ids.len();
-    state
-        .disabled_account_ids
-        .retain(|account_id| account_id != &id);
-    if state.disabled_account_ids.len() != disabled_count {
-        write_state(&paths, &state)?;
-    }
+    set_account_auto_switch_enabled_for_paths(&paths, &id, true)?;
     app.emit("accounts-changed", ())
         .map_err(|error| error.to_string())?;
     crate::system_tray::refresh_menu(&app);
@@ -567,49 +591,62 @@ pub(crate) fn refresh_usage_blocking<R: Runtime>(
     app: tauri::AppHandle<R>,
     id: String,
 ) -> Result<UsageSummary, String> {
-    let paths = resolve_paths(&app)?;
-    let mut auth = load_auth_for_request(&app, &paths, &id)?;
-    let client = api_client()?;
-    refresh_auth_if_needed(&client, &mut auth, &paths, &id)?;
-
-    let mut response = usage_request(&client, &auth)?;
-    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
-        refresh_tokens(&client, &mut auth)?;
-        persist_request_auth(&paths, &id, &auth)?;
-        response = usage_request(&client, &auth)?;
-    }
-
-    let result = if response.status().is_success() {
-        let payload: Value = response
-            .json()
-            .map_err(|error| format!("解析用量响应失败：{error}"))?;
-        Ok(parse_usage(&payload))
-    } else {
-        Err(format!("Codex 用量接口返回 HTTP {}", response.status()))
-    };
-
-    match result {
-        Ok(usage) => {
-            save_usage(&usage_path(&paths, &id), &usage)?;
-            touch_account_modified(&paths, &id)?;
-            persist_request_auth(&paths, &id, &auth)?;
-            app.emit("accounts-changed", ())
-                .map_err(|error| error.to_string())?;
-            crate::system_tray::refresh_menu(&app);
-            Ok(usage)
-        }
+    match try_refresh_usage_blocking(&app, &id) {
+        Ok(usage) => Ok(usage),
         Err(error) => {
-            let cached = UsageSummary {
-                error: Some(error.clone()),
-                fetched_at: Some(Utc::now().to_rfc3339()),
-                ..load_usage(&usage_path(&paths, &id))
-            };
-            if save_usage(&usage_path(&paths, &id), &cached).is_ok() {
-                let _ = touch_account_modified(&paths, &id);
+            if let Ok(paths) = resolve_paths(&app) {
+                let cached = UsageSummary {
+                    error: Some(error.clone()),
+                    fetched_at: Some(Utc::now().to_rfc3339()),
+                    ..load_usage(&usage_path(&paths, &id))
+                };
+                if save_usage(&usage_path(&paths, &id), &cached).is_ok() {
+                    let _ = touch_account_modified(&paths, &id);
+                }
+                let disable_error =
+                    set_account_auto_switch_enabled_for_paths(&paths, &id, false).err();
+                let _ = app.emit("accounts-changed", ());
+                crate::system_tray::refresh_menu(&app);
+                if let Some(disable_error) = disable_error {
+                    return Err(format!("{error}；自动禁用账号失败：{disable_error}"));
+                }
             }
             Err(error)
         }
     }
+}
+
+fn try_refresh_usage_blocking<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    id: &str,
+) -> Result<UsageSummary, String> {
+    let paths = resolve_paths(app)?;
+    let mut auth = load_auth_for_request(app, &paths, id)?;
+    let client = api_client()?;
+    refresh_auth_if_needed(&client, &mut auth, &paths, id)?;
+
+    let mut response = usage_request(&client, &auth)?;
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        refresh_tokens(&client, &mut auth)?;
+        persist_request_auth(&paths, id, &auth)?;
+        response = usage_request(&client, &auth)?;
+    }
+
+    if !response.status().is_success() {
+        return Err(format!("Codex 用量接口返回 HTTP {}", response.status()));
+    }
+
+    let payload: Value = response
+        .json()
+        .map_err(|error| format!("解析用量响应失败：{error}"))?;
+    let usage = parse_usage(&payload);
+    save_usage(&usage_path(&paths, id), &usage)?;
+    touch_account_modified(&paths, id)?;
+    persist_request_auth(&paths, id, &auth)?;
+    app.emit("accounts-changed", ())
+        .map_err(|error| error.to_string())?;
+    crate::system_tray::refresh_menu(app);
+    Ok(usage)
 }
 
 #[tauri::command]
@@ -1008,7 +1045,11 @@ fn status_error(action: &str, status: std::process::ExitStatus) -> String {
 
 #[cfg(test)]
 mod compatible_json_import_tests {
-    use super::{normalize_compatible_json_auth, parse_compatible_json_auth_values};
+    use super::{
+        normalize_compatible_json_auth, parse_compatible_json_auth_values,
+        update_disabled_account_ids,
+    };
+    use crate::models::ManagerStateFile;
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     use serde_json::{json, Value};
 
@@ -1074,5 +1115,19 @@ mod compatible_json_import_tests {
             auth.pointer("/tokens/access_token").and_then(Value::as_str),
             Some(token.as_str())
         );
+    }
+
+    #[test]
+    fn updates_disabled_account_ids_without_duplicates() {
+        let mut state = ManagerStateFile::default();
+
+        assert!(update_disabled_account_ids(&mut state, "account-b", false));
+        assert!(update_disabled_account_ids(&mut state, "account-a", false));
+        assert!(!update_disabled_account_ids(&mut state, "account-a", false));
+        assert_eq!(state.disabled_account_ids, ["account-a", "account-b"]);
+
+        assert!(update_disabled_account_ids(&mut state, "account-a", true));
+        assert!(!update_disabled_account_ids(&mut state, "account-a", true));
+        assert_eq!(state.disabled_account_ids, ["account-b"]);
     }
 }
