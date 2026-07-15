@@ -186,6 +186,10 @@ More documentation:
 
 Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before getting started, especially the credential-redaction, responsibility-boundary, and local-validation requirements.
 
+## Community
+
+Join the QQ group for discussion and support: `1051213898`.
+
 ## License
 
 Codex Switch is licensed under the [Apache License 2.0](LICENSE), the same license used by the official [OpenAI Codex](https://github.com/openai/codex) repository.
