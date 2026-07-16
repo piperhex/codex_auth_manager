@@ -120,9 +120,6 @@ function DashboardApp() {
   const setProviderModelControl = useCallback((id: string, controlledByCodex: boolean) => {
     void providerManager.setModelControl(id, controlledByCodex);
   }, [providerManager.setModelControl]);
-  const useOfficialProvider = useCallback(() => {
-    void providerManager.useOfficialProvider();
-  }, [providerManager.useOfficialProvider]);
   const deleteProvider = useCallback((id: string) => {
     void providerManager.deleteProvider(id);
   }, [providerManager.deleteProvider]);
@@ -436,8 +433,7 @@ function DashboardApp() {
               localProxy={providerManager.localProxy} proxyBusy={providerManager.proxyBusy}
               info={manager.info} onSave={providerManager.saveProvider}
               onSwitch={switchProvider} onSwitchModel={switchProviderModel}
-              onModelControlChange={setProviderModelControl}
-              onDisable={useOfficialProvider} onDelete={deleteProvider}
+              onModelControlChange={setProviderModelControl} onDelete={deleteProvider}
               onStartProxy={providerManager.startProxy} onStopProxy={providerManager.stopProxy}
               onAutoSwitchChange={providerManager.setProxyAutoSwitch}
               onAutoDisableUnreachableChange={providerManager.setProxyAutoDisableUnreachable} t={t} />

@@ -13,13 +13,13 @@ export function useLanguage() {
   useEffect(() => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+    void publishLanguageChange(language).catch(() => undefined);
   }, [language]);
 
   useEffect(() => subscribeToLanguageChanges(setLanguageState), []);
 
   const setLanguage = useCallback((nextLanguage: Language) => {
     setLanguageState(nextLanguage);
-    void publishLanguageChange(nextLanguage).catch(() => undefined);
   }, []);
 
   const t = useCallback((key: Parameters<typeof translate>[1], values?: Parameters<typeof translate>[2]) => (

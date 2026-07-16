@@ -150,6 +150,8 @@ pub(crate) struct AppSettings {
     pub(crate) floating_bubble_enabled: bool,
     #[serde(default)]
     pub(crate) theme_color: Option<String>,
+    #[serde(default)]
+    pub(crate) language: Option<String>,
     #[serde(default = "default_privacy_mode")]
     pub(crate) privacy_mode: bool,
     #[serde(default)]
@@ -190,6 +192,7 @@ impl Default for AppSettings {
         Self {
             floating_bubble_enabled: false,
             theme_color: None,
+            language: None,
             privacy_mode: default_privacy_mode(),
             bubble_reset_display: BubbleResetDisplay::default(),
             bubble_x: None,

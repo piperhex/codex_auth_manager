@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Popconfirm, Space, Switch, Table, Tag, Tooltip } from "antd";
 import type { TableProps } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -123,8 +123,23 @@ export function AccountTable({
   language,
   t,
 }: AccountTableProps) {
+  const tableWrapRef = useRef<HTMLDivElement>(null);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [usageSort, setUsageSort] = useState<UsageSortPreference | null>(loadUsageSortPreference);
+  const [tableScrollY, setTableScrollY] = useState(0);
+  useEffect(() => {
+    const tableWrap = tableWrapRef.current;
+    if (!tableWrap) return undefined;
+
+    const updateScrollHeight = () => {
+      const headerHeight = tableWrap.querySelector(".ant-table-thead")?.getBoundingClientRect().height ?? 0;
+      setTableScrollY(Math.max(1, Math.floor(tableWrap.clientHeight - headerHeight)));
+    };
+    const observer = new ResizeObserver(updateScrollHeight);
+    observer.observe(tableWrap);
+    updateScrollHeight();
+    return () => observer.disconnect();
+  }, []);
   const orderedAccounts = useMemo(() => [...accounts].sort(
     (left, right) => Number(needsAccountAttention(left, hotSwitchEnabled))
       - Number(needsAccountAttention(right, hotSwitchEnabled)),
@@ -142,7 +157,7 @@ export function AccountTable({
   const columns: ColumnsType<Account> = [
     Table.EXPAND_COLUMN as ColumnsType<Account>[number],
     {
-      title: t("table.account"), dataIndex: "email", width: 100, fixed: "left",
+      title: t("table.account"), dataIndex: "email", width: 300, fixed: "left",
       sorter: (left, right, sortOrder) => compareKeepingAttentionLast(
         left,
         right,
@@ -179,7 +194,7 @@ export function AccountTable({
       ),
     },
     {
-      title: t("table.planId"), width: 70,
+      title: t("table.planId"), width: 120,
       render: (_, account) => (
         <Tooltip title={account.accountId ? t("table.workspace", { id: account.accountId }) : t("table.personal")}>
           <div className="plan-stack">
@@ -190,7 +205,7 @@ export function AccountTable({
       ),
     },
     {
-      title: t("table.fiveHours"), key: "fiveHours", width: 110,
+      title: t("table.fiveHours"), key: "fiveHours", width: 290,
       sorter: (left, right, sortOrder) => compareKeepingAttentionLast(
         left,
         right,
@@ -205,7 +220,7 @@ export function AccountTable({
         resetCreditsCount={resetCreditsCount(resetCredits[account.id])} language={language} t={t} />,
     },
     {
-      title: t("table.oneWeek"), key: "oneWeek", width: 110,
+      title: t("table.oneWeek"), key: "oneWeek", width: 290,
       sorter: (left, right, sortOrder) => compareKeepingAttentionLast(
         left,
         right,
@@ -218,7 +233,7 @@ export function AccountTable({
         resetCreditsCount={resetCreditsCount(resetCredits[account.id])} language={language} t={t} />,
     },
     {
-      title: t("table.actions"), width: 135, align: "center", fixed: "right",
+      title: t("table.actions"), width: 318, align: "center", fixed: "right",
       render: (_, account) => {
         const waiting = busyAccountId === account.id;
         const resetWaiting = resetCreditBusyAccountId === account.id;
@@ -271,8 +286,8 @@ export function AccountTable({
   ];
 
   return <>
-    <div className="account-table-wrap">
-      <Table rowKey="id" size="small" columns={columns} dataSource={orderedAccounts} pagination={false}
+    <div ref={tableWrapRef} className="account-table-wrap">
+      <Table rowKey="id" size="small" tableLayout="fixed" columns={columns} dataSource={orderedAccounts} pagination={false}
         onChange={handleTableChange}
         rowClassName={(account) => [
           account.active ? "active-row" : "",
@@ -292,7 +307,7 @@ export function AccountTable({
             onRetry={() => onLoadResetCredits(account.id, true)} language={language} t={t} />,
           onExpand: (expanded, account) => { if (expanded) onLoadResetCredits(account.id); },
         }}
-        scroll={{ x: 1350 }} />
+        scroll={tableScrollY ? { x: 1350, y: tableScrollY } : { x: 1350 }} />
     </div>
     {editingAccount && <AccountNoteModal key={editingAccount.id} account={editingAccount}
       onClose={() => setEditingAccount(null)}

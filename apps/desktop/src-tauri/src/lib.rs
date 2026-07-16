@@ -110,6 +110,7 @@ pub fn run() {
             floating_bubble::set_privacy_mode,
             floating_bubble::set_bubble_reset_display,
             floating_bubble::set_theme_color,
+            floating_bubble::set_app_language,
             floating_bubble::resize_floating_bubble,
             floating_bubble::drag_floating_bubble,
             floating_bubble::show_floating_bubble_menu,

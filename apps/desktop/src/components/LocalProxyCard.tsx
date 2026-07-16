@@ -59,13 +59,6 @@ export function LocalProxyCard({
         )}
         {proxyRunning && (
           <>
-            <Tooltip title={t("providers.proxy.autoSwitchTooltip")}>
-              <span className="proxy-auto-switch">
-                <Switch size="small" checked={localProxy?.autoSwitchOnQuotaExhaustion ?? false}
-                  disabled={proxyBusy} onChange={onAutoSwitchChange} />
-                <span>{t("providers.proxy.autoSwitch")}</span>
-              </span>
-            </Tooltip>
             {localProxy?.autoSwitchOnQuotaExhaustion && (
               <Tooltip title={t("providers.proxy.autoDisableUnreachableTooltip")}>
                 <span className="proxy-auto-switch">
@@ -75,6 +68,13 @@ export function LocalProxyCard({
                 </span>
               </Tooltip>
             )}
+            <Tooltip title={t("providers.proxy.autoSwitchTooltip")}>
+              <span className="proxy-auto-switch">
+                <Switch size="small" checked={localProxy?.autoSwitchOnQuotaExhaustion ?? false}
+                  disabled={proxyBusy} onChange={onAutoSwitchChange} />
+                <span>{t("providers.proxy.autoSwitch")}</span>
+              </span>
+            </Tooltip>
           </>
         )}
       </div>

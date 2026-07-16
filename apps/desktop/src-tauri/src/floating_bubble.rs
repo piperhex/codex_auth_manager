@@ -175,6 +175,21 @@ pub(crate) fn set_theme_color<R: Runtime>(
     Ok(settings)
 }
 
+#[tauri::command]
+pub(crate) fn set_app_language<R: Runtime>(
+    app: AppHandle<R>,
+    language: String,
+) -> Result<(), String> {
+    if !matches!(language.as_str(), "en" | "zh") {
+        return Err("language must be en or zh".to_string());
+    }
+    let mut settings = read_app_settings(&app)?;
+    settings.language = Some(language);
+    write_app_settings(&app, &settings)?;
+    crate::system_tray::refresh_menu(&app);
+    Ok(())
+}
+
 fn is_hex_color(color: &str) -> bool {
     color.len() == HEX_COLOR_LEN
         && color.starts_with('#')
@@ -311,7 +326,6 @@ fn estimated_floating_menu_size<R: Runtime>(app: &AppHandle<R>) -> (f64, f64) {
         Err(error) => vec![format!("Accounts error: {error}")],
     };
     labels.push("Providers".to_string());
-    labels.push("Official Codex".to_string());
     match providers::list_providers(app.clone()) {
         Ok(providers) if providers.is_empty() => labels.push("No providers".to_string()),
         Ok(providers) => labels.extend(

@@ -307,7 +307,10 @@ pub(crate) fn sync_current_into_store<R: Runtime>(app: &tauri::AppHandle<R>) -> 
     validate_auth(&auth)?;
     let id = import_value(app, auth, false)?;
     let mut state = read_state(&paths);
-    if state.active_account_id.as_deref() != Some(&id) {
+    // The current auth file remains on disk while a third-party Provider is active,
+    // but it is not the selected runtime identity in that mode. Do not let a routine
+    // sync turn that stored credential back into the active official account.
+    if state.active_provider_id.is_none() && state.active_account_id.as_deref() != Some(&id) {
         state.active_account_id = Some(id);
         write_state(&paths, &state)?;
     }

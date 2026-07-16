@@ -157,6 +157,7 @@ pub(crate) fn switch_provider<R: Runtime>(
         write_provider_config(&paths, &provider)?;
     }
     state.active_provider_id = Some(provider.id);
+    state.active_account_id = None;
     write_state(&paths, &state)?;
     emit_providers_changed(&app)?;
     Ok(())
@@ -287,6 +288,7 @@ pub(crate) fn activate_provider_for_sync(paths: &Paths, id: &str) -> Result<bool
         write_provider_config(paths, &provider)?;
     }
     state.active_provider_id = Some(provider.id);
+    state.active_account_id = None;
     write_state(paths, &state)?;
     Ok(true)
 }

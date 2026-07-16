@@ -8,6 +8,7 @@ use crate::{
     commands,
     models::{AccountSummary, ProviderSummary, UsageWindow},
     providers,
+    storage::read_app_settings,
 };
 
 const TRAY_ID: &str = "main-tray";
@@ -15,7 +16,6 @@ const DASHBOARD_ID: &str = "tray:dashboard";
 const RESTART_CHATGPT_ID: &str = "tray:restart-chatgpt";
 const QUIT_ID: &str = "tray:quit";
 const ACCOUNT_PREFIX: &str = "tray:account:";
-const OFFICIAL_PROVIDER_ID: &str = "tray:provider-official";
 const PROVIDER_PREFIX: &str = "tray:provider:";
 const MENU_EMAIL_CHARS: usize = 15;
 const MENU_PROVIDER_CHARS: usize = 28;
@@ -91,12 +91,6 @@ pub(crate) fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent
         }
         return;
     }
-    if id == OFFICIAL_PROVIDER_ID {
-        if let Err(error) = providers::disable_provider(app.clone()) {
-            eprintln!("failed to switch provider from tray: {error}");
-        }
-        return;
-    }
     if let Some(provider_id) = id.strip_prefix(PROVIDER_PREFIX) {
         if let Err(error) = providers::switch_provider(app.clone(), provider_id.to_string()) {
             eprintln!("failed to switch provider from tray: {error}");
@@ -108,9 +102,19 @@ pub(crate) fn build_menu<R: Runtime>(
     app: &AppHandle<R>,
 ) -> Result<Menu<R>, Box<dyn std::error::Error>> {
     let menu = Menu::new(app)?;
+    let chinese = read_app_settings(app)
+        .ok()
+        .and_then(|settings| settings.language)
+        .as_deref()
+        == Some("zh");
 
-    let accounts_header =
-        MenuItem::with_id(app, "tray:accounts-header", "Accounts", false, None::<&str>)?;
+    let accounts_header = MenuItem::with_id(
+        app,
+        "tray:accounts-header",
+        if chinese { "账号" } else { "Accounts" },
+        false,
+        None::<&str>,
+    )?;
     menu.append(&accounts_header)?;
 
     match commands::list_accounts(app.clone()) {
@@ -144,27 +148,31 @@ pub(crate) fn build_menu<R: Runtime>(
     }
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    append_provider_items(app, &menu)?;
+    append_provider_items(app, &menu, chinese)?;
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItem::with_id(
         app,
         DASHBOARD_ID,
-        "仪表板",
+        if chinese { "仪表板" } else { "Dashboard" },
         true,
         None::<&str>,
     )?)?;
     menu.append(&MenuItem::with_id(
         app,
         RESTART_CHATGPT_ID,
-        "重启 ChatGPT",
+        if chinese {
+            "重启 ChatGPT"
+        } else {
+            "Restart ChatGPT"
+        },
         true,
         None::<&str>,
     )?)?;
     menu.append(&MenuItem::with_id(
         app,
         QUIT_ID,
-        "退出程序",
+        if chinese { "退出程序" } else { "Quit" },
         true,
         None::<&str>,
     )?)?;
@@ -174,11 +182,16 @@ pub(crate) fn build_menu<R: Runtime>(
 fn append_provider_items<R: Runtime>(
     app: &AppHandle<R>,
     menu: &Menu<R>,
+    chinese: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let header = MenuItem::with_id(
         app,
         "tray:providers-header",
-        "Providers",
+        if chinese {
+            "三方 Provider"
+        } else {
+            "Providers"
+        },
         false,
         None::<&str>,
     )?;
@@ -186,17 +199,6 @@ fn append_provider_items<R: Runtime>(
 
     match providers::list_providers(app.clone()) {
         Ok(providers) => {
-            let official_active = providers.iter().all(|provider| !provider.active);
-            let official = CheckMenuItem::with_id(
-                app,
-                OFFICIAL_PROVIDER_ID,
-                "Official Codex",
-                true,
-                official_active,
-                None::<&str>,
-            )?;
-            menu.append(&official)?;
-
             if providers.is_empty() {
                 let empty = MenuItem::with_id(
                     app,

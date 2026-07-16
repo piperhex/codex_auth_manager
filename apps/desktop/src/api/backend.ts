@@ -681,6 +681,7 @@ export async function publishLanguageChange(language: Language): Promise<void> {
     window.dispatchEvent(new CustomEvent<Language>(LANGUAGE_EVENT, { detail: language }));
     return;
   }
+  await invoke("set_app_language", { language });
   await emit(LANGUAGE_EVENT, language);
 }
 

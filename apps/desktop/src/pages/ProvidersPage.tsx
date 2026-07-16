@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Input, Popconfirm, Segmented, Select, Space, Switch, Table, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Check, KeyRound, Pencil, Plus, RefreshCw, RotateCcw, Save, Server, ShieldCheck, Trash2, X } from "lucide-react";
+import { Check, Pencil, Plus, RefreshCw, RotateCcw, Save, Server, Trash2, X } from "lucide-react";
 import { LocalProxyCard } from "../components/LocalProxyCard";
 import type { Translate } from "../i18n";
 import type { AppInfo, LocalProxyStatus, Provider, ProviderApiFormat, ProviderInput } from "../types";
@@ -18,7 +18,6 @@ interface ProvidersPageProps {
   onSwitch: (id: string) => void;
   onSwitchModel: (id: string, model: string) => void;
   onModelControlChange: (id: string, controlledByCodex: boolean) => void;
-  onDisable: () => void;
   onDelete: (id: string) => void;
   onStartProxy: () => void;
   onStopProxy: () => void;
@@ -204,7 +203,6 @@ export function ProvidersPage({
   onSwitch,
   onSwitchModel,
   onModelControlChange,
-  onDisable,
   onDelete,
   onStartProxy,
   onStopProxy,
@@ -214,7 +212,6 @@ export function ProvidersPage({
 }: ProvidersPageProps) {
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [showModal, setShowModal] = useState(false);
-  const officialActive = useMemo(() => providers.every((provider) => !provider.active), [providers]);
   const proxyRunning = Boolean(localProxy?.running);
 
   const openCreate = () => {
@@ -310,22 +307,6 @@ export function ProvidersPage({
 
   return (
     <div className="provider-page">
-      <section className={`provider-official${officialActive ? " active" : ""}`}>
-        <div className="provider-official-main">
-          <div className="provider-avatar official"><ShieldCheck size={16} /></div>
-          <div>
-            <strong>{t("providers.official.title")}</strong>
-            <span>{info?.authPath ?? "~/.codex/auth.json"}</span>
-          </div>
-        </div>
-        <div className="provider-official-actions">
-          {officialActive ? <Tag className="current-tag">{t("providers.status.current")}</Tag> : <Tag>{t("providers.status.standby")}</Tag>}
-          <Button size="small" type={officialActive ? "default" : "primary"} disabled={officialActive}
-            loading={busyProviderId === "official"} icon={<KeyRound size={14} />}
-            onClick={onDisable}>{officialActive ? t("providers.action.inUse") : t("providers.action.useOfficial")}</Button>
-        </div>
-      </section>
-
       <LocalProxyCard localProxy={localProxy} proxyBusy={proxyBusy}
         onStartProxy={onStartProxy} onStopProxy={onStopProxy}
         onAutoSwitchChange={onAutoSwitchChange}

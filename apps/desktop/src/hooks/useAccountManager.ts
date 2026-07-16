@@ -12,6 +12,7 @@ import {
   removeAccount,
   setAccountAutoSwitchEnabled,
   subscribeToBackendEvents,
+  subscribeToProviderEvents,
   updateAccountNote,
 } from "../api/backend";
 import type { Translate } from "../i18n";
@@ -63,6 +64,7 @@ export function useAccountManager(
       if (status.ok && status.accountId) void cloudSync?.pushAccount?.(status.accountId);
     },
   ), [cloudSync, load, notify]);
+  useEffect(() => subscribeToProviderEvents(() => void load()), [load]);
 
   const startLogin = useCallback(async (embedded: boolean) => {
     if (!isDesktopApp) {

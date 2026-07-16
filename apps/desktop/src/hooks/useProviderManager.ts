@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   activateProvider,
-  deactivateProvider,
   loadLocalProxyStatus,
   loadProviders,
   removeProvider,
@@ -135,19 +134,6 @@ export function useProviderManager(
     }
   }, [cloudSync, load, notify, t]);
 
-  const useOfficialProvider = useCallback(async () => {
-    setBusyProviderId("official");
-    try {
-      await deactivateProvider();
-      notify(t("toast.providerRestored"));
-      await load();
-    } catch (error) {
-      notify(providerErrorMessage(error, t));
-    } finally {
-      setBusyProviderId(null);
-    }
-  }, [load, notify, t]);
-
   const deleteProvider = useCallback(async (id: string) => {
     setBusyProviderId(id);
     try {
@@ -225,7 +211,6 @@ export function useProviderManager(
     switchProvider,
     switchModel,
     setModelControl,
-    useOfficialProvider,
     deleteProvider,
     startProxy,
     stopProxy,
