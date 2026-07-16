@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Button, ColorPicker, Input, InputNumber, Segmented, Space, Switch } from "antd";
-import { CircleGauge, Cloud, EyeOff, FileDown, FolderKey, FolderOpen, KeyRound, Languages, Palette, RefreshCw, Save, ShieldCheck } from "lucide-react";
+import { CircleGauge, Cloud, EyeOff, FileDown, FolderKey, FolderOpen, KeyRound, Languages, LayoutGrid, Palette, RefreshCw, Save, ShieldCheck, TableProperties } from "lucide-react";
 import { MAX_AUTO_REFRESH_SECONDS, MIN_AUTO_REFRESH_SECONDS } from "../hooks/useAutoRefresh";
+import type { AccountDisplayMode } from "../hooks/useAccountDisplayMode";
 import { LANGUAGE_OPTIONS, type Language, type Translate } from "../i18n";
 import type { AppInfo, BubbleResetDisplay } from "../types";
 
@@ -32,6 +33,8 @@ export function SettingsPage({
   privacyModeEnabled,
   privacyModeLoading,
   onPrivacyModeChange,
+  accountDisplayMode,
+  onAccountDisplayModeChange,
   onOpenCodexHome,
   onOpenAccountStore,
   onExportLogs,
@@ -66,6 +69,8 @@ export function SettingsPage({
   privacyModeEnabled: boolean;
   privacyModeLoading: boolean;
   onPrivacyModeChange: (enabled: boolean) => void;
+  accountDisplayMode: AccountDisplayMode;
+  onAccountDisplayModeChange: (mode: AccountDisplayMode) => void;
   onOpenCodexHome: () => void;
   onOpenAccountStore: () => void;
   onExportLogs: () => void;
@@ -155,6 +160,21 @@ export function SettingsPage({
             <Switch id="privacy-mode-enabled" checked={privacyModeEnabled} loading={privacyModeLoading}
               checkedChildren={t("settings.autoRefresh.on")} unCheckedChildren={t("settings.autoRefresh.off")}
               onChange={onPrivacyModeChange} />
+          </div>
+        </div>
+      </section>
+      <section className="settings-card">
+        <div className="settings-icon"><LayoutGrid size={23} /></div>
+        <div className="settings-card-content">
+          <div className="settings-card-copy"><h3>{t("settings.accountDisplay.title")}</h3><p>{t("settings.accountDisplay.description")}</p></div>
+          <div className="settings-field">
+            <label htmlFor="account-display-mode">{t("settings.accountDisplay.label")}</label>
+            <Segmented id="account-display-mode" value={accountDisplayMode}
+              options={[
+                { value: "table", label: <span className="segmented-option-label"><TableProperties size={14} />{t("settings.accountDisplay.table")}</span> },
+                { value: "cards", label: <span className="segmented-option-label"><LayoutGrid size={14} />{t("settings.accountDisplay.cards")}</span> },
+              ]}
+              onChange={(value) => onAccountDisplayModeChange(value as AccountDisplayMode)} />
           </div>
         </div>
       </section>

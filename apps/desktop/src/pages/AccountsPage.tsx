@@ -1,6 +1,7 @@
 import { ArrowRight, LogIn, RefreshCw } from "lucide-react";
 import { LocalProxyCard } from "../components/LocalProxyCard";
 import type { Language, Translate } from "../i18n";
+import type { AccountDisplayMode } from "../hooks/useAccountDisplayMode";
 import type { Account, LocalProxyStatus, ResetCreditsLoadState } from "../types";
 import { AccountTable } from "../components/accounts/AccountTable";
 
@@ -26,6 +27,7 @@ export function AccountsPage({
   onAutoSwitchChange,
   onAutoDisableUnreachableChange,
   privacyMode,
+  displayMode,
   language,
   t,
 }: {
@@ -50,6 +52,7 @@ export function AccountsPage({
   onAutoSwitchChange: (enabled: boolean) => void;
   onAutoDisableUnreachableChange: (enabled: boolean) => void;
   privacyMode: boolean;
+  displayMode: AccountDisplayMode;
   language: Language;
   t: Translate;
 }) {
@@ -91,7 +94,7 @@ export function AccountsPage({
         onSaveNote={onSaveNote}
         resetCredits={resetCredits} onLoadResetCredits={onLoadResetCredits}
         onUseResetCredit={onUseResetCredit} resetCreditBusyAccountId={resetCreditBusyAccountId}
-        hotSwitchEnabled={hotSwitchEnabled} privacyMode={privacyMode} language={language} t={t} />
+        hotSwitchEnabled={hotSwitchEnabled} privacyMode={privacyMode} displayMode={displayMode} language={language} t={t} />
     </div>
   );
 }

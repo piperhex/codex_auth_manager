@@ -3,6 +3,7 @@ import { Button, Input, Popconfirm, Segmented, Select, Space, Switch, Table, Tag
 import type { ColumnsType } from "antd/es/table";
 import { Check, Pencil, Plus, RefreshCw, RotateCcw, Save, Server, Trash2, X } from "lucide-react";
 import { LocalProxyCard } from "../components/LocalProxyCard";
+import type { AccountDisplayMode } from "../hooks/useAccountDisplayMode";
 import type { Translate } from "../i18n";
 import type { AppInfo, LocalProxyStatus, Provider, ProviderApiFormat, ProviderInput } from "../types";
 
@@ -23,6 +24,7 @@ interface ProvidersPageProps {
   onStopProxy: () => void;
   onAutoSwitchChange: (enabled: boolean) => void;
   onAutoDisableUnreachableChange: (enabled: boolean) => void;
+  displayMode: AccountDisplayMode;
   t: Translate;
 }
 
@@ -208,6 +210,7 @@ export function ProvidersPage({
   onStopProxy,
   onAutoSwitchChange,
   onAutoDisableUnreachableChange,
+  displayMode,
   t,
 }: ProvidersPageProps) {
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
@@ -320,11 +323,49 @@ export function ProvidersPage({
         <Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>{t("providers.action.add")}</Button>
       </div>
 
-      {providers.length ? (
+      {providers.length ? displayMode === "table" ? (
         <div className="provider-table-wrap">
           <Table rowKey="id" size="small" columns={columns} dataSource={providers}
             rowClassName={(provider) => (provider.active ? "active-row" : "")}
             pagination={false} scroll={{ x: 1060 }} />
+        </div>
+      ) : (
+        <div className="provider-card-grid">
+          {providers.map((provider) => {
+            const waiting = busyProviderId === provider.id;
+            return <article key={provider.id} className={`provider-card${provider.active ? " active" : ""}${provider.supportsDirectSwitch ? " switchable" : ""}`}
+              onClick={(event) => {
+                if ((event.target as HTMLElement).closest("button, input, select, .ant-select")) return;
+                if (!provider.active && provider.supportsDirectSwitch) onSwitch(provider.id);
+              }}>
+              <div className="card-topline" />
+              <header className="provider-card-head">
+                <div className="provider-avatar"><Server size={18} /></div>
+                <div><strong>{provider.name}</strong><span title={provider.baseUrl}>{provider.baseUrl}</span></div>
+                {provider.active
+                  ? <Tag className="current-tag">{t("providers.status.current")}</Tag>
+                  : provider.supportsDirectSwitch ? <Tag>{t("providers.status.ready")}</Tag>
+                    : <Tag color="gold">{t("providers.status.bridgeRequired")}</Tag>}
+                <div className="provider-card-top-actions">
+                  <Popconfirm title={t("providers.delete.title")} description={t("providers.delete.description")}
+                    okText={t("providers.delete.ok")} cancelText={t("providers.delete.cancel")} okButtonProps={{ danger: true }}
+                    onConfirm={() => onDelete(provider.id)}>
+                    <Tooltip title={t("providers.tooltip.delete")}><Button danger size="small" className="table-icon-button"
+                      loading={waiting} icon={<Trash2 size={14} />} /></Tooltip>
+                  </Popconfirm>
+                  <Tooltip title={t("providers.tooltip.edit")}><Button size="small" className="table-icon-button"
+                    icon={<Pencil size={14} />} onClick={() => openEdit(provider)} /></Tooltip>
+                </div>
+              </header>
+              <div className="provider-card-details">
+                <div><span>{t("providers.table.model")}</span><ProviderModelCell provider={provider}
+                  busy={waiting} onSwitchModel={onSwitchModel} t={t} /></div>
+                <div><span>{t("providers.table.api")}</span>{apiFormatTag(provider, t)}</div>
+                <div><span>{t("providers.table.modelControl")}</span><ProviderModelControlCell provider={provider}
+                  busy={waiting} onModelControlChange={onModelControlChange} t={t} /></div>
+              </div>
+            </article>;
+          })}
         </div>
       ) : (
         <div className="provider-empty">

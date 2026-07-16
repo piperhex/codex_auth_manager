@@ -24,10 +24,11 @@ function tableResetLabel(timestamp: number | null | undefined, language: Languag
   return language === "zh" ? `${label}(倒计时：${countdown})` : `${label} (Countdown: ${countdown})`;
 }
 
-export function UsageMeter({ window: usageWindow, resetWindow, resetCreditsCount, language, t }: {
+export function UsageMeter({ window: usageWindow, resetWindow, resetCreditsCount, variant = "line", language, t }: {
   window?: UsageWindow | null;
   resetWindow: UsageResetWindow;
   resetCreditsCount?: number | null;
+  variant?: "line" | "circle";
   language: Language;
   t: Translate;
 }) {
@@ -44,6 +45,13 @@ export function UsageMeter({ window: usageWindow, resetWindow, resetCreditsCount
   if (!usageWindow) return <span className="usage-missing">--</span>;
   const remaining = Math.round(usageWindow.remainingPercent);
   const tone = remainingTone(remaining);
+  if (variant === "circle") return (
+    <div className={`table-usage card-usage-meter table-usage-${resetWindow}`}>
+      <Progress type="circle" percent={remaining} size={54} strokeWidth={10} strokeColor={usageStroke(remaining)}
+        format={() => <span className="card-usage-percent"><strong className={tone}>{remaining}%</strong><small>{t("usage.remaining")}</small></span>} />
+      <span className="card-usage-reset">{resetLabel(usageWindow.resetsAt, language, resetWindow)}</span>
+    </div>
+  );
   return (
     <div className={`table-usage table-usage-${resetWindow}`}>
       <div className="table-usage-head">

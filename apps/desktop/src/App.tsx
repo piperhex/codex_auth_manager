@@ -13,6 +13,7 @@ import { LoginModal } from "./components/modals/LoginModal";
 import { UpdateModal } from "./components/modals/UpdateModal";
 import { useAccountManager } from "./hooks/useAccountManager";
 import { useAccountAutoRefresh, useAutoRefresh } from "./hooks/useAutoRefresh";
+import { useAccountDisplayMode } from "./hooks/useAccountDisplayMode";
 import { useBubbleResetDisplay } from "./hooks/useBubbleResetDisplay";
 import { useCloudAuth } from "./hooks/useCloudAuth";
 import { useLanguage } from "./hooks/useLanguage";
@@ -72,6 +73,7 @@ function DashboardApp() {
   const floatingBubble = useFloatingBubble(notify);
   const bubbleResetDisplay = useBubbleResetDisplay(notify);
   const privacyMode = usePrivacyMode(notify);
+  const accountDisplayMode = useAccountDisplayMode();
   const themeColor = useThemeColor(notify);
   const manager = useAccountManager(notify, t, accountCloudSync);
   const providerManager = useProviderManager(notify, t, providerCloudSync);
@@ -423,6 +425,8 @@ function DashboardApp() {
               onBubbleResetDisplayChange={changeBubbleResetDisplay}
               privacyModeEnabled={privacyMode.enabled} privacyModeLoading={privacyMode.loading}
               onPrivacyModeChange={changePrivacyMode}
+              accountDisplayMode={accountDisplayMode.displayMode}
+              onAccountDisplayModeChange={accountDisplayMode.setDisplayMode}
               onOpenCodexHome={openCodexHome} onOpenAccountStore={openAccountStore} language={language}
               onExportLogs={() => void exportLogs()} exportingLogs={exportingLogs}
               onLanguageChange={setLanguage} t={t} />
@@ -436,7 +440,8 @@ function DashboardApp() {
               onModelControlChange={setProviderModelControl} onDelete={deleteProvider}
               onStartProxy={providerManager.startProxy} onStopProxy={providerManager.stopProxy}
               onAutoSwitchChange={providerManager.setProxyAutoSwitch}
-              onAutoDisableUnreachableChange={providerManager.setProxyAutoDisableUnreachable} t={t} />
+              onAutoDisableUnreachableChange={providerManager.setProxyAutoDisableUnreachable}
+              displayMode={accountDisplayMode.displayMode} t={t} />
           </section>
           <section className="page-panel accounts-page-panel" hidden={page !== "accounts"}>
             <MemoAccountsPage accounts={manager.accounts} loading={manager.loading}
@@ -456,6 +461,7 @@ function DashboardApp() {
               onAutoSwitchChange={providerManager.setProxyAutoSwitch}
               onAutoDisableUnreachableChange={providerManager.setProxyAutoDisableUnreachable}
               privacyMode={privacyMode.enabled}
+              displayMode={accountDisplayMode.displayMode}
               language={language} t={t} />
           </section>
         </main>
