@@ -81,7 +81,14 @@ fn exchange_code(client: &Client, port: u16, code: &str, verifier: &str) -> Resu
         .send()
         .map_err(|error| format!("登录凭据交换失败：{error}"))?;
     if !response.status().is_success() {
-        return Err(format!("登录凭据交换失败（HTTP {}）", response.status()));
+        let status = response.status();
+        if status == reqwest::StatusCode::FORBIDDEN {
+            return Err(
+                "登录请求被拒绝（HTTP 403）。请将代理切换为全局模式后重试，否则登录服务仍可能识别到当前网络来自不支持的地区。"
+                    .to_string(),
+            );
+        }
+        return Err(format!("登录凭据交换失败（HTTP {status}）"));
     }
     response
         .json()

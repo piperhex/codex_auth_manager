@@ -96,8 +96,12 @@ function resetCreditsCount(state?: ResetCreditsLoadState) {
   return state?.status === "loaded" ? state.data.credits.length : null;
 }
 
+function isAccountDisabled(account: Account, hotSwitchEnabled: boolean) {
+  return hotSwitchEnabled && !account.autoSwitchEnabled;
+}
+
 function needsAccountAttention(account: Account, hotSwitchEnabled: boolean) {
-  return Boolean(account.usage.error) || (hotSwitchEnabled && !account.autoSwitchEnabled);
+  return Boolean(account.usage.error) || isAccountDisabled(account, hotSwitchEnabled);
 }
 
 function compareKeepingAttentionLast(
@@ -335,9 +339,9 @@ export function AccountTable({
       {orderedAccounts.map((account) => {
         const waiting = busyAccountId === account.id;
         const resetWaiting = resetCreditBusyAccountId === account.id;
-        const needsAttention = needsAccountAttention(account, hotSwitchEnabled);
+        const isDisabled = isAccountDisabled(account, hotSwitchEnabled);
         return (
-          <article key={account.id} className={`account-card${account.active ? " active" : ""}${needsAttention ? " account-alert-card" : ""}`}
+          <article key={account.id} className={`account-card${account.active ? " active" : ""}${isDisabled ? " account-alert-card" : ""}`}
             onClick={(event) => {
               if ((event.target as HTMLElement).closest("button, a, input, textarea, summary, details, .account-note-trigger")) return;
               setContextMenu(null);
@@ -437,7 +441,7 @@ export function AccountTable({
         onChange={handleTableChange}
         rowClassName={(account) => [
           account.active ? "active-row" : "",
-          needsAccountAttention(account, hotSwitchEnabled) ? "account-alert-row" : "",
+          isAccountDisabled(account, hotSwitchEnabled) ? "account-alert-row" : "",
         ].filter(Boolean).join(" ")}
         onRow={(account) => ({
           title: t("note.doubleClick"),
