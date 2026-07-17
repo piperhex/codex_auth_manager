@@ -3,6 +3,7 @@ import { App as AntApp } from "antd";
 import { AccountDrawer } from "./components/accounts/AccountDrawer";
 import { AccountEditModal } from "./components/accounts/AccountEditModal";
 import { BatchBindSystemAccountsModal } from "./components/accounts/BatchBindSystemAccountsModal";
+import { OwnAccountEditModal } from "./components/accounts/OwnAccountEditModal";
 import { SystemAccountBindingModal } from "./components/accounts/SystemAccountBindingModal";
 import { SystemAccountModal } from "./components/accounts/SystemAccountModal";
 import { SystemAccountOAuthModal } from "./components/accounts/SystemAccountOAuthModal";
@@ -22,6 +23,7 @@ import { FeedbackPage } from "./pages/FeedbackPage";
 import { InvitationsPage } from "./pages/InvitationsPage";
 import { MyAccountsPage } from "./pages/MyAccountsPage";
 import { OfficialAccountsPage } from "./pages/OfficialAccountsPage";
+import { TelemetryPage } from "./pages/TelemetryPage";
 import { UsersPage } from "./pages/UsersPage";
 import type {
   ApprovalRequest,
@@ -30,12 +32,16 @@ import type {
   AuthTokens,
   Invitation,
   FeedbackRow,
+  DeviceInstallation,
   MenuKey,
   PageResult,
   Profile,
   SyncAccount,
   SyncProvider,
   SystemAccount,
+  TelemetryEvent,
+  TelemetryFilters,
+  TelemetryOverview,
   UserFilters,
   UserRow,
 } from "./types";
@@ -52,12 +58,22 @@ const emptyAuditLogs: PageResult<AuditLog> = { items: [], total: 0, page: 1, pag
 const emptyInvitations: PageResult<Invitation> = { items: [], total: 0, page: 1, pageSize: 20 };
 const emptyApprovals: PageResult<ApprovalRequest> = { items: [], total: 0, page: 1, pageSize: 20 };
 const emptyFeedback: PageResult<FeedbackRow> = { items: [], total: 0, page: 1, pageSize: 20 };
+const emptyInstallations: PageResult<DeviceInstallation> = { items: [], total: 0, page: 1, pageSize: 20 };
+const emptyTelemetryEvents: PageResult<TelemetryEvent> = { items: [], total: 0, page: 1, pageSize: 20 };
 const emptySystemAccounts: PageResult<SystemAccount> = { items: [], total: 0, page: 1, pageSize: 20 };
+const emptyTelemetryOverview: TelemetryOverview = {
+  totalInstallations: 0,
+  installationsLast30Days: 0,
+  totalEvents: 0,
+  eventsLast30Days: 0,
+  platforms: { windows: 0, macos: 0, linux: 0 },
+};
 const emptyAnnouncement: AnnouncementConfig = {
   content: "",
   enabled: false,
   textColor: "#C4D7C8",
   backgroundColor: "#203128",
+  scrollDurationSeconds: 22,
   updatedAt: null,
 };
 
@@ -71,6 +87,7 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
   ));
   const [ownAccounts, setOwnAccounts] = useState<SyncAccount[]>([]);
   const [ownAccountsLoading, setOwnAccountsLoading] = useState(false);
+  const [editingOwnAccount, setEditingOwnAccount] = useState<SyncAccount | null>(null);
   const [users, setUsers] = useState<PageResult<UserRow>>(emptyUsers);
   const [userFilters, setUserFilters] = useState<UserFilters>({});
   const [usersLoading, setUsersLoading] = useState(false);
@@ -82,6 +99,14 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
   const [auditLoading, setAuditLoading] = useState(false);
   const [feedback, setFeedback] = useState<PageResult<FeedbackRow>>(emptyFeedback);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [telemetryOverview, setTelemetryOverview] = useState<TelemetryOverview>(emptyTelemetryOverview);
+  const [telemetryOverviewLoading, setTelemetryOverviewLoading] = useState(false);
+  const [installations, setInstallations] = useState<PageResult<DeviceInstallation>>(emptyInstallations);
+  const [installationsLoading, setInstallationsLoading] = useState(false);
+  const [installationFilters, setInstallationFilters] = useState<TelemetryFilters>({});
+  const [telemetryEvents, setTelemetryEvents] = useState<PageResult<TelemetryEvent>>(emptyTelemetryEvents);
+  const [telemetryEventsLoading, setTelemetryEventsLoading] = useState(false);
+  const [telemetryEventFilters, setTelemetryEventFilters] = useState<TelemetryFilters>({});
   const [invitations, setInvitations] = useState<PageResult<Invitation>>(emptyInvitations);
   const [invitationLoading, setInvitationLoading] = useState(false);
   const [approvals, setApprovals] = useState<PageResult<ApprovalRequest>>(emptyApprovals);
@@ -101,6 +126,7 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
   const [providersLoading, setProvidersLoading] = useState(false);
   const [editingAccount, setEditingAccount] = useState<SyncAccount | null>(null);
   const [systemAccountModalOpen, setSystemAccountModalOpen] = useState(false);
+  const [systemAccountCompatibleImport, setSystemAccountCompatibleImport] = useState(false);
   const [systemAccountOAuthOpen, setSystemAccountOAuthOpen] = useState(false);
   const [editingSystemAccount, setEditingSystemAccount] = useState<SystemAccount | null>(null);
   const [bindingSystemAccount, setBindingSystemAccount] = useState<SystemAccount | null>(null);
@@ -209,6 +235,55 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
     }
   }, [api, loadFeedback, message, t]);
 
+  const loadTelemetryOverview = useCallback(async () => {
+    setTelemetryOverviewLoading(true);
+    try {
+      setTelemetryOverview(await api<TelemetryOverview>("/admin/api/telemetry/overview"));
+    } catch (error) {
+      message.error((error as Error).message);
+    } finally {
+      setTelemetryOverviewLoading(false);
+    }
+  }, [api, message]);
+
+  const loadInstallations = useCallback(async (
+    page = installations.page,
+    pageSize = installations.pageSize,
+  ) => {
+    setInstallationsLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+      if (installationFilters.search?.trim()) params.set("search", installationFilters.search.trim());
+      if (installationFilters.platform) params.set("platform", installationFilters.platform);
+      setInstallations(await api<PageResult<DeviceInstallation>>(
+        `/admin/api/telemetry/installations?${params}`,
+      ));
+    } catch (error) {
+      message.error((error as Error).message);
+    } finally {
+      setInstallationsLoading(false);
+    }
+  }, [api, installationFilters, installations.page, installations.pageSize, message]);
+
+  const loadTelemetryEvents = useCallback(async (
+    page = telemetryEvents.page,
+    pageSize = telemetryEvents.pageSize,
+  ) => {
+    setTelemetryEventsLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+      if (telemetryEventFilters.search?.trim()) params.set("search", telemetryEventFilters.search.trim());
+      if (telemetryEventFilters.platform) params.set("platform", telemetryEventFilters.platform);
+      setTelemetryEvents(await api<PageResult<TelemetryEvent>>(
+        `/admin/api/telemetry/events?${params}`,
+      ));
+    } catch (error) {
+      message.error((error as Error).message);
+    } finally {
+      setTelemetryEventsLoading(false);
+    }
+  }, [api, message, telemetryEventFilters, telemetryEvents.page, telemetryEvents.pageSize]);
+
   const loadSystemAccounts = useCallback(async (
     page = systemAccounts.page,
     pageSize = systemAccounts.pageSize,
@@ -259,7 +334,10 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
   }, [api, message]);
 
   const saveAnnouncement = useCallback(async (
-    next: Pick<AnnouncementConfig, "content" | "enabled" | "textColor" | "backgroundColor">,
+    next: Pick<
+      AnnouncementConfig,
+      "content" | "enabled" | "textColor" | "backgroundColor" | "scrollDurationSeconds"
+    >,
   ) => {
     setAnnouncementSaving(true);
     try {
@@ -327,6 +405,13 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
     loadUsers,
     profile,
   ]);
+
+  useEffect(() => {
+    if (!auth?.accessToken || !profile || activeKey !== "telemetry") return;
+    void loadTelemetryOverview();
+    void loadInstallations();
+    void loadTelemetryEvents();
+  }, [activeKey, auth?.accessToken, profile]);
 
   if (!auth?.accessToken) {
     return <LoginView onAuth={saveAuth} />;
@@ -411,6 +496,7 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
         <MyAccountsPage
           accounts={ownAccounts}
           loading={ownAccountsLoading}
+          onEdit={setEditingOwnAccount}
           onRefresh={loadOwnAccounts}
         />
       );
@@ -426,11 +512,18 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
           onLoadAccounts={loadSystemAccounts}
           onCreate={() => {
             setEditingSystemAccount(null);
+            setSystemAccountCompatibleImport(false);
+            setSystemAccountModalOpen(true);
+          }}
+          onCompatibleCreate={() => {
+            setEditingSystemAccount(null);
+            setSystemAccountCompatibleImport(true);
             setSystemAccountModalOpen(true);
           }}
           onOAuthCreate={() => setSystemAccountOAuthOpen(true)}
           onEdit={(account) => {
             setEditingSystemAccount(account);
+            setSystemAccountCompatibleImport(false);
             setSystemAccountModalOpen(true);
           }}
           onBind={(account) => void openSystemAccountBindings(account)}
@@ -470,6 +563,26 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
           onLoad={loadFeedback}
           onLoadAttachment={loadFeedbackAttachment}
           onSendEmail={sendFeedbackEmail}
+        />
+      );
+    }
+
+    if (activeKey === "telemetry") {
+      return (
+        <TelemetryPage
+          overview={telemetryOverview}
+          installations={installations}
+          events={telemetryEvents}
+          overviewLoading={telemetryOverviewLoading}
+          installationsLoading={installationsLoading}
+          eventsLoading={telemetryEventsLoading}
+          installationFilters={installationFilters}
+          eventFilters={telemetryEventFilters}
+          onInstallationFiltersChange={setInstallationFilters}
+          onEventFiltersChange={setTelemetryEventFilters}
+          onLoadOverview={loadTelemetryOverview}
+          onLoadInstallations={loadInstallations}
+          onLoadEvents={loadTelemetryEvents}
         />
       );
     }
@@ -594,6 +707,21 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
           setAccounts([]);
           setProviders([]);
         }}
+        onAddToPool={(account) => {
+          if (!accountUser) return;
+          modal.confirm({
+            title: t("accounts.addToPoolTitle"),
+            content: t("accounts.addToPoolDescription", { email: account.email }),
+            onOk: async () => {
+              await api(
+                `/admin/api/users/${accountUser.id}/accounts/${encodeURIComponent(account.id)}/add-to-pool`,
+                { method: "POST" },
+              );
+              message.success(t("accounts.addedToPool"));
+              await loadSystemAccounts(1);
+            },
+          });
+        }}
         onEditAccount={setEditingAccount}
         onDeleteAccount={(account) => {
           if (!accountUser) return;
@@ -628,6 +756,12 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
           });
         }}
       />
+      <OwnAccountEditModal
+        account={editingOwnAccount}
+        api={api}
+        onClose={() => setEditingOwnAccount(null)}
+        onSaved={loadOwnAccounts}
+      />
       <AccountEditModal
         api={api}
         user={accountUser}
@@ -638,10 +772,12 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
       <SystemAccountModal
         open={systemAccountModalOpen}
         account={editingSystemAccount}
+        compatible={systemAccountCompatibleImport}
         api={api}
         onClose={() => {
           setSystemAccountModalOpen(false);
           setEditingSystemAccount(null);
+          setSystemAccountCompatibleImport(false);
         }}
         onSaved={loadSystemAccounts}
       />

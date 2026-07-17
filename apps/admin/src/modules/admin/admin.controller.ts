@@ -19,6 +19,7 @@ import { Permission } from '@/common/rbac/permissions';
 import { JwtAuthGuard } from '@/modules/jwt/jwt-auth.guard';
 import { AdminService } from './admin.service';
 import { OfficialAccountOAuthService } from './official-account-oauth.service';
+import { OfficialAccountImportService } from './official-account-import.service';
 import {
   ChangeAdminPasswordDto,
   CreateAdminUserDto,
@@ -29,12 +30,14 @@ import {
   CreateApprovalRequestDto,
   ChangeSystemAccountBindingsDto,
   CreateSystemAccountDto,
+  ImportSystemAccountsDto,
   CreateInvitationDto,
   ListAuditLogsQueryDto,
   ListSystemAccountsQueryDto,
   PageQueryDto,
   ReviewApprovalRequestDto,
   UpdateAdminSyncedAccountDto,
+  UpdateOwnSyncedAccountDto,
   UpdateSystemAccountDto,
 } from './dto/admin-management.dto';
 
@@ -43,6 +46,7 @@ export class AdminController {
   constructor(
     private readonly admin: AdminService,
     private readonly officialAccountOAuth: OfficialAccountOAuthService,
+    private readonly officialAccountImport: OfficialAccountImportService,
   ) {}
 
   @Get()
@@ -102,6 +106,17 @@ export class AdminController {
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(Permission.SelfAccountsWrite)
+  @Patch('api/profile/accounts/:accountId')
+  updateOwnAccount(
+    @CurrentUser() user: AuthUser,
+    @Param('accountId') accountId: string,
+    @Body() dto: UpdateOwnSyncedAccountDto,
+  ) {
+    return this.admin.updateOwnAccount(user, accountId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermissions(Permission.UsersRead)
   @Get('api/users/:id/accounts')
   listUserAccounts(@Param('id') id: string) {
@@ -113,6 +128,17 @@ export class AdminController {
   @Get('api/users/:id/providers')
   listUserProviders(@Param('id') id: string) {
     return this.admin.listUserProviders(id);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(Permission.UsersRead, Permission.OfficialAccountsManage)
+  @Post('api/users/:id/accounts/:accountId/add-to-pool')
+  addUserAccountToSystemPool(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('accountId') accountId: string,
+  ) {
+    return this.admin.addUserAccountToSystemPool(user, id, accountId);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -150,6 +176,13 @@ export class AdminController {
   @Post('api/official-accounts')
   createSystemAccount(@CurrentUser() user: AuthUser, @Body() dto: CreateSystemAccountDto) {
     return this.admin.createSystemAccount(user, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(Permission.OfficialAccountsManage)
+  @Post('api/official-accounts/import')
+  importSystemAccounts(@CurrentUser() user: AuthUser, @Body() dto: ImportSystemAccountsDto) {
+    return this.officialAccountImport.import(user, dto);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)

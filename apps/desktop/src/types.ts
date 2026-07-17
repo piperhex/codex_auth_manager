@@ -148,6 +148,7 @@ export interface CloudAnnouncement {
   enabled: boolean;
   textColor: string;
   backgroundColor: string;
+  scrollDurationSeconds: number;
   updatedAt?: string | null;
 }
 

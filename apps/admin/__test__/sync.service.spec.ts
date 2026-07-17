@@ -341,6 +341,55 @@ describe('SyncService', () => {
     expect(systemAccounts.create).toHaveBeenCalledWith(expect.objectContaining({ auth }));
   });
 
+  it('copies a personal synced account into the official account pool without changing the source', async () => {
+    const claims = {
+      email: 'personal@example.com',
+      sub: 'chatgpt-user-2',
+      'https://api.openai.com/auth': { chatgpt_plan_type: 'pro' },
+    };
+    const token = `e30.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.sig`;
+    const auth = { tokens: { id_token: token, access_token: token, refresh_token: 'secret' } };
+    accounts.findOne.mockResolvedValue({
+      ownerId: 'owner-1',
+      accountId: 'personal-account-1',
+      email: 'personal@example.com',
+      note: 'source note',
+      expiresAt: '2026-08-01',
+      plan: 'pro',
+      codexAccountId: null,
+      active: true,
+      usage: { primary: { remainingPercent: 80 } },
+      auth,
+    });
+    systemAccounts.findOne.mockResolvedValue(null);
+    systemAccounts.save.mockImplementationOnce(async (value) => ({
+      id: '10000000-0000-4000-8000-000000000002',
+      createdAt: new Date('2026-07-18T00:00:00.000Z'),
+      updatedAt: new Date('2026-07-18T00:00:00.000Z'),
+      bindings: [],
+      ...value,
+    }));
+
+    await expect(service.createSystemAccountFromPersonal('owner-1', 'personal-account-1'))
+      .resolves.toMatchObject({
+        email: 'personal@example.com',
+        note: 'source note',
+        expiresAt: '2026-08-01',
+        usage: { primary: { remainingPercent: 80 } },
+      });
+
+    expect(accounts.findOne).toHaveBeenCalledWith({
+      where: { ownerId: 'owner-1', accountId: 'personal-account-1' },
+    });
+    expect(systemAccounts.create).toHaveBeenCalledWith(expect.objectContaining({
+      auth,
+      note: 'source note',
+      expiresAt: '2026-08-01',
+    }));
+    expect(accounts.save).not.toHaveBeenCalled();
+    expect(accounts.delete).not.toHaveBeenCalled();
+  });
+
   it('bulk binds pool accounts idempotently and invalidates every affected user cache', async () => {
     const accountId = '10000000-0000-4000-8000-000000000001';
     const userIds = ['20000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000002'];

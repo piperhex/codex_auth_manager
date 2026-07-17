@@ -22,7 +22,8 @@ describe('AdminService', () => {
     delete: ReturnType<typeof vi.fn>; listProviders: ReturnType<typeof vi.fn>;
     listForAdmin: ReturnType<typeof vi.fn>; listSystemAccounts: ReturnType<typeof vi.fn>;
     listForPortal: ReturnType<typeof vi.fn>;
-    createSystemAccount: ReturnType<typeof vi.fn>; updateSystemAccount: ReturnType<typeof vi.fn>;
+    createSystemAccount: ReturnType<typeof vi.fn>; createSystemAccountFromPersonal: ReturnType<typeof vi.fn>;
+    updateSystemAccount: ReturnType<typeof vi.fn>;
     deleteSystemAccount: ReturnType<typeof vi.fn>; listSystemAccountBindingIds: ReturnType<typeof vi.fn>;
     bindSystemAccounts: ReturnType<typeof vi.fn>; unbindSystemAccounts: ReturnType<typeof vi.fn>;
   };
@@ -47,6 +48,7 @@ describe('AdminService', () => {
     sync = {
       list: vi.fn(), updateForAdmin: vi.fn(), delete: vi.fn(), listProviders: vi.fn(),
       listForAdmin: vi.fn(), listSystemAccounts: vi.fn(), createSystemAccount: vi.fn(),
+      createSystemAccountFromPersonal: vi.fn(),
       listForPortal: vi.fn(),
       updateSystemAccount: vi.fn(), deleteSystemAccount: vi.fn(),
       listSystemAccountBindingIds: vi.fn(), bindSystemAccounts: vi.fn(),
@@ -176,6 +178,49 @@ describe('AdminService', () => {
 
     await expect(service.listOwnAccounts(actor)).resolves.toBe(result);
     expect(sync.listForPortal).toHaveBeenCalledWith(actor.id);
+  });
+
+  it('updates current-user account metadata and records an audit log', async () => {
+    const account = { id: 'account-1', email: 'self@example.com' };
+    const dto = { note: 'Personal note', expiresAt: '2026-07-31' };
+    sync.updateForAdmin.mockResolvedValue(account);
+
+    await expect(service.updateOwnAccount(actor, account.id, dto)).resolves.toBe(account);
+
+    expect(sync.updateForAdmin).toHaveBeenCalledWith(actor.id, account.id, dto);
+    expect(auditLogs.save).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'sync-account.update',
+      targetId: account.id,
+      metadata: { ownerId: actor.id, fields: ['note', 'expiresAt'] },
+    }));
+  });
+
+  it('adds an existing user account to the official pool and records its source', async () => {
+    const owner = makeUser({ id: 'owner-1', email: 'owner@example.com' });
+    const pooled = {
+      id: 'system-account-1',
+      syncAccountId: 'sync-account-1',
+      email: 'official@example.com',
+    };
+    users.findById.mockResolvedValue(owner);
+    sync.createSystemAccountFromPersonal.mockResolvedValue(pooled);
+
+    await expect(service.addUserAccountToSystemPool(actor, owner.id, 'personal-account-1'))
+      .resolves.toBe(pooled);
+
+    expect(sync.createSystemAccountFromPersonal)
+      .toHaveBeenCalledWith(owner.id, 'personal-account-1');
+    expect(auditLogs.save).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'official-account.create-from-user',
+      targetId: pooled.id,
+      targetEmail: pooled.email,
+      metadata: {
+        syncAccountId: pooled.syncAccountId,
+        sourceOwnerId: owner.id,
+        sourceOwnerEmail: owner.email,
+        sourceAccountId: 'personal-account-1',
+      },
+    }));
   });
 
   it('validates target users, binds official pool accounts, and records an audit log', async () => {

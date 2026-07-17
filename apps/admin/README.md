@@ -34,8 +34,9 @@ The data remains in this directory after `docker compose down` or `docker compos
 If production uses `POSTGRES_DB_SYNCHRONIZE=false`, apply `sql/20260704-admin-management.sql`,
 `sql/20260705-sync-last-modified.sql`, `sql/20260707-sync-providers.sql`,
 `sql/20260714-system-account-pool.sql`, `sql/20260717-invitation-policies.sql`,
-`sql/20260717-app-announcements.sql`, `sql/20260717-device-installations.sql`, and
-`sql/20260718-user-feedback.sql` before using the expanded admin console, provider sync,
+`sql/20260717-app-announcements.sql`, `sql/20260717-device-installations.sql`,
+`sql/20260718-announcement-scroll-speed.sql`, and `sql/20260718-user-feedback.sql` before using
+the expanded admin console, provider sync,
 official account pool, reusable invitations, announcements, telemetry, and feedback management.
 
 ## Docker Troubleshooting
@@ -144,7 +145,7 @@ Desktop synchronization uploads complete account `auth` payloads and Provider AP
 
 The mobile client uses `GET /sync/accounts/summary`, which removes `auth` from every account. It reads the latest data synchronized by a desktop client and does not contact Codex APIs itself.
 
-Admins can add credentials to the official account pool and bind one or more pool entries to users. Bound entries are merged into the user's effective `/sync/accounts` list. A bound official entry wins over a personal entry with the same stable sync ID; user-side updates and deletes do not modify the official copy. Edit, unbind, or delete those entries through the official-account admin APIs. All pool mutations and binding changes are written to the admin audit log.
+Admins can add credentials to the official account pool and bind one or more pool entries to users. The admin console accepts a selected file or pasted content for both standard `auth.json` and compatible imports. Compatible import supports a single object, an array, an `accounts` wrapper, newline-delimited JSON, common token aliases, and nested session exports. Bound entries are merged into the user's effective `/sync/accounts` list. A bound official entry wins over a personal entry with the same stable sync ID; user-side updates and deletes do not modify the official copy. Edit, unbind, or delete those entries through the official-account admin APIs. All pool mutations and binding changes are written to the admin audit log.
 
 The admin console can also add an official account through Codex OAuth. It uses the official device authorization flow because the Codex CLI browser flow only permits its localhost callback ports. The one-time OAuth session is scoped to the authenticated administrator, stored in Redis for 15 minutes, and never exposes exchanged tokens to the browser. Keep `CODEX_OAUTH_ISSUER` at its default unless you operate a compatible trusted authorization service.
 
@@ -196,11 +197,13 @@ with user creation so concurrent registrations cannot exceed the configured limi
 - `PATCH /admin/api/profile/password`
 - `GET /admin/api/profile/accounts`
 - `GET /admin/api/users/:id/accounts`
+- `POST /admin/api/users/:id/accounts/:accountId/add-to-pool`
 - `GET /admin/api/users/:id/providers`
 - `PATCH /admin/api/users/:id/accounts/:accountId`
 - `DELETE /admin/api/users/:id/accounts/:accountId`
 - `GET /admin/api/official-accounts`
 - `POST /admin/api/official-accounts`
+- `POST /admin/api/official-accounts/import`
 - `POST /admin/api/official-accounts/oauth/start`
 - `POST /admin/api/official-accounts/oauth/:sessionId/poll`
 - `PATCH /admin/api/official-accounts/:id`

@@ -13,11 +13,13 @@ export interface AnnouncementResponse {
   enabled: boolean;
   textColor: string;
   backgroundColor: string;
+  scrollDurationSeconds: number;
   updatedAt: string | null;
 }
 
 const DEFAULT_TEXT_COLOR = '#C4D7C8';
 const DEFAULT_BACKGROUND_COLOR = '#203128';
+const DEFAULT_SCROLL_DURATION_SECONDS = 22;
 
 @Injectable()
 export class AnnouncementService {
@@ -36,6 +38,8 @@ export class AnnouncementService {
       enabled,
       textColor: announcement?.textColor ?? DEFAULT_TEXT_COLOR,
       backgroundColor: announcement?.backgroundColor ?? DEFAULT_BACKGROUND_COLOR,
+      scrollDurationSeconds: announcement?.scrollDurationSeconds
+        ?? DEFAULT_SCROLL_DURATION_SECONDS,
       updatedAt: announcement?.updatedAt?.toISOString() ?? null,
     };
   }
@@ -47,6 +51,8 @@ export class AnnouncementService {
       enabled: announcement?.enabled ?? false,
       textColor: announcement?.textColor ?? DEFAULT_TEXT_COLOR,
       backgroundColor: announcement?.backgroundColor ?? DEFAULT_BACKGROUND_COLOR,
+      scrollDurationSeconds: announcement?.scrollDurationSeconds
+        ?? DEFAULT_SCROLL_DURATION_SECONDS,
       updatedAt: announcement?.updatedAt?.toISOString() ?? null,
     };
   }
@@ -63,6 +69,7 @@ export class AnnouncementService {
     announcement.enabled = dto.enabled;
     announcement.textColor = dto.textColor.toUpperCase();
     announcement.backgroundColor = dto.backgroundColor.toUpperCase();
+    announcement.scrollDurationSeconds = dto.scrollDurationSeconds;
     announcement.updatedById = actor.id;
     announcement.updatedByEmail = actor.email;
     const saved = await this.announcements.save(announcement);
@@ -73,7 +80,10 @@ export class AnnouncementService {
       action: 'announcement.update',
       targetType: 'announcement',
       targetId: CURRENT_ANNOUNCEMENT_ID,
-      metadata: { enabled: saved.enabled },
+      metadata: {
+        enabled: saved.enabled,
+        scrollDurationSeconds: saved.scrollDurationSeconds,
+      },
     }));
 
     return {
@@ -81,6 +91,7 @@ export class AnnouncementService {
       enabled: saved.enabled,
       textColor: saved.textColor,
       backgroundColor: saved.backgroundColor,
+      scrollDurationSeconds: saved.scrollDurationSeconds,
       updatedAt: saved.updatedAt.toISOString(),
     };
   }

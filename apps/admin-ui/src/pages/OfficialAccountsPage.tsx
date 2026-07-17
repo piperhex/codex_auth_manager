@@ -1,6 +1,6 @@
 import { Badge, Button, Input, Table, Tag, Tooltip, Typography } from "antd";
 import type { TableColumnsType, TablePaginationConfig } from "antd";
-import { Edit3, Link2, LogIn, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { Edit3, Files, Link2, LogIn, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { useI18n } from "../i18n-context";
 import type { PageResult, SystemAccount } from "../types";
 import { formatDate } from "../utils/format";
@@ -12,6 +12,7 @@ interface OfficialAccountsPageProps {
   onSearchChange: (value: string) => void;
   onLoadAccounts: (page?: number, pageSize?: number) => void | Promise<void>;
   onCreate: () => void;
+  onCompatibleCreate: () => void;
   onOAuthCreate: () => void;
   onEdit: (account: SystemAccount) => void;
   onBind: (account: SystemAccount) => void;
@@ -24,6 +25,7 @@ export function OfficialAccountsPage({
   search,
   onBind,
   onCreate,
+  onCompatibleCreate,
   onOAuthCreate,
   onDelete,
   onEdit,
@@ -101,6 +103,9 @@ export function OfficialAccountsPage({
           <Button icon={<RefreshCw size={15} />} onClick={() => onLoadAccounts()}>{t("common.refresh")}</Button>
           <Button icon={<Plus size={15} />} onClick={onCreate}>
             {t("officialAccounts.createWithAuthJson")}
+          </Button>
+          <Button icon={<Files size={15} />} onClick={onCompatibleCreate}>
+            {t("officialAccounts.compatibleImport")}
           </Button>
           <Button type="primary" icon={<LogIn size={15} />} onClick={onOAuthCreate}>
             {t("officialAccounts.oauthCreate")}

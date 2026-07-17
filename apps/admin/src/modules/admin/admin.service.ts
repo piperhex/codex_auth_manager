@@ -23,6 +23,7 @@ import type {
   PageQueryDto,
   ReviewApprovalRequestDto,
   UpdateAdminSyncedAccountDto,
+  UpdateOwnSyncedAccountDto,
   UpdateSystemAccountDto,
 } from './dto/admin-management.dto';
 import { AdminApprovalRequestEntity } from './entities/admin-approval-request.entity';
@@ -88,6 +89,19 @@ export class AdminService {
     return this.sync.listForPortal(actor.id);
   }
 
+  async updateOwnAccount(
+    actor: AuthUser,
+    accountId: string,
+    dto: UpdateOwnSyncedAccountDto,
+  ) {
+    const account = await this.sync.updateForAdmin(actor.id, accountId, dto);
+    await this.record(actor, 'sync-account.update', 'sync-account', accountId, account.email, {
+      ownerId: actor.id,
+      fields: Object.keys(dto),
+    });
+    return account;
+  }
+
   async listUserAccounts(ownerId: string) {
     await this.ensureUser(ownerId);
     return this.sync.listForAdmin(ownerId);
@@ -132,6 +146,18 @@ export class AdminService {
     const account = await this.sync.createSystemAccount(dto);
     await this.record(actor, 'official-account.create', 'official-account', account.id, account.email, {
       syncAccountId: account.syncAccountId,
+    });
+    return account;
+  }
+
+  async addUserAccountToSystemPool(actor: AuthUser, ownerId: string, accountId: string) {
+    const owner = await this.ensureUser(ownerId);
+    const account = await this.sync.createSystemAccountFromPersonal(ownerId, accountId);
+    await this.record(actor, 'official-account.create-from-user', 'official-account', account.id, account.email, {
+      syncAccountId: account.syncAccountId,
+      sourceOwnerId: owner.id,
+      sourceOwnerEmail: owner.email,
+      sourceAccountId: accountId,
     });
     return account;
   }

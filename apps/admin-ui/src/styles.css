@@ -221,6 +221,14 @@ body {
   background: rgba(15, 23, 42, 0.08);
 }
 
+.telemetry-panel {
+  padding: 0 16px;
+}
+
+.telemetry-table-toolbar {
+  margin: 0 0 12px;
+}
+
 .announcement-config-panel {
   max-width: 920px;
   padding: 22px;
@@ -246,7 +254,7 @@ body {
   align-items: center;
   gap: 9px;
   white-space: nowrap;
-  animation: admin-announcement-scroll 18s linear infinite;
+  animation: admin-announcement-scroll 22s linear infinite;
 }
 
 .announcement-preview-track svg {

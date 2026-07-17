@@ -422,6 +422,7 @@ export async function fetchCloudAnnouncement(): Promise<CloudAnnouncement> {
     enabled: false,
     textColor: "#C4D7C8",
     backgroundColor: "#203128",
+    scrollDurationSeconds: 22,
     updatedAt: null,
   };
   const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/announcements/current`, {

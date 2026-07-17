@@ -12,6 +12,11 @@ CREATE TABLE IF NOT EXISTS device_telemetry_events (
   "createdAt" timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS "IDX_device_installations_firstSeenAt"
+  ON device_installations ("firstSeenAt" DESC);
+CREATE INDEX IF NOT EXISTS "IDX_device_installations_platform_firstSeenAt"
+  ON device_installations ("platform", "firstSeenAt" DESC);
+
 CREATE INDEX IF NOT EXISTS "IDX_device_telemetry_events_deviceId_createdAt"
   ON device_telemetry_events ("deviceId", "createdAt");
 CREATE INDEX IF NOT EXISTS "IDX_device_telemetry_events_eventType_createdAt"

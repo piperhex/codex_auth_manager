@@ -3,6 +3,7 @@ import { HttpException, ServiceUnavailableException } from '@nestjs/common';
 import type Redis from 'ioredis';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  buildVerificationEmail,
   EmailVerificationService,
   REGISTRATION_CODE_TTL_SECONDS,
 } from '@/modules/auth/email-verification.service';
@@ -69,8 +70,9 @@ describe('EmailVerificationService', () => {
     expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({
       from: config.mail__from,
       to: 'user@example.com',
-      subject: expect.stringContaining('验证码'),
+      subject: expect.stringMatching(/^\d{6} 是你的 Codex Switch 注册验证码$/),
       text: expect.stringMatching(/\b\d{6}\b/),
+      html: expect.stringContaining('class="code-box"'),
     }));
   });
 
@@ -90,8 +92,25 @@ describe('EmailVerificationService', () => {
       300,
     );
     expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({
-      subject: expect.stringContaining('密码重置验证码'),
+      subject: expect.stringMatching(/^\d{6} 是你的 Codex Switch 密码重置验证码$/),
+      html: expect.stringContaining('重置密码'),
     }));
+  });
+
+  it('builds the mobile-friendly verification email layout with request details', () => {
+    const message = buildVerificationEmail(
+      '090277',
+      'registration',
+      new Date('2026-07-09T02:22:00Z'),
+    );
+
+    expect(message.subject).toBe('090277 是你的 Codex Switch 注册验证码');
+    expect(message.text).toContain('09 Jul 2026, 02:22 UTC');
+    expect(message.html).toContain('<html lang="zh-CN">');
+    expect(message.html).toContain('width="620"');
+    expect(message.html).toContain('090277');
+    expect(message.html).toContain('用途：');
+    expect(message.html).toContain('有效期：');
   });
 
   it('atomically consumes a matching code and rejects a wrong code', async () => {

@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from "react";
 import { Avatar, Button, Dropdown, Layout, Menu, Segmented, Space, Tooltip, Typography } from "antd";
 import type { MenuProps } from "antd";
 import {
+  Activity,
   FileClock,
   BadgeCheck,
   BellRing,
@@ -39,6 +40,7 @@ const menuLabelKeys: Record<MenuKey, TranslationKey> = {
   officialAccounts: "nav.officialAccounts",
   announcement: "nav.announcement",
   feedback: "nav.feedback",
+  telemetry: "nav.telemetry",
   audit: "nav.audit",
   invitations: "nav.invitations",
   approvals: "nav.approvals",
@@ -50,6 +52,7 @@ const menuPermissions: Record<MenuKey, Permission> = {
   officialAccounts: "admin.official-accounts.read",
   announcement: "admin.announcements.read",
   feedback: "admin.feedback.read",
+  telemetry: "admin.telemetry.read",
   audit: "admin.audit-logs.read",
   invitations: "admin.invitations.read",
   approvals: "admin.approvals.read",
@@ -75,6 +78,7 @@ export function AdminShell({
       { key: "officialAccounts" as const, icon: <BadgeCheck size={17} />, label: t("nav.officialAccounts") },
       { key: "announcement" as const, icon: <BellRing size={17} />, label: t("nav.announcement") },
       { key: "feedback" as const, icon: <MessageSquareText size={17} />, label: t("nav.feedback") },
+      { key: "telemetry" as const, icon: <Activity size={17} />, label: t("nav.telemetry") },
       { key: "audit" as const, icon: <FileClock size={17} />, label: t("nav.audit") },
       { key: "invitations" as const, icon: <MailPlus size={17} />, label: t("nav.invitations") },
       { key: "approvals" as const, icon: <GitPullRequest size={17} />, label: t("nav.approvals") },

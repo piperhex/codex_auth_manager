@@ -1,4 +1,12 @@
-import { IsBoolean, IsString, Matches, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsInt,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class UpdateAnnouncementDto {
   @IsString()
@@ -15,4 +23,9 @@ export class UpdateAnnouncementDto {
   @IsString()
   @Matches(/^#[0-9a-fA-F]{6}$/)
   backgroundColor: string;
+
+  @IsInt()
+  @Min(5)
+  @Max(120)
+  scrollDurationSeconds: number;
 }

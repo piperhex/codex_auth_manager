@@ -6,6 +6,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
@@ -67,6 +68,23 @@ export class CreateSystemAccountDto {
   @IsOptional()
   @IsObject()
   usage?: Record<string, unknown>;
+}
+
+export class ImportSystemAccountsDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(5 * 1024 * 1024)
+  content: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  note?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  expiresAt?: string;
 }
 
 export class UpdateSystemAccountDto {
@@ -150,6 +168,18 @@ export class ReviewApprovalRequestDto {
   @IsString()
   @MaxLength(500)
   comment?: string;
+}
+
+export class UpdateOwnSyncedAccountDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  note?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  expiresAt?: string;
 }
 
 export class UpdateAdminSyncedAccountDto {

@@ -19,6 +19,7 @@ export enum Permission {
   AnnouncementsManage = 'admin.announcements.manage',
   FeedbackRead = 'admin.feedback.read',
   FeedbackManage = 'admin.feedback.manage',
+  TelemetryRead = 'admin.telemetry.read',
 }
 
 const userPermissions = [

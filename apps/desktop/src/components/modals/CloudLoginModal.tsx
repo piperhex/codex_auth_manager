@@ -25,6 +25,7 @@ export function CloudLoginModal({
   const [password, setPassword] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [codeCooldown, setCodeCooldown] = useState(0);
+  const [registerMode, setRegisterMode] = useState(false);
   const [pendingAction, setPendingAction] = useState<"login" | "register" | null>(null);
 
   useEffect(() => {
@@ -35,6 +36,7 @@ export function CloudLoginModal({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    setRegisterMode(false);
     void authenticate("login");
   };
 
@@ -74,24 +76,26 @@ export function CloudLoginModal({
             <input id="cloud-login-password" type="password" autoComplete="current-password" value={password}
               disabled={loading} onChange={(event) => setPassword(event.target.value)}
               placeholder={t("cloudLogin.passwordPlaceholder")} /></span>
-          <label htmlFor="cloud-registration-code">{t("cloudLogin.verificationCode")}</label>
-          <div className="cloud-verification-row">
-            <span className="cloud-login-input"><KeyRound size={16} />
-              <input id="cloud-registration-code" type="text" inputMode="numeric" autoComplete="one-time-code"
-                maxLength={6} value={verificationCode} disabled={loading}
-                onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder={t("cloudLogin.verificationCodePlaceholder")} /></span>
-            <button type="button" className="cloud-code-button" onClick={() => void sendCode()}
-              disabled={loading || sendingRegistrationCode || codeCooldown > 0 || !email.trim()}>
-              {codeCooldown > 0
-                ? t("cloudLogin.resendCountdown", { seconds: codeCooldown })
-                : sendingRegistrationCode ? t("cloudLogin.sendingCode") : t("cloudLogin.sendCode")}
-            </button>
-          </div>
+          {registerMode && <>
+            <label htmlFor="cloud-registration-code">{t("cloudLogin.verificationCode")}</label>
+            <div className="cloud-verification-row">
+              <span className="cloud-login-input"><KeyRound size={16} />
+                <input id="cloud-registration-code" type="text" inputMode="numeric" autoComplete="one-time-code"
+                  maxLength={6} value={verificationCode} disabled={loading}
+                  onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder={t("cloudLogin.verificationCodePlaceholder")} /></span>
+              <button type="button" className="cloud-code-button" onClick={() => void sendCode()}
+                disabled={loading || sendingRegistrationCode || codeCooldown > 0 || !email.trim()}>
+                {codeCooldown > 0
+                  ? t("cloudLogin.resendCountdown", { seconds: codeCooldown })
+                  : sendingRegistrationCode ? t("cloudLogin.sendingCode") : t("cloudLogin.sendCode")}
+              </button>
+            </div>
+          </>}
           <div className="cloud-login-actions">
             <button type="button" className="cloud-register-button cloud-login-action"
-              disabled={loading || !email.trim() || !password || !/^\d{6}$/.test(verificationCode)}
-              onClick={() => void authenticate("register")}>
+              disabled={loading || (registerMode && (!email.trim() || !password || !/^\d{6}$/.test(verificationCode)))}
+              onClick={() => registerMode ? void authenticate("register") : setRegisterMode(true)}>
               <UserPlus size={17} />
               {pendingAction === "register" ? t("cloudLogin.registering") : t("cloudLogin.register")}
             </button>

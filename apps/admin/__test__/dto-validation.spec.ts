@@ -6,17 +6,24 @@ import {
   CreateApprovalRequestDto,
   ChangeSystemAccountBindingsDto,
   CreateSystemAccountDto,
+  ImportSystemAccountsDto,
   CreateInvitationDto,
   ReviewApprovalRequestDto,
   UpdateAdminSyncedAccountDto,
+  UpdateOwnSyncedAccountDto,
 } from '@/modules/admin/dto/admin-management.dto';
 import { LoginDto } from '@/modules/auth/dto/login.dto';
+import { UpdateAnnouncementDto } from '@/modules/announcement/dto/update-announcement.dto';
 import { RefreshDto } from '@/modules/auth/dto/refresh.dto';
 import { RegisterDto } from '@/modules/auth/dto/register.dto';
 import { RequestPasswordResetCodeDto } from '@/modules/auth/dto/request-password-reset-code.dto';
 import { ResetPasswordDto } from '@/modules/auth/dto/reset-password.dto';
 import { PutSyncAccountsDto, SyncAccountDto } from '@/modules/sync/dto/sync-accounts.dto';
 import { PutSyncProvidersDto, SyncProviderDto } from '@/modules/sync/dto/sync-providers.dto';
+import {
+  ListDeviceInstallationsQueryDto,
+  ListTelemetryEventsQueryDto,
+} from '@/modules/telemetry/dto/list-telemetry.dto';
 import { makeAccount, makeProvider } from './fixtures';
 
 async function messages<T extends object>(type: new () => T, value: object) {
@@ -99,6 +106,31 @@ describe('request DTO validation', () => {
       'active must be a boolean value',
       'usage must be an object',
     ]));
+    await expect(messages(UpdateOwnSyncedAccountDto, {
+      note: 'x'.repeat(1001), expiresAt: 'x'.repeat(41),
+    })).resolves.toEqual(expect.arrayContaining([
+      'note must be shorter than or equal to 1000 characters',
+      'expiresAt must be shorter than or equal to 40 characters',
+    ]));
+  });
+
+  it('restricts announcement scroll duration to whole seconds from 5 through 120', async () => {
+    const validAnnouncement = {
+      content: 'Scheduled maintenance',
+      enabled: true,
+      textColor: '#FFFFFF',
+      backgroundColor: '#000000',
+      scrollDurationSeconds: 22,
+    };
+    await expect(messages(UpdateAnnouncementDto, validAnnouncement)).resolves.toEqual([]);
+    await expect(messages(UpdateAnnouncementDto, {
+      ...validAnnouncement,
+      scrollDurationSeconds: 4,
+    })).resolves.toContain('scrollDurationSeconds must not be less than 5');
+    await expect(messages(UpdateAnnouncementDto, {
+      ...validAnnouncement,
+      scrollDurationSeconds: 120.5,
+    })).resolves.toContain('scrollDurationSeconds must be an integer number');
   });
 
   it('validates nested sync accounts and accepts a complete valid payload', async () => {
@@ -144,6 +176,37 @@ describe('request DTO validation', () => {
     await expect(messages(ChangeSystemAccountBindingsDto, {
       systemAccountIds: ['10000000-0000-4000-8000-000000000001'],
       userIds: ['20000000-0000-4000-8000-000000000001'],
+    })).resolves.toEqual([]);
+  });
+
+  it('validates telemetry paging and supported filters', async () => {
+    await expect(messages(ListDeviceInstallationsQueryDto, {
+      page: 0,
+      pageSize: 101,
+      platform: 'android',
+      search: 'x'.repeat(37),
+    })).resolves.toEqual(expect.arrayContaining([
+      'page must not be less than 1',
+      'pageSize must not be greater than 100',
+      'platform must be one of the following values: windows, macos, linux',
+      'search must be shorter than or equal to 36 characters',
+    ]));
+    await expect(messages(ListTelemetryEventsQueryDto, {
+      page: '2',
+      pageSize: '50',
+      platform: 'linux',
+      eventType: 'base_url_changed',
+    })).resolves.toEqual([]);
+    await expect(messages(ImportSystemAccountsDto, {
+      content: '',
+      note: 'x'.repeat(1001),
+    })).resolves.toEqual(expect.arrayContaining([
+      'content should not be empty',
+      'note must be shorter than or equal to 1000 characters',
+    ]));
+    await expect(messages(ImportSystemAccountsDto, {
+      content: '{"tokens":{"access_token":"token"}}',
+      expiresAt: '2026-07-18T12:00:00.000Z',
     })).resolves.toEqual([]);
   });
 

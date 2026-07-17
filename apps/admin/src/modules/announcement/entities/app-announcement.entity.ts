@@ -23,6 +23,9 @@ export class AppAnnouncementEntity {
   @Column({ type: 'varchar', length: 7, default: '#203128' })
   backgroundColor: string;
 
+  @Column({ type: 'integer', default: 22 })
+  scrollDurationSeconds: number;
+
   @Column({ type: 'uuid', nullable: true })
   updatedById?: string | null;
 

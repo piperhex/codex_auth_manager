@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AdminController } from '@/modules/admin/admin.controller';
 import type { AdminService } from '@/modules/admin/admin.service';
 import type { OfficialAccountOAuthService } from '@/modules/admin/official-account-oauth.service';
+import type { OfficialAccountImportService } from '@/modules/admin/official-account-import.service';
 import { AuthController } from '@/modules/auth/auth.controller';
 import { SyncController } from '@/modules/sync/sync.controller';
 import type { AuthService } from '@/modules/auth/auth.service';
@@ -94,8 +95,10 @@ describe('HTTP controllers', () => {
       updateUser: vi.fn().mockResolvedValue('updated'), deleteUser: vi.fn().mockResolvedValue('deleted'),
       changePassword: vi.fn().mockResolvedValue({ ok: true }),
       listOwnAccounts: vi.fn().mockResolvedValue('own-accounts'),
+      updateOwnAccount: vi.fn().mockResolvedValue('own-account-updated'),
       listUserAccounts: vi.fn().mockResolvedValue('accounts'),
       listUserProviders: vi.fn().mockResolvedValue('providers'),
+      addUserAccountToSystemPool: vi.fn().mockResolvedValue('system-account-from-user'),
       updateUserAccount: vi.fn().mockResolvedValue('account-updated'),
       deleteUserAccount: vi.fn().mockResolvedValue('account-deleted'),
       listSystemAccounts: vi.fn().mockResolvedValue('system-accounts'),
@@ -117,9 +120,13 @@ describe('HTTP controllers', () => {
       start: vi.fn().mockResolvedValue('oauth-started'),
       poll: vi.fn().mockResolvedValue('oauth-polled'),
     };
+    const officialAccountImport = {
+      import: vi.fn().mockResolvedValue('accounts-imported'),
+    };
     const controller = new AdminController(
       admin as unknown as AdminService,
       officialAccountOAuth as unknown as OfficialAccountOAuthService,
+      officialAccountImport as unknown as OfficialAccountImportService,
     );
     const response = { sendFile: vi.fn().mockReturnValue('sent') };
     const actor: AuthUser = { id: 'admin-1', email: 'admin@example.com', role: 'admin' };
@@ -139,8 +146,13 @@ describe('HTTP controllers', () => {
       currentPassword: 'old-pass', newPassword: 'new-password',
     })).resolves.toEqual({ ok: true });
     await expect(controller.listOwnAccounts(actor)).resolves.toBe('own-accounts');
+    await expect(controller.updateOwnAccount(actor, 'account-1', {
+      note: 'Personal note', expiresAt: '2026-07-31',
+    })).resolves.toBe('own-account-updated');
     await expect(controller.listUserAccounts('user-1')).resolves.toBe('accounts');
     await expect(controller.listUserProviders('user-1')).resolves.toBe('providers');
+    await expect(controller.addUserAccountToSystemPool(actor, 'user-1', 'account-1'))
+      .resolves.toBe('system-account-from-user');
     await expect(controller.updateUserAccount(actor, 'user-1', 'account-1', { active: false }))
       .resolves.toBe('account-updated');
     await expect(controller.deleteUserAccount(actor, 'user-1', 'account-1'))
@@ -148,6 +160,8 @@ describe('HTTP controllers', () => {
     await expect(controller.listSystemAccounts({ page: 1 })).resolves.toBe('system-accounts');
     await expect(controller.createSystemAccount(actor, { auth: { tokens: {} } }))
       .resolves.toBe('system-account-created');
+    await expect(controller.importSystemAccounts(actor, { content: '{"tokens":{}}' }))
+      .resolves.toBe('accounts-imported');
     await expect(controller.startSystemAccountOAuth(actor)).resolves.toBe('oauth-started');
     await expect(controller.pollSystemAccountOAuth(actor, 'oauth-session'))
       .resolves.toBe('oauth-polled');
@@ -185,5 +199,6 @@ describe('HTTP controllers', () => {
     expect(admin.unbindSystemAccounts).toHaveBeenCalledWith(actor, bindingDto);
     expect(officialAccountOAuth.start).toHaveBeenCalledWith(actor);
     expect(officialAccountOAuth.poll).toHaveBeenCalledWith(actor, 'oauth-session');
+    expect(officialAccountImport.import).toHaveBeenCalledWith(actor, { content: '{"tokens":{}}' });
   });
 });

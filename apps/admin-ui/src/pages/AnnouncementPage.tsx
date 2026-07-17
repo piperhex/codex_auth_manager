@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, ColorPicker, Form, Input, Space, Switch, Typography } from "antd";
+import { Button, ColorPicker, Form, Input, InputNumber, Space, Switch, Typography } from "antd";
 import { BellRing, RefreshCw, Save } from "lucide-react";
 import { useI18n } from "../i18n-context";
 import type { AnnouncementConfig } from "../types";
@@ -12,7 +12,7 @@ interface AnnouncementPageProps {
   onRefresh: () => void | Promise<void>;
   onSave: (announcement: Pick<
     AnnouncementConfig,
-    "content" | "enabled" | "textColor" | "backgroundColor"
+    "content" | "enabled" | "textColor" | "backgroundColor" | "scrollDurationSeconds"
   >) => Promise<void>;
 }
 
@@ -28,12 +28,16 @@ export function AnnouncementPage({
   const [enabled, setEnabled] = useState(announcement.enabled);
   const [textColor, setTextColor] = useState(announcement.textColor);
   const [backgroundColor, setBackgroundColor] = useState(announcement.backgroundColor);
+  const [scrollDurationSeconds, setScrollDurationSeconds] = useState(
+    announcement.scrollDurationSeconds,
+  );
 
   useEffect(() => {
     setContent(announcement.content);
     setEnabled(announcement.enabled);
     setTextColor(announcement.textColor);
     setBackgroundColor(announcement.backgroundColor);
+    setScrollDurationSeconds(announcement.scrollDurationSeconds);
   }, [announcement]);
 
   const preview = content.trim() || t("announcement.emptyPreview");
@@ -62,6 +66,7 @@ export function AnnouncementPage({
           enabled,
           textColor,
           backgroundColor,
+          scrollDurationSeconds,
         })}>
           <Form.Item label={t("announcement.enabled")} extra={t("announcement.enabledHint")}>
             <Switch checked={enabled} onChange={setEnabled} />
@@ -91,10 +96,27 @@ export function AnnouncementPage({
                 onChange={(color) => setBackgroundColor(color.toHexString().toUpperCase())}
               />
             </Form.Item>
+            <Form.Item
+              label={t("announcement.scrollSpeed")}
+              extra={t("announcement.scrollSpeedHint")}
+            >
+              <InputNumber
+                min={5}
+                max={120}
+                precision={0}
+                value={scrollDurationSeconds}
+                addonAfter={t("announcement.secondsPerLoop")}
+                onChange={(value) => setScrollDurationSeconds(value ?? 22)}
+              />
+            </Form.Item>
           </Space>
           <Form.Item label={t("announcement.preview")}>
             <div className="announcement-preview" style={{ color: textColor, backgroundColor }}>
-              <div className="announcement-preview-track" key={preview}>
+              <div
+                className="announcement-preview-track"
+                key={preview}
+                style={{ animationDuration: `${scrollDurationSeconds}s` }}
+              >
                 <BellRing size={15} />
                 <span>{preview}</span>
               </div>

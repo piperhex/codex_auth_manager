@@ -47,6 +47,7 @@ describe('authorization boundaries', () => {
       Permission.SelfPasswordUpdate,
     ]);
     expect(permissionsForRole('user')).not.toContain(Permission.UsersRead);
+    expect(permissionsForRole('user')).not.toContain(Permission.TelemetryRead);
     expect(permissionsForRole('admin')).toEqual(expect.arrayContaining(Object.values(Permission)));
   });
 

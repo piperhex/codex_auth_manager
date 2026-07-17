@@ -35,6 +35,7 @@ describe('AnnouncementService', () => {
       enabled: false,
       textColor: '#C4D7C8',
       backgroundColor: '#203128',
+      scrollDurationSeconds: 22,
       updatedAt: null,
     });
   });
@@ -50,11 +51,13 @@ describe('AnnouncementService', () => {
       enabled: true,
       textColor: '#aabbcc',
       backgroundColor: '#112233',
+      scrollDurationSeconds: 15,
     })).resolves.toEqual({
       content: 'Service maintenance tonight',
       enabled: true,
       textColor: '#AABBCC',
       backgroundColor: '#112233',
+      scrollDurationSeconds: 15,
       updatedAt: updatedAt.toISOString(),
     });
 
@@ -62,7 +65,7 @@ describe('AnnouncementService', () => {
     expect(auditLogs.save).toHaveBeenCalledWith(expect.objectContaining({
       action: 'announcement.update',
       targetId: 'current',
-      metadata: { enabled: true },
+      metadata: { enabled: true, scrollDurationSeconds: 15 },
     }));
   });
 
@@ -74,6 +77,7 @@ describe('AnnouncementService', () => {
       enabled: true,
       textColor: '#C4D7C8',
       backgroundColor: '#203128',
+      scrollDurationSeconds: 22,
     })).rejects.toThrow('Announcement content is required when enabled');
   });
 });
@@ -92,6 +96,7 @@ describe('AnnouncementController', () => {
       enabled: true,
       textColor: '#FFFFFF',
       backgroundColor: '#000000',
+      scrollDurationSeconds: 22,
     };
 
     await expect(controller.getCurrent()).resolves.toBe('public-announcement');

@@ -249,6 +249,17 @@ export class SyncService {
     return this.presentSystemAccount({ ...saved, bindings: [] });
   }
 
+  async createSystemAccountFromPersonal(ownerId: string, accountId: string) {
+    const account = await this.accounts.findOne({ where: { ownerId, accountId } });
+    if (!account) throw new NotFoundException('Synced account not found');
+    return this.createSystemAccount({
+      auth: account.auth,
+      note: account.note,
+      expiresAt: account.expiresAt,
+      usage: account.usage,
+    });
+  }
+
   async updateSystemAccount(id: string, patch: SystemAccountPatch) {
     const account = await this.systemAccounts.findOne({
       where: { id },

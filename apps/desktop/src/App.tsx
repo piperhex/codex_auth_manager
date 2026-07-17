@@ -62,6 +62,7 @@ function DashboardApp() {
   const [resetCreditBusyAccountId, setResetCreditBusyAccountId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState<CloudAnnouncement | null>(null);
   const helpVersionRequestId = useRef(0);
+  const announcementRequestId = useRef(0);
   const { message: toast, notify } = useToast();
   const { language, setLanguage, t } = useLanguage();
   const cloud = useCloudAuth(notify, t);
@@ -83,17 +84,31 @@ function DashboardApp() {
   const providerManager = useProviderManager(notify, t, providerCloudSync);
   const resetCredits = useResetCredits(manager.accounts, notify, t);
   const activeAccount = manager.accounts.find((account) => account.active) ?? null;
+  const loadAnnouncement = useCallback(async () => {
+    const requestId = ++announcementRequestId.current;
+    try {
+      const result = await fetchCloudAnnouncement();
+      if (announcementRequestId.current === requestId) {
+        setAnnouncement(result.enabled && result.content.trim() ? result : null);
+      }
+    } catch {
+      if (announcementRequestId.current === requestId) setAnnouncement(null);
+    }
+  }, []);
   const markRefreshAll = useCallback(() => {
     const refreshedAt = new Date().toISOString();
     window.localStorage.setItem(LAST_REFRESH_ALL_KEY, refreshedAt);
     setLastRefreshAllAt(refreshedAt);
   }, []);
   const automaticRefresh = useCallback(
-    () => {
+    async () => {
       markRefreshAll();
-      return manager.refreshAll({ quiet: true, showSpinner: false });
+      await Promise.all([
+        manager.refreshAll({ quiet: true, showSpinner: false }),
+        loadAnnouncement(),
+      ]);
     },
-    [manager.refreshAll, markRefreshAll],
+    [loadAnnouncement, manager.refreshAll, markRefreshAll],
   );
   const autoRefresh = useAutoRefresh(manager.accounts.length > 0, automaticRefresh);
   const accountAutoRefresh = useAccountAutoRefresh(
@@ -253,24 +268,14 @@ function DashboardApp() {
   }, [manager.info?.version, notify, t]);
 
   useEffect(() => {
-    let cancelled = false;
-    const loadAnnouncement = () => {
-      void fetchCloudAnnouncement()
-        .then((result) => {
-          if (!cancelled) setAnnouncement(result.enabled && result.content.trim() ? result : null);
-        })
-        .catch(() => {
-          if (!cancelled) setAnnouncement(null);
-        });
-    };
     setAnnouncement(null);
-    loadAnnouncement();
-    const timer = window.setInterval(loadAnnouncement, 60 * 60 * 1000);
+    void loadAnnouncement();
+    const timer = window.setInterval(() => void loadAnnouncement(), 60 * 60 * 1000);
     return () => {
-      cancelled = true;
+      announcementRequestId.current += 1;
       window.clearInterval(timer);
     };
-  }, [cloud.state.baseUrl]);
+  }, [cloud.state.baseUrl, loadAnnouncement]);
 
   useEffect(() => {
     void reportFirstInstallation().catch(() => undefined);
@@ -291,6 +296,7 @@ function DashboardApp() {
   const refreshAll = () => {
     markRefreshAll();
     void manager.refreshAll();
+    void loadAnnouncement();
   };
   const restartChatGptProcess = useCallback(async () => {
     setRestartingChatGpt(true);
@@ -365,7 +371,13 @@ function DashboardApp() {
                 backgroundColor: announcement.backgroundColor,
               } : undefined}
             >
-              <div className="announcement-track" key={announcement?.content ?? language}>
+              <div
+                className="announcement-track"
+                key={announcement?.content ?? language}
+                style={{
+                  animationDuration: `${announcement?.scrollDurationSeconds ?? 22}s`,
+                }}
+              >
                 <div className="announcement-copy">
                   <Megaphone size={15} />
                   <span>{announcement?.content ?? t("announcement.welcome")}</span>

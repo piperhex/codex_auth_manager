@@ -6,6 +6,7 @@ import { RbacModule } from '@/common/rbac/rbac.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { OfficialAccountOAuthService } from './official-account-oauth.service';
+import { OfficialAccountImportService } from './official-account-import.service';
 import { AdminApprovalRequestEntity } from './entities/admin-approval-request.entity';
 import { AdminAuditLogEntity } from './entities/admin-audit-log.entity';
 import { AdminInvitationEntity } from './entities/admin-invitation.entity';
@@ -22,7 +23,7 @@ import { AdminInvitationEntity } from './entities/admin-invitation.entity';
     ]),
   ],
   controllers: [AdminController],
-  providers: [AdminService, OfficialAccountOAuthService],
+  providers: [AdminService, OfficialAccountOAuthService, OfficialAccountImportService],
   exports: [AdminService],
 })
 export class AdminModule {}

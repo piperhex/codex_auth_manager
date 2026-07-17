@@ -18,8 +18,9 @@ export type Permission =
   | "admin.announcements.read"
   | "admin.announcements.manage"
   | "admin.feedback.read"
-  | "admin.feedback.manage";
-export type MenuKey = "myAccounts" | "users" | "officialAccounts" | "announcement" | "feedback" | "audit" | "invitations" | "approvals";
+  | "admin.feedback.manage"
+  | "admin.telemetry.read";
+export type MenuKey = "myAccounts" | "users" | "officialAccounts" | "announcement" | "feedback" | "telemetry" | "audit" | "invitations" | "approvals";
 
 export interface AuthTokens {
   accessToken: string;
@@ -46,6 +47,7 @@ export interface AnnouncementConfig {
   enabled: boolean;
   textColor: string;
   backgroundColor: string;
+  scrollDurationSeconds: number;
   updatedAt?: string | null;
 }
 
@@ -66,6 +68,35 @@ export interface FeedbackRow {
   lastRepliedAt?: string | null;
   lastRepliedByEmail?: string | null;
   createdAt: string;
+}
+
+export type TelemetryPlatform = "windows" | "macos" | "linux";
+
+export interface TelemetryOverview {
+  totalInstallations: number;
+  installationsLast30Days: number;
+  totalEvents: number;
+  eventsLast30Days: number;
+  platforms: Record<TelemetryPlatform, number>;
+}
+
+export interface DeviceInstallation {
+  deviceId: string;
+  platform: TelemetryPlatform;
+  firstSeenAt: string;
+}
+
+export interface TelemetryEvent {
+  id: string;
+  deviceId: string;
+  platform: TelemetryPlatform;
+  eventType: "base_url_changed";
+  createdAt: string;
+}
+
+export interface TelemetryFilters {
+  search?: string;
+  platform?: TelemetryPlatform;
 }
 
 export interface UserRow {

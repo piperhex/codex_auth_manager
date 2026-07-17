@@ -44,7 +44,9 @@ export function LocalProxyCard({
         <div className="provider-proxy-copy">
           <strong>{t("providers.proxy.title")}</strong>
           <span title={proxyBaseUrl}>{t("providers.proxy.baseUrl", { url: proxyBaseUrl })}</span>
-          <small className="proxy-restart-notice">{t("providers.proxy.restartNotice")}</small>
+          <small className="proxy-restart-notice" title={t("providers.proxy.restartNotice")}>
+            {t("providers.proxy.restartNotice")}
+          </small>
         </div>
       </div>
       <div className="provider-official-actions">

@@ -1,6 +1,6 @@
 import { Badge, Button, Drawer, Table, Tabs, Tag, Typography } from "antd";
 import type { TableColumnsType } from "antd";
-import { Edit3, Trash2, Unlink } from "lucide-react";
+import { Edit3, PackagePlus, Trash2, Unlink } from "lucide-react";
 import { useI18n } from "../../i18n-context";
 import { formatDate } from "../../utils/format";
 import type { SyncAccount, SyncProvider, UserRow } from "../../types";
@@ -12,6 +12,7 @@ interface AccountDrawerProps {
   loading: boolean;
   providersLoading: boolean;
   onClose: () => void;
+  onAddToPool: (account: SyncAccount) => void;
   onEditAccount: (account: SyncAccount) => void;
   onDeleteAccount: (account: SyncAccount) => void;
   onRemoveBinding: (account: SyncAccount) => void;
@@ -23,6 +24,7 @@ export function AccountDrawer({
   providers,
   providersLoading,
   user,
+  onAddToPool,
   onClose,
   onDeleteAccount,
   onEditAccount,
@@ -54,7 +56,7 @@ export function AccountDrawer({
     { title: t("common.expiresAt"), dataIndex: "expiresAt", width: 120, render: (value: string) => value || "-" },
     {
       title: t("common.actions"),
-      width: 110,
+      width: 150,
       render: (_, row) => row.source === "system" ? (
         <Button
           danger
@@ -65,6 +67,12 @@ export function AccountDrawer({
         />
       ) : (
         <div className="table-actions">
+          <Button
+            className="icon-button"
+            title={t("accounts.addToPool")}
+            icon={<PackagePlus size={15} />}
+            onClick={() => onAddToPool(row)}
+          />
           <Button className="icon-button" icon={<Edit3 size={15} />} onClick={() => onEditAccount(row)} />
           <Button
             danger

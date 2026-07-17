@@ -60,7 +60,13 @@ pub(crate) struct CloudAnnouncement {
     enabled: bool,
     text_color: String,
     background_color: String,
+    #[serde(default = "default_announcement_scroll_duration_seconds")]
+    scroll_duration_seconds: u16,
     updated_at: Option<String>,
+}
+
+fn default_announcement_scroll_duration_seconds() -> u16 {
+    22
 }
 
 #[derive(Debug, Deserialize)]
