@@ -847,12 +847,33 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
           loading={invitationLoading}
           roles={roles}
           canManage={canManageInvitations}
+          canGiftAccounts={canManageOfficialAccounts}
           onCreateInvitation={() => setInvitationOpen(true)}
           onLoadInvitations={loadInvitations}
           onLoadInvitationUsers={(invitationId, page = 1, pageSize = 20) => (
             api<PageResult<InvitationRegisteredUser>>(
               `/admin/api/invitations/${encodeURIComponent(invitationId)}/users?page=${page}&pageSize=${pageSize}`,
             )
+          )}
+          onCopyInvitationLink={(invitation) => api<{ token: string }>(
+            `/admin/api/invitations/${encodeURIComponent(invitation.id)}/token`,
+            { method: "POST" },
+          )}
+          onLoadGiftAccounts={(page, pageSize, sortOrder) => {
+            const params = new URLSearchParams({
+              page: String(page),
+              pageSize: String(pageSize),
+              sortBy: "boundUserCount",
+              sortOrder: sortOrder === "ascend" ? "asc" : "desc",
+            });
+            return api<PageResult<SystemAccount>>(`/admin/api/official-accounts?${params}`);
+          }}
+          onGiftAccounts={(userId, systemAccountIds) => api<{ count: number }>(
+            "/admin/api/official-accounts/bind",
+            {
+              method: "POST",
+              body: JSON.stringify({ systemAccountIds, userIds: [userId] }),
+            },
           )}
           onRevokeInvitation={async (invitation) => {
             await api(`/admin/api/invitations/${invitation.id}`, { method: "DELETE" });

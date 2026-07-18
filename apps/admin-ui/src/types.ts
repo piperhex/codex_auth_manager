@@ -244,6 +244,7 @@ export interface InvitationRegisteredUser {
   userId?: string | null;
   email: string;
   role: Role;
+  giftedAccountCount: number;
   registeredAt: string;
 }
 

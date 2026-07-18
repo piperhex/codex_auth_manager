@@ -207,7 +207,27 @@ export class SyncService {
     };
   }
 
-  async listSystemAccounts(page = 1, pageSize = 20, search?: string) {
+  async countSystemAccountBindingsByUserIds(userIds: string[]) {
+    const uniqueUserIds = [...new Set(userIds)];
+    const counts = new Map<string, number>();
+    if (!uniqueUserIds.length) return counts;
+
+    const bindings = await this.systemBindings.find({
+      where: { userId: In(uniqueUserIds) },
+    });
+    for (const binding of bindings) {
+      counts.set(binding.userId, (counts.get(binding.userId) ?? 0) + 1);
+    }
+    return counts;
+  }
+
+  async listSystemAccounts(
+    page = 1,
+    pageSize = 20,
+    search?: string,
+    sortBy: 'createdAt' | 'boundUserCount' = 'createdAt',
+    sortOrder: 'asc' | 'desc' = 'desc',
+  ) {
     const normalizedSearch = search?.trim();
     const where = normalizedSearch
       ? [
@@ -216,10 +236,52 @@ export class SyncService {
         { plan: ILike(`%${normalizedSearch}%`) },
       ]
       : undefined;
+
+    if (sortBy === 'boundUserCount') {
+      const query = this.systemAccounts
+        .createQueryBuilder('account')
+        .select('account.id', 'id')
+        .addSelect('COUNT(binding.userId)', 'boundUserCount')
+        .leftJoin('account.bindings', 'binding')
+        .groupBy('account.id')
+        .orderBy('"boundUserCount"', sortOrder === 'asc' ? 'ASC' : 'DESC')
+        .addOrderBy('account.createdAt', 'DESC')
+        .offset((page - 1) * pageSize)
+        .limit(pageSize);
+      if (normalizedSearch) {
+        query.where(
+          '(account.email ILIKE :search OR account.note ILIKE :search OR account.plan ILIKE :search)',
+          { search: `%${normalizedSearch}%` },
+        );
+      }
+
+      const [rows, total] = await Promise.all([
+        query.getRawMany<{ id: string }>(),
+        this.systemAccounts.count({ where }),
+      ]);
+      const ids = rows.map((row) => row.id);
+      if (!ids.length) return { items: [], total, page, pageSize };
+
+      const accounts = await this.systemAccounts.find({
+        where: { id: In(ids) },
+        relations: { bindings: true },
+      });
+      const byId = new Map(accounts.map((account) => [account.id, account]));
+      return {
+        items: ids
+          .map((id) => byId.get(id))
+          .filter((account): account is SystemAccountEntity => Boolean(account))
+          .map((account) => this.presentSystemAccount(account)),
+        total,
+        page,
+        pageSize,
+      };
+    }
+
     const [items, total] = await this.systemAccounts.findAndCount({
       where,
       relations: { bindings: true },
-      order: { createdAt: 'DESC' },
+      order: { createdAt: sortOrder === 'asc' ? 'ASC' : 'DESC' },
       skip: (page - 1) * pageSize,
       take: pageSize,
     });

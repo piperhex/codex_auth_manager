@@ -1,12 +1,16 @@
-import { randomBytes, createHash } from 'crypto';
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, ILike, IsNull, Repository } from 'typeorm';
 import type { AuthUser } from '@/common/decorators/user.decorator';
+import { getKongJwtSecret } from '@/config/auth-secrets';
+import { MODULE_OPTIONS_TOKEN } from '@/config/configurable';
+import type { ConfigModuleOptions } from '@/config/config.types';
 import { SyncService } from '@/modules/sync/sync.service';
 import { UserService } from '@/modules/user/user.service';
 import { RbacService } from '@/modules/rbac/rbac.service';
@@ -59,6 +63,8 @@ export class AdminService {
     private readonly invitations: Repository<AdminInvitationEntity>,
     @InjectRepository(AdminApprovalRequestEntity)
     private readonly approvalRequests: Repository<AdminApprovalRequestEntity>,
+    @Inject(MODULE_OPTIONS_TOKEN)
+    private readonly config: ConfigModuleOptions,
   ) {}
 
   listUsers(query: ListAdminUsersQueryDto) {
@@ -149,7 +155,13 @@ export class AdminService {
 
   listSystemAccounts(query: ListSystemAccountsQueryDto) {
     const { page, pageSize } = this.page(query);
-    return this.sync.listSystemAccounts(page, pageSize, query.search);
+    return this.sync.listSystemAccounts(
+      page,
+      pageSize,
+      query.search,
+      query.sortBy,
+      query.sortOrder,
+    );
   }
 
   async createSystemAccount(actor: AuthUser, dto: CreateSystemAccountDto) {
@@ -237,11 +249,9 @@ export class AdminService {
 
   async createInvitation(actor: AuthUser, dto: CreateInvitationDto) {
     await this.rbac.assertRoleAssignable(actor, dto.role ?? 'user');
-    const token = randomBytes(24).toString('base64url');
     const invitation = this.invitations.create({
       email: dto.email?.trim().toLowerCase() || null,
       role: dto.role ?? 'user',
-      tokenHash: this.hashToken(token),
       createdById: actor.id,
       createdByEmail: actor.email,
       maxUses: dto.maxUses ?? 1,
@@ -250,6 +260,8 @@ export class AdminService {
         ? null
         : new Date(Date.now() + Number(dto.expiresInHours ?? 72) * 60 * 60 * 1000),
     });
+    const token = this.invitationToken(invitation.id);
+    invitation.tokenHash = this.hashToken(token);
     const saved = await this.invitations.save(invitation);
     await this.record(actor, 'invitation.create', 'invitation', saved.id, saved.email, {
       role: saved.role,
@@ -257,6 +269,12 @@ export class AdminService {
       maxUses: saved.maxUses,
     });
     return { ...this.presentInvitation(saved), token };
+  }
+
+  async getInvitationToken(id: string) {
+    const invitation = await this.invitations.findOne({ where: { id } });
+    if (!invitation) throw new NotFoundException('Invitation not found');
+    return { token: this.invitationToken(invitation.id) };
   }
 
   async listInvitations(query: PageQueryDto) {
@@ -284,6 +302,10 @@ export class AdminService {
       skip: (page - 1) * pageSize,
       take: pageSize,
     });
+    const userIds = acceptances
+      .map((acceptance) => acceptance.actorId)
+      .filter((userId): userId is string => Boolean(userId));
+    const giftedAccountCounts = await this.sync.countSystemAccountBindingsByUserIds(userIds);
     return {
       items: acceptances.map((acceptance) => ({
         id: acceptance.id,
@@ -292,6 +314,9 @@ export class AdminService {
         role: typeof acceptance.metadata.role === 'string'
           ? acceptance.metadata.role
           : invitation.role,
+        giftedAccountCount: acceptance.actorId
+          ? giftedAccountCounts.get(acceptance.actorId) ?? 0
+          : 0,
         registeredAt: acceptance.createdAt,
       })),
       total,
@@ -315,11 +340,11 @@ export class AdminService {
     manager?: EntityManager,
   ): Promise<InvitationForRegistration> {
     const invitations = manager?.getRepository(AdminInvitationEntity) ?? this.invitations;
+    const signedInvitationId = this.signedInvitationId(token);
     const invitation = await invitations.findOne({
-      where: {
-        tokenHash: this.hashToken(token),
-        revokedAt: IsNull(),
-      },
+      where: signedInvitationId
+        ? { id: signedInvitationId, revokedAt: IsNull() }
+        : { tokenHash: this.hashToken(token), revokedAt: IsNull() },
       ...(manager ? { lock: { mode: 'pessimistic_write' as const } } : {}),
     });
     const normalizedEmail = email.trim().toLowerCase();
@@ -501,6 +526,24 @@ export class AdminService {
 
   private hashToken(token: string) {
     return createHash('sha256').update(token).digest('hex');
+  }
+
+  private invitationToken(invitationId: string) {
+    const signature = createHmac('sha256', getKongJwtSecret(this.config))
+      .update(`admin-invitation:${invitationId}`)
+      .digest('base64url');
+    return `${invitationId}.${signature}`;
+  }
+
+  private signedInvitationId(token: string) {
+    const separator = token.indexOf('.');
+    if (separator <= 0) return null;
+    const invitationId = token.slice(0, separator);
+    const expected = Buffer.from(this.invitationToken(invitationId));
+    const received = Buffer.from(token);
+    return expected.length === received.length && timingSafeEqual(expected, received)
+      ? invitationId
+      : null;
   }
 
   private presentInvitation(invitation: AdminInvitationEntity) {

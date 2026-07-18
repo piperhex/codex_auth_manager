@@ -171,6 +171,8 @@ Invitations can optionally target one email, allow a configurable number of succ
 registrations, and either expire after a configured number of hours or remain valid until their
 usage limit is reached or an administrator revokes them. Invitation usage is counted atomically
 with user creation so concurrent registrations cannot exceed the configured limit.
+Invitation links can be copied again from the invitation list without storing raw tokens. Legacy
+tokens remain valid when a signed link is copied for an invitation created by an older version.
 
 ## API
 
@@ -224,6 +226,7 @@ with user creation so concurrent registrations cannot exceed the configured limi
 - `GET /admin/api/invitations`
 - `GET /admin/api/invitations/:id/users`
 - `POST /admin/api/invitations`
+- `POST /admin/api/invitations/:id/token`
 - `DELETE /admin/api/invitations/:id`
 - `GET /admin/api/approvals`
 - `POST /admin/api/approvals`

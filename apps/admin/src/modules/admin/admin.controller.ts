@@ -340,6 +340,13 @@ export class AdminController {
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermissions(Permission.InvitationsManage)
+  @Post('api/invitations/:id/token')
+  getInvitationToken(@Param('id') id: string) {
+    return this.admin.getInvitationToken(id);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(Permission.InvitationsManage)
   @Delete('api/invitations/:id')
   revokeInvitation(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.admin.revokeInvitation(user, id);

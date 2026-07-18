@@ -50,6 +50,14 @@ export class ListSystemAccountsQueryDto extends PageQueryDto {
   @IsString()
   @MaxLength(160)
   search?: string;
+
+  @IsOptional()
+  @IsIn(['createdAt', 'boundUserCount'])
+  sortBy?: 'createdAt' | 'boundUserCount';
+
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  sortOrder?: 'asc' | 'desc';
 }
 
 export class CreateSystemAccountDto {

@@ -1,10 +1,18 @@
 import { useState } from "react";
-import { App as AntApp, Button, Modal, Space, Table, Tag, Typography } from "antd";
+import { App as AntApp, Badge, Button, Modal, Space, Table, Tag, Tooltip, Typography } from "antd";
 import type { TableColumnsType } from "antd";
-import { Eye, Plus, RefreshCw, XCircle } from "lucide-react";
+import { ClipboardCopy, Eye, Gift, Plus, RefreshCw, XCircle } from "lucide-react";
+import { InvitationAccountGiftModal } from "../components/accounts/InvitationAccountGiftModal";
 import { labelForRole } from "../i18n";
 import { useI18n } from "../i18n-context";
-import type { Invitation, InvitationRegisteredUser, PageResult, RbacRole, Role } from "../types";
+import type {
+  Invitation,
+  InvitationRegisteredUser,
+  PageResult,
+  RbacRole,
+  Role,
+  SystemAccount,
+} from "../types";
 import { formatDate } from "../utils/format";
 
 interface InvitationsPageProps {
@@ -18,8 +26,16 @@ interface InvitationsPageProps {
     pageSize?: number,
   ) => Promise<PageResult<InvitationRegisteredUser>>;
   onRevokeInvitation: (invitation: Invitation) => void;
+  onCopyInvitationLink: (invitation: Invitation) => Promise<{ token: string }>;
+  onLoadGiftAccounts: (
+    page: number,
+    pageSize: number,
+    sortOrder: "ascend" | "descend",
+  ) => Promise<PageResult<SystemAccount>>;
+  onGiftAccounts: (userId: string, systemAccountIds: string[]) => Promise<{ count: number }>;
   roles: RbacRole[];
   canManage: boolean;
+  canGiftAccounts: boolean;
 }
 
 export function InvitationsPage({
@@ -28,9 +44,13 @@ export function InvitationsPage({
   onCreateInvitation,
   onLoadInvitations,
   onLoadInvitationUsers,
+  onCopyInvitationLink,
+  onGiftAccounts,
+  onLoadGiftAccounts,
   onRevokeInvitation,
   roles,
   canManage,
+  canGiftAccounts,
 }: InvitationsPageProps) {
   const { message } = AntApp.useApp();
   const { language, t } = useI18n();
@@ -42,6 +62,8 @@ export function InvitationsPage({
     pageSize: 20,
   });
   const [registeredUsersLoading, setRegisteredUsersLoading] = useState(false);
+  const [giftUser, setGiftUser] = useState<InvitationRegisteredUser | null>(null);
+  const [copyingInvitationId, setCopyingInvitationId] = useState<string | null>(null);
 
   async function loadRegisteredUsers(invitation: Invitation, page = 1, pageSize = 20) {
     setRegisteredUsersLoading(true);
@@ -60,6 +82,21 @@ export function InvitationsPage({
     void loadRegisteredUsers(invitation);
   }
 
+  async function copyInvitationLink(invitation: Invitation) {
+    setCopyingInvitationId(invitation.id);
+    try {
+      const { token } = await onCopyInvitationLink(invitation);
+      await navigator.clipboard.writeText(
+        `${window.location.origin}/admin?inviteToken=${encodeURIComponent(token)}`,
+      );
+      message.success(t("common.copied"));
+    } catch (error) {
+      message.error((error as Error).message);
+    } finally {
+      setCopyingInvitationId(null);
+    }
+  }
+
   const registeredUserColumns: TableColumnsType<InvitationRegisteredUser> = [
     { title: t("common.email"), dataIndex: "email" },
     {
@@ -76,6 +113,31 @@ export function InvitationsPage({
       width: 190,
       render: (value: string) => formatDate(value, language),
     },
+    {
+      title: t("invitations.giftedAccountCount"),
+      dataIndex: "giftedAccountCount",
+      width: 130,
+      render: (count: number) => (
+        <Badge count={count} showZero color={count ? "#1677ff" : "#94a3b8"} />
+      ),
+    },
+    ...(canGiftAccounts ? [{
+      title: t("common.actions"),
+      key: "actions",
+      width: 120,
+      render: (_: unknown, user: InvitationRegisteredUser) => (
+        <Tooltip title={t("invitations.giftAccount")}>
+          <Button
+            size="small"
+            icon={<Gift size={14} />}
+            disabled={!user.userId}
+            onClick={() => setGiftUser(user)}
+          >
+            {t("invitations.giftAccount")}
+          </Button>
+        </Tooltip>
+      ),
+    }] : []),
   ];
 
   const columns: TableColumnsType<Invitation> = [
@@ -121,13 +183,27 @@ export function InvitationsPage({
     {
       title: t("common.actions"),
       key: "actions",
-      width: 160,
+      width: 210,
       fixed: "right",
       render: (_, row) => (
         <Space size="small">
           <Button size="small" icon={<Eye size={14} />} onClick={() => openRegisteredUsers(row)}>
             {t("invitations.viewUsers")}
           </Button>
+          <Tooltip title={t("invitations.copyLink")}>
+            <Button
+              size="small"
+              className="icon-button"
+              icon={<ClipboardCopy size={15} />}
+              loading={copyingInvitationId === row.id}
+              disabled={!canManage || Boolean(
+                row.revokedAt
+                || row.usedCount >= row.maxUses
+                || (row.expiresAt && new Date(row.expiresAt) <= new Date())
+              )}
+              onClick={() => void copyInvitationLink(row)}
+            />
+          </Tooltip>
           <Button
             danger
             size="small"
@@ -173,9 +249,12 @@ export function InvitationsPage({
       <Modal
         title={t("invitations.usersTitle")}
         open={Boolean(selectedInvitation)}
-        width={760}
+        width={920}
         footer={null}
-        onCancel={() => setSelectedInvitation(null)}
+        onCancel={() => {
+          setGiftUser(null);
+          setSelectedInvitation(null);
+        }}
         destroyOnClose
       >
         <Typography.Paragraph type="secondary">
@@ -205,6 +284,22 @@ export function InvitationsPage({
           }}
         />
       </Modal>
+      <InvitationAccountGiftModal
+        user={giftUser}
+        onClose={() => setGiftUser(null)}
+        onLoadAccounts={onLoadGiftAccounts}
+        onGift={async (userId, systemAccountIds) => {
+          const result = await onGiftAccounts(userId, systemAccountIds);
+          if (selectedInvitation) {
+            await loadRegisteredUsers(
+              selectedInvitation,
+              registeredUsers.page,
+              registeredUsers.pageSize,
+            );
+          }
+          return result;
+        }}
+      />
     </>
   );
 }

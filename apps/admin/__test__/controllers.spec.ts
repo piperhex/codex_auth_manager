@@ -112,6 +112,7 @@ describe('HTTP controllers', () => {
       listInvitations: vi.fn().mockResolvedValue('invitations'),
       listInvitationUsers: vi.fn().mockResolvedValue('invitation-users'),
       createInvitation: vi.fn().mockResolvedValue('invitation'),
+      getInvitationToken: vi.fn().mockResolvedValue({ token: 'invitation-token' }),
       revokeInvitation: vi.fn().mockResolvedValue('revoked'),
       listApprovalRequests: vi.fn().mockResolvedValue('approvals'),
       createApprovalRequest: vi.fn().mockResolvedValue('approval'),
@@ -184,6 +185,8 @@ describe('HTTP controllers', () => {
       .resolves.toBe('invitation-users');
     await expect(controller.createInvitation(actor, { email: 'invite@example.com' }))
       .resolves.toBe('invitation');
+    await expect(controller.getInvitationToken('invitation-1'))
+      .resolves.toEqual({ token: 'invitation-token' });
     await expect(controller.revokeInvitation(actor, 'invitation-1')).resolves.toBe('revoked');
     await expect(controller.listApprovalRequests({ page: 1 })).resolves.toBe('approvals');
     await expect(controller.createApprovalRequest(actor, {
@@ -200,6 +203,7 @@ describe('HTTP controllers', () => {
     expect(admin.listUserProviders).toHaveBeenCalledWith('user-1');
     expect(admin.bindSystemAccounts).toHaveBeenCalledWith(actor, bindingDto);
     expect(admin.unbindSystemAccounts).toHaveBeenCalledWith(actor, bindingDto);
+    expect(admin.getInvitationToken).toHaveBeenCalledWith('invitation-1');
     expect(officialAccountOAuth.start).toHaveBeenCalledWith(actor);
     expect(officialAccountOAuth.poll).toHaveBeenCalledWith(actor, 'oauth-session');
     expect(officialAccountImport.import).toHaveBeenCalledWith(actor, { content: '{"tokens":{}}' });

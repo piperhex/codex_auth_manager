@@ -27,6 +27,7 @@ describe('AdminService', () => {
     updateSystemAccount: ReturnType<typeof vi.fn>;
     deleteSystemAccount: ReturnType<typeof vi.fn>; listSystemAccountBindingIds: ReturnType<typeof vi.fn>;
     bindSystemAccounts: ReturnType<typeof vi.fn>; unbindSystemAccounts: ReturnType<typeof vi.fn>;
+    countSystemAccountBindingsByUserIds: ReturnType<typeof vi.fn>;
   };
   let rbac: {
     assertRoleAssignable: ReturnType<typeof vi.fn>;
@@ -62,6 +63,7 @@ describe('AdminService', () => {
       updateSystemAccount: vi.fn(), deleteSystemAccount: vi.fn(),
       listSystemAccountBindingIds: vi.fn(), bindSystemAccounts: vi.fn(),
       unbindSystemAccounts: vi.fn(),
+      countSystemAccountBindingsByUserIds: vi.fn().mockResolvedValue(new Map()),
     };
     rbac = {
       assertRoleAssignable: vi.fn().mockResolvedValue({ code: 'user' }),
@@ -95,6 +97,7 @@ describe('AdminService', () => {
       auditLogs as unknown as Repository<AdminAuditLogEntity>,
       invitations as unknown as Repository<AdminInvitationEntity>,
       approvals as unknown as Repository<AdminApprovalRequestEntity>,
+      { KONG_JWT_SECRET: 'test-invitation-secret' },
     );
   });
 
@@ -131,6 +134,8 @@ describe('AdminService', () => {
     expect(stored.tokenHash).not.toBe(created.token);
     expect(stored.maxUses).toBe(1);
     expect(stored.usedCount).toBe(0);
+    await expect(service.getInvitationToken(stored.id))
+      .resolves.toEqual({ token: created.token });
     await expect(service.validateInvitation(created.token!, 'invite@example.com'))
       .resolves.toMatchObject({ id: 'invitation-1', role: 'admin' });
 
@@ -143,6 +148,23 @@ describe('AdminService', () => {
       action: 'invitation.accept',
       actorId: acceptedUser.id,
     }));
+  });
+
+  it('copies a signed link for legacy invitations without invalidating their old token', async () => {
+    const invitation = {
+      id: 'legacy-invitation',
+      email: 'legacy@example.com',
+      tokenHash: 'legacy-random-token-hash',
+    } as AdminInvitationEntity;
+    invitations.findOne.mockResolvedValue(invitation);
+
+    const result = await service.getInvitationToken(invitation.id);
+
+    expect(result.token).toEqual(expect.any(String));
+    expect(invitation.tokenHash).toBe('legacy-random-token-hash');
+    expect(invitations.save).not.toHaveBeenCalled();
+    await expect(service.validateInvitation(result.token, invitation.email!))
+      .resolves.toMatchObject({ id: invitation.id });
   });
 
   it('supports reusable invitations without an email or expiration date', async () => {
@@ -191,15 +213,21 @@ describe('AdminService', () => {
         createdAt: new Date('2026-07-04T01:00:00.000Z'),
       },
     ], 2]);
+    sync.countSystemAccountBindingsByUserIds.mockResolvedValue(new Map([
+      ['user-3', 2],
+      ['user-2', 1],
+    ]));
 
     await expect(service.listInvitationUsers(invitation.id, { page: 1, pageSize: 20 }))
       .resolves.toEqual({
         items: [
           expect.objectContaining({
             id: 'audit-2', userId: 'user-3', email: 'second@example.com', role: 'admin',
+            giftedAccountCount: 2,
           }),
           expect.objectContaining({
             id: 'audit-1', userId: 'user-2', email: 'first@example.com', role: 'user',
+            giftedAccountCount: 1,
           }),
         ],
         total: 2,
@@ -213,6 +241,8 @@ describe('AdminService', () => {
         targetId: invitation.id,
       },
     }));
+    expect(sync.countSystemAccountBindingsByUserIds)
+      .toHaveBeenCalledWith(['user-3', 'user-2']);
   });
 
   it('lists synced providers for an existing user without exposing API keys', async () => {

@@ -96,6 +96,20 @@ describe('SyncService', () => {
     expect(result.accounts[0]).not.toHaveProperty('auth');
   });
 
+  it('counts assigned official accounts for invitation-registered users', async () => {
+    systemBindings.find.mockResolvedValue([
+      { userId: 'user-1', systemAccountId: 'account-1' },
+      { userId: 'user-1', systemAccountId: 'account-2' },
+      { userId: 'user-2', systemAccountId: 'account-3' },
+    ]);
+
+    await expect(service.countSystemAccountBindingsByUserIds(['user-1', 'user-2', 'user-1']))
+      .resolves.toEqual(new Map([['user-1', 2], ['user-2', 1]]));
+    expect(systemBindings.find).toHaveBeenCalledWith({
+      where: { userId: expect.anything() },
+    });
+  });
+
   it('loads, maps, sorts and caches a cache miss', async () => {
     redis.get.mockResolvedValue(null);
     accounts.find.mockResolvedValue([{
