@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { App as AntApp, Checkbox, Form, Input, Modal, Typography } from "antd";
+import { App as AntApp, Form, Input, Modal, Select } from "antd";
 import { useI18n } from "../../i18n-context";
 import type { ApiClient, Permission, PermissionDefinition, RbacRole } from "../../types";
 
@@ -35,15 +35,22 @@ export function RoleModal({
   const [saving, setSaving] = useState(false);
   const grantable = useMemo(() => new Set(grantablePermissions), [grantablePermissions]);
   const selected = useMemo(() => new Set(role?.permissions ?? []), [role?.permissions]);
-  const groups = useMemo(() => {
+  const permissionOptions = useMemo(() => {
     const grouped = new Map<string, PermissionDefinition[]>();
     for (const permission of permissions) {
       const group = grouped.get(permission.group) ?? [];
       group.push(permission);
       grouped.set(permission.group, group);
     }
-    return [...grouped.entries()];
-  }, [permissions]);
+    return [...grouped.entries()].map(([group, entries]) => ({
+      label: group,
+      options: entries.map((permission) => ({
+        label: `${permission.name} · ${permission.code}`,
+        value: permission.code,
+        disabled: !grantable.has(permission.code) && !selected.has(permission.code),
+      })),
+    }));
+  }, [grantable, permissions, selected]);
 
   useEffect(() => {
     if (!open) {
@@ -107,29 +114,15 @@ export function RoleModal({
           <Input.TextArea maxLength={500} showCount rows={3} />
         </Form.Item>
         <Form.Item name="permissions" label={t("roles.permissions")} initialValue={[]}>
-          <Checkbox.Group style={{ width: "100%" }}>
-            <div className="permission-groups">
-              {groups.map(([group, entries]) => (
-                <div className="permission-group" key={group}>
-                  <Typography.Text strong>{group}</Typography.Text>
-                  <div className="permission-options">
-                    {entries.map((permission) => (
-                      <Checkbox
-                        key={permission.code}
-                        value={permission.code}
-                        disabled={!grantable.has(permission.code) && !selected.has(permission.code)}
-                      >
-                        <span className="permission-option-copy">
-                          <span>{permission.name}</span>
-                          <Typography.Text type="secondary">{permission.code}</Typography.Text>
-                        </span>
-                      </Checkbox>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Checkbox.Group>
+          <Select
+            mode="multiple"
+            showSearch
+            optionFilterProp="label"
+            maxTagCount="responsive"
+            placeholder={t("roles.selectPermissions")}
+            options={permissionOptions}
+            style={{ width: "100%" }}
+          />
         </Form.Item>
       </Form>
     </Modal>

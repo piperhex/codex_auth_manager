@@ -16,7 +16,12 @@ import { CurrentUser, type AuthUser } from '@/common/decorators/user.decorator';
 import { RequirePermissions } from '@/common/decorators/permissions.decorator';
 import { PermissionsGuard } from '@/common/guards/permissions.guard';
 import { Permission } from '@/common/rbac/permissions';
-import { CreateRoleDto, UpdateRoleDto } from '@/modules/rbac/dto/rbac.dto';
+import {
+  CreatePermissionDto,
+  CreateRoleDto,
+  UpdatePermissionDto,
+  UpdateRoleDto,
+} from '@/modules/rbac/dto/rbac.dto';
 import { JwtAuthGuard } from '@/modules/jwt/jwt-auth.guard';
 import { AdminService } from './admin.service';
 import { OfficialAccountOAuthService } from './official-account-oauth.service';
@@ -72,6 +77,24 @@ export class AdminController {
   @Get('api/permissions')
   listPermissions() {
     return this.admin.listPermissions();
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(Permission.PermissionsManage)
+  @Post('api/permissions')
+  createPermission(@CurrentUser() user: AuthUser, @Body() dto: CreatePermissionDto) {
+    return this.admin.createPermission(user, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(Permission.PermissionsManage)
+  @Patch('api/permissions/:code')
+  updatePermission(
+    @CurrentUser() user: AuthUser,
+    @Param('code') code: string,
+    @Body() dto: UpdatePermissionDto,
+  ) {
+    return this.admin.updatePermission(user, code, dto);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)

@@ -156,7 +156,7 @@ The admin console can also add an official account through Codex OAuth. It uses 
 
 Every management and synchronization endpoint is protected by an explicit permission in addition to JWT authentication. Roles and role-permission assignments are stored in PostgreSQL and permissions are derived from the user's current database role on every request, so changing or disabling a user takes effect without trusting stale role claims from an access token.
 
-The built-in `user` role provides self-service access and the protected `admin` role receives every permission. Administrators can create additional roles and assign catalog permissions from the **Roles & Permissions** page. Permission identifiers remain application-defined because each one corresponds to an enforced backend capability.
+The built-in `user` role provides self-service access and can be edited without being deleted. The protected `admin` role receives every built-in and custom permission. Administrators can create additional roles, create or edit custom permission definitions for external systems, and assign permissions with the searchable multi-select on the **Roles & Permissions** page. Core `admin.*` and `self.*` definitions remain application-owned and read-only because each one corresponds to an enforced backend capability; custom permission codes are immutable after creation so integrations can safely persist them.
 
 Ordinary users can sign in to `/admin`, see only the **My Accounts** page, open their profile, and change their own password. `GET /admin/api/profile/accounts` returns account display data without any `auth` credentials. Menu filtering is only a user-interface aid; backend permission guards remain authoritative.
 

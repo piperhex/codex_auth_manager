@@ -1,27 +1,6 @@
 export type Role = string;
 export type UserStatus = "active" | "disabled";
-export type Permission =
-  | "self.accounts.read"
-  | "self.accounts.write"
-  | "self.providers.read"
-  | "self.providers.write"
-  | "self.password.update"
-  | "admin.users.read"
-  | "admin.users.manage"
-  | "admin.roles.read"
-  | "admin.roles.manage"
-  | "admin.official-accounts.read"
-  | "admin.official-accounts.manage"
-  | "admin.audit-logs.read"
-  | "admin.invitations.read"
-  | "admin.invitations.manage"
-  | "admin.approvals.read"
-  | "admin.approvals.manage"
-  | "admin.announcements.read"
-  | "admin.announcements.manage"
-  | "admin.feedback.read"
-  | "admin.feedback.manage"
-  | "admin.telemetry.read";
+export type Permission = string;
 export type MenuKey = "myAccounts" | "users" | "roles" | "officialAccounts" | "announcement" | "feedback" | "telemetry" | "audit" | "invitations" | "approvals";
 
 export interface AuthTokens {
@@ -54,6 +33,7 @@ export interface PermissionDefinition {
   group: string;
   name: string;
   description: string;
+  system: boolean;
 }
 
 export interface PageResult<T> {

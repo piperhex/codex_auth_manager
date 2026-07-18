@@ -56,8 +56,8 @@ The desktop React frontend receives redacted models such as `AccountSummary`, `P
 ## Cloud Backend and Mobile Responsibilities
 
 - `apps/admin` exposes registration/login, refresh-token, account sync, Provider sync, redacted mobile-summary, and admin-management routes.
-- PostgreSQL stores users, dynamic RBAC roles and role-permission assignments, refresh tokens, synchronized account credentials, Provider API keys, admin audit data, feedback with image attachments, and the optional official-account pool. Redis caches account and Provider lists.
-- The admin console at `/admin` manages roles and permissions, users, their synchronized accounts and Providers, invitations, approval requests, feedback and replies, audit logs, and official-account assignments.
+- PostgreSQL stores users, dynamic RBAC roles, built-in and custom permission definitions, role-permission assignments, refresh tokens, synchronized account credentials, Provider API keys, admin audit data, feedback with image attachments, and the optional official-account pool. Redis caches account and Provider lists.
+- The admin console at `/admin` manages roles and permissions (including custom permission definitions for external systems), users, their synchronized accounts and Providers, invitations, approval requests, feedback and replies, audit logs, and official-account assignments.
 - An official account assigned to a user is merged into that user's effective sync list. The assigned system copy wins when its stable account ID collides with a personal copy, and it must be edited or removed from the official pool.
 - `apps/native` stores only its cloud login session in the platform secure store and reads `/sync/accounts/summary`. The response excludes each account's `auth` payload; the mobile app cannot switch accounts or refresh official usage directly.
 

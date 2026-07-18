@@ -10,12 +10,16 @@ import { DataSource, In, Repository } from 'typeorm';
 import type { AuthUser } from '@/common/decorators/user.decorator';
 import {
   PERMISSION_CATALOG,
-  Permission,
   SYSTEM_ROLE_CODES,
   USER_ROLE_PERMISSIONS,
   expandPermissionDependencies,
 } from '@/common/rbac/permissions';
-import type { CreateRoleDto, UpdateRoleDto } from './dto/rbac.dto';
+import type {
+  CreatePermissionDto,
+  CreateRoleDto,
+  UpdatePermissionDto,
+  UpdateRoleDto,
+} from './dto/rbac.dto';
 import { RbacPermissionEntity } from './entities/permission.entity';
 import { RbacRoleEntity } from './entities/role.entity';
 
@@ -35,25 +39,70 @@ export class RbacService implements OnModuleInit {
 
   async synchronizeCatalog() {
     await this.permissions.upsert(
-      PERMISSION_CATALOG.map((permission) => ({ ...permission })),
+      PERMISSION_CATALOG.map((permission) => ({ ...permission, system: true })),
       ['code'],
     );
-    await this.ensureSystemRole(
+    await this.ensureUserRole(
       SYSTEM_ROLE_CODES.user,
       'User',
       'Default self-service role.',
       [...USER_ROLE_PERMISSIONS],
     );
+    const allPermissions = await this.permissions.find();
     await this.ensureSystemRole(
       SYSTEM_ROLE_CODES.admin,
       'Administrator',
       'Built-in role with every permission.',
-      PERMISSION_CATALOG.map((permission) => permission.code),
+      allPermissions.map((permission) => permission.code),
     );
   }
 
   async listPermissions() {
     return this.permissions.find({ order: { group: 'ASC', code: 'ASC' } });
+  }
+
+  async createPermission(dto: CreatePermissionDto) {
+    const code = dto.code.trim().toLowerCase();
+    const name = dto.name.trim();
+    const group = dto.group.trim();
+    if (!name || !group) throw new BadRequestException('Permission name and group are required');
+    if (code.startsWith('admin.') || code.startsWith('self.')) {
+      throw new BadRequestException('The admin.* and self.* permission namespaces are reserved');
+    }
+    if (await this.permissions.exists({ where: { code } })) {
+      throw new BadRequestException('Permission code already exists');
+    }
+    const permission = await this.permissions.save(this.permissions.create({
+      code,
+      name,
+      group,
+      description: dto.description?.trim() ?? '',
+      system: false,
+    }));
+    const adminRole = await this.roles.findOne({ where: { code: SYSTEM_ROLE_CODES.admin } });
+    if (adminRole && !adminRole.permissions.some((item) => item.code === permission.code)) {
+      adminRole.permissions = [...adminRole.permissions, permission];
+      await this.roles.save(adminRole);
+    }
+    return permission;
+  }
+
+  async updatePermission(code: string, dto: UpdatePermissionDto) {
+    const permission = await this.permissions.findOne({ where: { code } });
+    if (!permission) throw new NotFoundException('Permission not found');
+    if (permission.system) throw new BadRequestException('Built-in permissions cannot be modified');
+    if (dto.name !== undefined) {
+      const name = dto.name.trim();
+      if (!name) throw new BadRequestException('Permission name is required');
+      permission.name = name;
+    }
+    if (dto.group !== undefined) {
+      const group = dto.group.trim();
+      if (!group) throw new BadRequestException('Permission group is required');
+      permission.group = group;
+    }
+    if (dto.description !== undefined) permission.description = dto.description.trim();
+    return this.permissions.save(permission);
   }
 
   async listRoles() {
@@ -103,7 +152,9 @@ export class RbacService implements OnModuleInit {
 
   async updateRole(actor: AuthUser, code: string, dto: UpdateRoleDto) {
     const role = await this.getRole(code);
-    if (role.system) throw new BadRequestException('Built-in roles cannot be modified');
+    if (role.system && role.code !== SYSTEM_ROLE_CODES.user) {
+      throw new BadRequestException('Only the built-in user role can be modified');
+    }
     if (dto.name !== undefined) role.name = dto.name.trim();
     if (dto.description !== undefined) role.description = dto.description.trim();
     if (dto.permissions !== undefined) {
@@ -156,7 +207,7 @@ export class RbacService implements OnModuleInit {
     return role;
   }
 
-  private assertCanGrant(actor: AuthUser, permissions: Permission[]) {
+  private assertCanGrant(actor: AuthUser, permissions: string[]) {
     if (actor.role === SYSTEM_ROLE_CODES.admin) return;
     const granted = new Set(actor.permissions ?? []);
     if (permissions.some((permission) => !granted.has(permission))) {
@@ -164,7 +215,7 @@ export class RbacService implements OnModuleInit {
     }
   }
 
-  private async resolvePermissions(codes: Permission[]) {
+  private async resolvePermissions(codes: string[]) {
     const unique = [...new Set(codes)];
     if (!unique.length) return [];
     const permissions = await this.permissions.find({ where: { code: In(unique) } });
@@ -179,7 +230,7 @@ export class RbacService implements OnModuleInit {
     code: string,
     name: string,
     description: string,
-    permissionCodes: Permission[],
+    permissionCodes: string[],
   ) {
     const permissions = await this.resolvePermissions(permissionCodes);
     const existing = await this.roles.findOne({ where: { code } });
@@ -189,6 +240,21 @@ export class RbacService implements OnModuleInit {
     role.system = true;
     role.permissions = permissions;
     await this.roles.save(role);
+  }
+
+  private async ensureUserRole(
+    code: string,
+    name: string,
+    description: string,
+    permissionCodes: string[],
+  ) {
+    const existing = await this.roles.findOne({ where: { code } });
+    if (existing) {
+      existing.system = true;
+      await this.roles.save(existing);
+      return;
+    }
+    await this.ensureSystemRole(code, name, description, permissionCodes);
   }
 
   private presentRole(role: RbacRoleEntity, userCount: number) {

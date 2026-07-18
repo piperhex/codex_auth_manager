@@ -13,6 +13,7 @@ import { InvitationModal } from "./components/modals/InvitationModal";
 import { PasswordResetModal } from "./components/modals/PasswordResetModal";
 import { ProfileModal } from "./components/modals/ProfileModal";
 import { ProfilePasswordModal } from "./components/modals/ProfilePasswordModal";
+import { PermissionModal } from "./components/modals/PermissionModal";
 import { UserModal } from "./components/modals/UserModal";
 import { RoleModal } from "./components/modals/RoleModal";
 import { LoginView } from "./components/LoginView";
@@ -179,6 +180,8 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
   const [rolesLoading, setRolesLoading] = useState(false);
   const [roleModalOpen, setRoleModalOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<RbacRole | null>(null);
+  const [permissionModalOpen, setPermissionModalOpen] = useState(false);
+  const [editingPermission, setEditingPermission] = useState<PermissionDefinition | null>(null);
 
   const saveAuth = useCallback((next: AuthTokens | null) => {
     setAuth(next);
@@ -482,6 +485,7 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
   const pendingApprovalCount = approvals.items.filter((item) => item.status === "pending").length;
   const canManageUsers = Boolean(profile?.permissions?.includes("admin.users.manage"));
   const canManageRoles = Boolean(profile?.permissions?.includes("admin.roles.manage"));
+  const canManagePermissions = Boolean(profile?.permissions?.includes("admin.permissions.manage"));
   const canManageOfficialAccounts = Boolean(profile?.permissions?.includes("admin.official-accounts.manage"));
   const canManageInvitations = Boolean(profile?.permissions?.includes("admin.invitations.manage"));
   const canManageApprovals = Boolean(profile?.permissions?.includes("admin.approvals.manage"));
@@ -619,8 +623,10 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
       return (
         <RolesPage
           roles={roles}
+          permissions={permissionCatalog}
           loading={rolesLoading}
           canManage={canManageRoles}
+          canManagePermissions={canManagePermissions}
           onRefresh={loadRbac}
           onCreate={() => {
             setEditingRole(null);
@@ -641,6 +647,14 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
                 await loadRbac();
               },
             });
+          }}
+          onCreatePermission={() => {
+            setEditingPermission(null);
+            setPermissionModalOpen(true);
+          }}
+          onEditPermission={(permission) => {
+            setEditingPermission(permission);
+            setPermissionModalOpen(true);
           }}
         />
       );
@@ -950,6 +964,18 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
           setEditingRole(null);
         }}
         onSaved={loadRbac}
+      />
+      <PermissionModal
+        open={permissionModalOpen}
+        permission={editingPermission}
+        api={api}
+        onClose={() => {
+          setPermissionModalOpen(false);
+          setEditingPermission(null);
+        }}
+        onSaved={async () => {
+          await Promise.all([loadRbac(), loadProfile()]);
+        }}
       />
       <ApprovalModal
         open={approvalOpen}

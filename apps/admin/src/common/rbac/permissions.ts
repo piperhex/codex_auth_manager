@@ -8,6 +8,7 @@ export enum Permission {
   UsersManage = 'admin.users.manage',
   RolesRead = 'admin.roles.read',
   RolesManage = 'admin.roles.manage',
+  PermissionsManage = 'admin.permissions.manage',
   OfficialAccountsRead = 'admin.official-accounts.read',
   OfficialAccountsManage = 'admin.official-accounts.manage',
   AuditLogsRead = 'admin.audit-logs.read',
@@ -39,6 +40,7 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   { code: Permission.UsersManage, group: 'users', name: 'Manage users', description: 'Create, update, disable, and delete users.' },
   { code: Permission.RolesRead, group: 'security', name: 'Read roles', description: 'View roles and the permission catalog.' },
   { code: Permission.RolesManage, group: 'security', name: 'Manage roles', description: 'Create, update, and delete custom roles.' },
+  { code: Permission.PermissionsManage, group: 'security', name: 'Manage permissions', description: 'Create and edit custom permission definitions.' },
   { code: Permission.OfficialAccountsRead, group: 'official-accounts', name: 'Read official accounts', description: 'View the official account pool and its bindings.' },
   { code: Permission.OfficialAccountsManage, group: 'official-accounts', name: 'Manage official accounts', description: 'Create, update, delete, and bind official accounts.' },
   { code: Permission.AuditLogsRead, group: 'audit', name: 'Read audit logs', description: 'View administrative audit events.' },
@@ -71,6 +73,7 @@ const PERMISSION_DEPENDENCIES: Partial<Record<Permission, readonly Permission[]>
   [Permission.SelfProvidersWrite]: [Permission.SelfProvidersRead],
   [Permission.UsersManage]: [Permission.UsersRead, Permission.RolesRead],
   [Permission.RolesManage]: [Permission.RolesRead],
+  [Permission.PermissionsManage]: [Permission.RolesRead],
   [Permission.OfficialAccountsManage]: [Permission.OfficialAccountsRead, Permission.UsersRead],
   [Permission.InvitationsManage]: [Permission.InvitationsRead, Permission.RolesRead],
   [Permission.ApprovalsManage]: [Permission.ApprovalsRead, Permission.UsersRead],
@@ -78,12 +81,12 @@ const PERMISSION_DEPENDENCIES: Partial<Record<Permission, readonly Permission[]>
   [Permission.FeedbackManage]: [Permission.FeedbackRead],
 };
 
-export function expandPermissionDependencies(permissions: readonly Permission[]): Permission[] {
+export function expandPermissionDependencies(permissions: readonly string[]): string[] {
   const expanded = new Set(permissions);
   const pending = [...permissions];
   while (pending.length) {
     const permission = pending.pop()!;
-    for (const dependency of PERMISSION_DEPENDENCIES[permission] ?? []) {
+    for (const dependency of PERMISSION_DEPENDENCIES[permission as Permission] ?? []) {
       if (expanded.has(dependency)) continue;
       expanded.add(dependency);
       pending.push(dependency);

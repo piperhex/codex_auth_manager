@@ -2,8 +2,12 @@ CREATE TABLE IF NOT EXISTS rbac_permissions (
   "code" varchar(100) PRIMARY KEY,
   "group" varchar(60) NOT NULL,
   "name" varchar(100) NOT NULL,
-  "description" varchar(500) NOT NULL DEFAULT ''
+  "description" varchar(500) NOT NULL DEFAULT '',
+  "system" boolean NOT NULL DEFAULT false
 );
+
+ALTER TABLE rbac_permissions
+  ADD COLUMN IF NOT EXISTS "system" boolean NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS rbac_roles (
   "code" varchar(64) PRIMARY KEY,
@@ -24,35 +28,55 @@ CREATE TABLE IF NOT EXISTS rbac_role_permissions (
     FOREIGN KEY ("permissionCode") REFERENCES rbac_permissions ("code") ON DELETE CASCADE
 );
 
-INSERT INTO rbac_permissions ("code", "group", "name", "description") VALUES
-  ('self.accounts.read', 'self-service', 'Read own accounts', 'View accounts assigned or synchronized to the current user.'),
-  ('self.accounts.write', 'self-service', 'Manage own accounts', 'Update account metadata owned by the current user.'),
-  ('self.providers.read', 'self-service', 'Read own providers', 'View providers synchronized by the current user.'),
-  ('self.providers.write', 'self-service', 'Manage own providers', 'Create, update, and delete providers owned by the current user.'),
-  ('self.password.update', 'self-service', 'Change own password', 'Change the current user password.'),
-  ('admin.users.read', 'users', 'Read users', 'View users and their synchronized data.'),
-  ('admin.users.manage', 'users', 'Manage users', 'Create, update, disable, and delete users.'),
-  ('admin.roles.read', 'security', 'Read roles', 'View roles and the permission catalog.'),
-  ('admin.roles.manage', 'security', 'Manage roles', 'Create, update, and delete custom roles.'),
-  ('admin.official-accounts.read', 'official-accounts', 'Read official accounts', 'View the official account pool and its bindings.'),
-  ('admin.official-accounts.manage', 'official-accounts', 'Manage official accounts', 'Create, update, delete, and bind official accounts.'),
-  ('admin.audit-logs.read', 'audit', 'Read audit logs', 'View administrative audit events.'),
-  ('admin.invitations.read', 'invitations', 'Read invitations', 'View registration invitations.'),
-  ('admin.invitations.manage', 'invitations', 'Manage invitations', 'Create and revoke registration invitations.'),
-  ('admin.approvals.read', 'approvals', 'Read approvals', 'View administrator approval requests.'),
-  ('admin.approvals.manage', 'approvals', 'Manage approvals', 'Create and review administrator approval requests.'),
-  ('admin.announcements.read', 'content', 'Read announcements', 'View the application announcement configuration.'),
-  ('admin.announcements.manage', 'content', 'Manage announcements', 'Publish and update application announcements.'),
-  ('admin.feedback.read', 'feedback', 'Read feedback', 'View feedback and its attachments.'),
-  ('admin.feedback.manage', 'feedback', 'Manage feedback', 'Reply to user feedback.'),
-  ('admin.telemetry.read', 'telemetry', 'Read telemetry', 'View installation and telemetry analytics.')
+INSERT INTO rbac_permissions ("code", "group", "name", "description", "system") VALUES
+  ('self.accounts.read', 'self-service', 'Read own accounts', 'View accounts assigned or synchronized to the current user.', true),
+  ('self.accounts.write', 'self-service', 'Manage own accounts', 'Update account metadata owned by the current user.', true),
+  ('self.providers.read', 'self-service', 'Read own providers', 'View providers synchronized by the current user.', true),
+  ('self.providers.write', 'self-service', 'Manage own providers', 'Create, update, and delete providers owned by the current user.', true),
+  ('self.password.update', 'self-service', 'Change own password', 'Change the current user password.', true),
+  ('admin.users.read', 'users', 'Read users', 'View users and their synchronized data.', true),
+  ('admin.users.manage', 'users', 'Manage users', 'Create, update, disable, and delete users.', true),
+  ('admin.roles.read', 'security', 'Read roles', 'View roles and the permission catalog.', true),
+  ('admin.roles.manage', 'security', 'Manage roles', 'Create, update, and delete custom roles.', true),
+  ('admin.permissions.manage', 'security', 'Manage permissions', 'Create and edit custom permission definitions.', true),
+  ('admin.official-accounts.read', 'official-accounts', 'Read official accounts', 'View the official account pool and its bindings.', true),
+  ('admin.official-accounts.manage', 'official-accounts', 'Manage official accounts', 'Create, update, delete, and bind official accounts.', true),
+  ('admin.audit-logs.read', 'audit', 'Read audit logs', 'View administrative audit events.', true),
+  ('admin.invitations.read', 'invitations', 'Read invitations', 'View registration invitations.', true),
+  ('admin.invitations.manage', 'invitations', 'Manage invitations', 'Create and revoke registration invitations.', true),
+  ('admin.approvals.read', 'approvals', 'Read approvals', 'View administrator approval requests.', true),
+  ('admin.approvals.manage', 'approvals', 'Manage approvals', 'Create and review administrator approval requests.', true),
+  ('admin.announcements.read', 'content', 'Read announcements', 'View the application announcement configuration.', true),
+  ('admin.announcements.manage', 'content', 'Manage announcements', 'Publish and update application announcements.', true),
+  ('admin.feedback.read', 'feedback', 'Read feedback', 'View feedback and its attachments.', true),
+  ('admin.feedback.manage', 'feedback', 'Manage feedback', 'Reply to user feedback.', true),
+  ('admin.telemetry.read', 'telemetry', 'Read telemetry', 'View installation and telemetry analytics.', true)
 ON CONFLICT ("code") DO UPDATE SET
   "group" = EXCLUDED."group",
   "name" = EXCLUDED."name",
-  "description" = EXCLUDED."description";
+  "description" = EXCLUDED."description",
+  "system" = true;
+
+WITH inserted_user AS (
+  INSERT INTO rbac_roles ("code", "name", "description", "system") VALUES
+    ('user', 'User', 'Default self-service role.', true)
+  ON CONFLICT ("code") DO NOTHING
+  RETURNING "code"
+)
+INSERT INTO rbac_role_permissions ("roleCode", "permissionCode")
+SELECT inserted_user."code", defaults."permissionCode"
+FROM inserted_user
+CROSS JOIN (VALUES
+  ('self.accounts.read'),
+  ('self.accounts.write'),
+  ('self.providers.read'),
+  ('self.providers.write'),
+  ('self.password.update')
+) AS defaults("permissionCode");
+
+UPDATE rbac_roles SET "system" = true WHERE "code" = 'user';
 
 INSERT INTO rbac_roles ("code", "name", "description", "system") VALUES
-  ('user', 'User', 'Default self-service role.', true),
   ('admin', 'Administrator', 'Built-in role with every permission.', true)
 ON CONFLICT ("code") DO UPDATE SET
   "name" = EXCLUDED."name",
@@ -67,14 +91,7 @@ FROM users
 WHERE role NOT IN ('user', 'admin')
 ON CONFLICT ("code") DO NOTHING;
 
-DELETE FROM rbac_role_permissions WHERE "roleCode" IN ('user', 'admin');
-
-INSERT INTO rbac_role_permissions ("roleCode", "permissionCode") VALUES
-  ('user', 'self.accounts.read'),
-  ('user', 'self.accounts.write'),
-  ('user', 'self.providers.read'),
-  ('user', 'self.providers.write'),
-  ('user', 'self.password.update');
+DELETE FROM rbac_role_permissions WHERE "roleCode" = 'admin';
 
 INSERT INTO rbac_role_permissions ("roleCode", "permissionCode")
 SELECT 'admin', "code" FROM rbac_permissions;

@@ -10,7 +10,12 @@ import type { AuthUser } from '@/common/decorators/user.decorator';
 import { SyncService } from '@/modules/sync/sync.service';
 import { UserService } from '@/modules/user/user.service';
 import { RbacService } from '@/modules/rbac/rbac.service';
-import type { CreateRoleDto, UpdateRoleDto } from '@/modules/rbac/dto/rbac.dto';
+import type {
+  CreatePermissionDto,
+  CreateRoleDto,
+  UpdatePermissionDto,
+  UpdateRoleDto,
+} from '@/modules/rbac/dto/rbac.dto';
 import type { UserEntity } from '@/modules/user/entities/user.entity';
 import type { SyncAccountDto } from '@/modules/sync/dto/sync-accounts.dto';
 import type { SyncProviderDto } from '@/modules/sync/dto/sync-providers.dto';
@@ -384,6 +389,23 @@ export class AdminService {
 
   listPermissions() {
     return this.rbac.listPermissions();
+  }
+
+  async createPermission(actor: AuthUser, dto: CreatePermissionDto) {
+    const permission = await this.rbac.createPermission(dto);
+    await this.record(actor, 'permission.create', 'permission', permission.code, null, {
+      name: permission.name,
+      group: permission.group,
+    });
+    return permission;
+  }
+
+  async updatePermission(actor: AuthUser, code: string, dto: UpdatePermissionDto) {
+    const permission = await this.rbac.updatePermission(code, dto);
+    await this.record(actor, 'permission.update', 'permission', code, null, {
+      fields: Object.keys(dto),
+    });
+    return permission;
   }
 
   async createRole(actor: AuthUser, dto: CreateRoleDto) {

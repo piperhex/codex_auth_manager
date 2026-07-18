@@ -221,42 +221,6 @@ body {
   background: rgba(15, 23, 42, 0.08);
 }
 
-.permission-groups {
-  display: grid;
-  gap: 14px;
-  width: 100%;
-}
-
-.permission-group {
-  padding: 14px;
-  border: 1px solid var(--ant-color-border-secondary);
-  border-radius: 10px;
-}
-
-.permission-options {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 16px;
-  margin-top: 10px;
-}
-
-.permission-options .ant-checkbox-wrapper {
-  align-items: flex-start;
-  margin-inline-start: 0;
-}
-
-.permission-option-copy {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.35;
-}
-
-@media (max-width: 720px) {
-  .permission-options {
-    grid-template-columns: 1fr;
-  }
-}
-
 .telemetry-panel {
   padding: 0 16px;
 }

@@ -8,7 +8,6 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
@@ -16,6 +15,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { initialWindowMetrics, SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError, clearSession, fetchAccountSummary, loadSession, login } from './src/api/client';
 import type { AccountSummary, AuthSession, UsageWindow } from './src/types';
 
@@ -315,7 +315,9 @@ function AppContent() {
 }
 
 export default function App() {
-  return <StartupErrorBoundary><AppContent /></StartupErrorBoundary>;
+  return <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+    <StartupErrorBoundary><AppContent /></StartupErrorBoundary>
+  </SafeAreaProvider>;
 }
 
 const styles = StyleSheet.create({

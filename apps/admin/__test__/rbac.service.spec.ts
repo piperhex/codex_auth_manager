@@ -13,8 +13,16 @@ import { RbacService } from '@/modules/rbac/rbac.service';
 
 const permissionRow = (code: Permission): RbacPermissionEntity => {
   const definition = PERMISSION_CATALOG.find((permission) => permission.code === code)!;
-  return { ...definition };
+  return { ...definition, system: true };
 };
+
+const customPermissionRow = (code = 'crm.orders.read'): RbacPermissionEntity => ({
+  code,
+  group: 'crm',
+  name: 'Read CRM orders',
+  description: '',
+  system: false,
+});
 
 const roleRow = (overrides: Partial<RbacRoleEntity> = {}): RbacRoleEntity => ({
   code: 'support',
@@ -31,6 +39,10 @@ describe('RbacService', () => {
   let permissions: {
     upsert: ReturnType<typeof vi.fn>;
     find: ReturnType<typeof vi.fn>;
+    findOne: ReturnType<typeof vi.fn>;
+    exists: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
+    save: ReturnType<typeof vi.fn>;
   };
   let roles: {
     find: ReturnType<typeof vi.fn>;
@@ -48,6 +60,10 @@ describe('RbacService', () => {
     permissions = {
       upsert: vi.fn(),
       find: vi.fn(),
+      findOne: vi.fn(),
+      exists: vi.fn(),
+      create: vi.fn((value) => value),
+      save: vi.fn(async (value) => value),
     };
     roles = {
       find: vi.fn(),
@@ -66,23 +82,79 @@ describe('RbacService', () => {
   });
 
   it('seeds the permission catalog and synchronizes protected system roles', async () => {
+    const allPermissions = [
+      ...PERMISSION_CATALOG.map(({ code }) => permissionRow(code)),
+      customPermissionRow(),
+    ];
     permissions.find
       .mockResolvedValueOnce(USER_ROLE_PERMISSIONS.map(permissionRow))
-      .mockResolvedValueOnce(PERMISSION_CATALOG.map(({ code }) => permissionRow(code)));
+      .mockResolvedValueOnce(allPermissions)
+      .mockResolvedValueOnce(allPermissions);
     roles.findOne.mockResolvedValue(null);
 
     await service.synchronizeCatalog();
 
     expect(permissions.upsert).toHaveBeenCalledWith(
-      PERMISSION_CATALOG.map((permission) => ({ ...permission })),
+      PERMISSION_CATALOG.map((permission) => ({ ...permission, system: true })),
       ['code'],
     );
     expect(roles.save).toHaveBeenNthCalledWith(1, expect.objectContaining({
       code: 'user', system: true, permissions: expect.arrayContaining(USER_ROLE_PERMISSIONS.map(permissionRow)),
     }));
     expect(roles.save).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      code: 'admin', system: true,
+      code: 'admin', system: true, permissions: expect.arrayContaining([customPermissionRow()]),
     }));
+  });
+
+  it('preserves edits to the built-in user role during catalog synchronization', async () => {
+    const userRole = roleRow({
+      code: 'user',
+      name: 'Member',
+      description: 'Configured default access',
+      system: true,
+      permissions: [permissionRow(Permission.SelfAccountsRead)],
+    });
+    const adminRole = roleRow({ code: 'admin', system: true });
+    const allPermissions = PERMISSION_CATALOG.map(({ code }) => permissionRow(code));
+    roles.findOne.mockResolvedValueOnce(userRole).mockResolvedValueOnce(adminRole);
+    permissions.find.mockResolvedValueOnce(allPermissions).mockResolvedValueOnce(allPermissions);
+
+    await service.synchronizeCatalog();
+
+    expect(roles.save).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      code: 'user',
+      name: 'Member',
+      description: 'Configured default access',
+      permissions: [permissionRow(Permission.SelfAccountsRead)],
+    }));
+  });
+
+  it('creates a custom permission and grants it to the built-in administrator', async () => {
+    const adminRole = roleRow({ code: 'admin', system: true, permissions: [] });
+    permissions.exists.mockResolvedValue(false);
+    roles.findOne.mockResolvedValue(adminRole);
+
+    const permission = await service.createPermission({
+      code: 'CRM.Orders.Read',
+      name: 'Read CRM orders',
+      group: 'crm',
+    });
+
+    expect(permission).toEqual(customPermissionRow());
+    expect(roles.save).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'admin',
+      permissions: [customPermissionRow()],
+    }));
+  });
+
+  it('allows custom permission metadata edits but protects built-in permissions', async () => {
+    permissions.findOne.mockResolvedValueOnce(customPermissionRow());
+    await expect(service.updatePermission('crm.orders.read', { name: 'View CRM orders' }))
+      .resolves.toEqual(expect.objectContaining({ name: 'View CRM orders' }));
+
+    permissions.findOne.mockResolvedValueOnce(permissionRow(Permission.UsersRead));
+    await expect(service.updatePermission(Permission.UsersRead, { name: 'Changed' }))
+      .rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('creates a custom role with catalog permissions', async () => {
@@ -128,10 +200,15 @@ describe('RbacService', () => {
     })).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('protects built-in roles and refuses to delete assigned custom roles', async () => {
+  it('protects the administrator role, allows editing User, and refuses to delete assigned roles', async () => {
     roles.findOne.mockResolvedValueOnce(roleRow({ code: 'admin', system: true }));
     await expect(service.updateRole(admin, 'admin', { name: 'Root' }))
       .rejects.toBeInstanceOf(BadRequestException);
+
+    roles.findOne.mockResolvedValueOnce(roleRow({ code: 'user', system: true }));
+    dataSource.query.mockResolvedValueOnce([{ count: '2' }]);
+    await expect(service.updateRole(admin, 'user', { name: 'Member' }))
+      .resolves.toEqual(expect.objectContaining({ code: 'user', name: 'Member', system: true }));
 
     roles.findOne.mockResolvedValueOnce(roleRow());
     dataSource.query.mockResolvedValue([{ count: '1' }]);
