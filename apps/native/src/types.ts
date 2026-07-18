@@ -24,15 +24,24 @@ export interface AccountSummary {
   lastModifiedAt?: string;
 }
 
+export interface UserProfile {
+  id: string;
+  email: string;
+  role: string;
+  roleName?: string;
+  permissions?: string[];
+}
+
 export interface AuthSession {
   baseUrl: string;
   accessToken: string;
   refreshToken: string;
   email: string;
+  profile?: UserProfile;
 }
 
 export interface AuthResponse {
   accessToken: string;
   refreshToken: string;
-  user?: { id: string; email: string };
+  user?: UserProfile;
 }

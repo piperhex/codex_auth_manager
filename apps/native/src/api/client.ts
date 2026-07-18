@@ -1,7 +1,8 @@
 import * as SecureStore from 'expo-secure-store';
-import type { AccountSummary, AuthResponse, AuthSession } from '../types';
+import type { AccountSummary, AuthResponse, AuthSession, UserProfile } from '../types';
 
 const SESSION_KEY = 'codex-switch.mobile.session.v1';
+export const DEFAULT_CLOUD_BASE_URL = 'https://codex.onepiper.cloud';
 
 export class ApiError extends Error {
   constructor(message: string, readonly status?: number) {
@@ -81,6 +82,7 @@ export async function login(baseUrlInput: string, email: string, password: strin
     accessToken: payload.accessToken,
     refreshToken: payload.refreshToken,
     email: payload.user?.email ?? email.trim(),
+    profile: payload.user,
   };
   await persistSession(session);
   return session;
@@ -108,10 +110,12 @@ async function refreshSession(session: AuthSession): Promise<AuthSession> {
   return session;
 }
 
-async function authorizedGet(session: AuthSession, path: string): Promise<Response> {
-  const request = (accessToken: string) => fetch(`${session.baseUrl}${path}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+async function authorizedRequest(session: AuthSession, path: string, init: RequestInit = {}): Promise<Response> {
+  const request = (accessToken: string) => {
+    const headers = new Headers(init.headers);
+    headers.set('Authorization', `Bearer ${accessToken}`);
+    return fetch(`${session.baseUrl}${path}`, { ...init, headers });
+  };
   let response: Response;
   try {
     response = await request(session.accessToken);
@@ -134,11 +138,38 @@ async function authorizedGet(session: AuthSession, path: string): Promise<Respon
 }
 
 export async function fetchAccountSummary(session: AuthSession): Promise<AccountSummary[]> {
-  const response = await authorizedGet(session, '/sync/accounts/summary');
+  const response = await authorizedRequest(session, '/sync/accounts/summary');
   if (!response.ok) throw new ApiError(await parseError(response), response.status);
   const payload: unknown = await response.json();
   if (!payload || typeof payload !== 'object' || !Array.isArray((payload as { accounts?: unknown }).accounts)) {
     throw new ApiError('服务器返回的账户数据无效');
   }
   return (payload as { accounts: AccountSummary[] }).accounts;
+}
+
+export async function fetchUserProfile(session: AuthSession): Promise<UserProfile> {
+  const response = await authorizedRequest(session, '/auth/me');
+  if (!response.ok) throw new ApiError(await parseError(response), response.status);
+  const payload: unknown = await response.json();
+  if (!payload || typeof payload !== 'object') {
+    throw new ApiError('服务器返回的用户信息无效');
+  }
+  const profile = payload as Partial<UserProfile>;
+  if (!profile.id || !profile.email || !profile.role) {
+    throw new ApiError('服务器返回的用户信息无效');
+  }
+  const nextProfile = profile as UserProfile;
+  session.email = nextProfile.email;
+  session.profile = nextProfile;
+  await persistSession(session);
+  return nextProfile;
+}
+
+export async function changePassword(session: AuthSession, currentPassword: string, newPassword: string): Promise<void> {
+  const response = await authorizedRequest(session, '/admin/api/profile/password', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  if (!response.ok) throw new ApiError(await parseError(response), response.status);
 }

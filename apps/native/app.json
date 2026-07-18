@@ -3,6 +3,7 @@
     "name": "Codex Switch",
     "slug": "codex-switch",
     "version": "0.1.0",
+    "icon": "./assets/icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "splash": {
@@ -10,6 +11,7 @@
       "backgroundColor": "#f7faf7"
     },
     "ios": {
+      "icon": "./assets/icon.png",
       "supportsTablet": true,
       "infoPlist": {
         "NSAppTransportSecurity": {
@@ -18,9 +20,11 @@
       }
     },
     "android": {
+      "icon": "./assets/icon.png",
       "package": "com.codexswitch.mobile",
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#f7faf7"
       }
     },
