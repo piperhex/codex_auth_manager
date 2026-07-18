@@ -101,6 +101,8 @@ struct InstallationState {
     platform: String,
     #[serde(default)]
     reported_at: Option<String>,
+    #[serde(default)]
+    reported_version: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -792,6 +794,7 @@ fn read_or_create_installation_state<R: Runtime>(
         device_id: Uuid::new_v4().to_string(),
         platform: std::env::consts::OS.to_string(),
         reported_at: None,
+        reported_version: None,
     };
     let value = serde_json::to_value(&state).map_err(|error| error.to_string())?;
     write_json_atomic(&path, &value)?;
@@ -805,12 +808,14 @@ fn post_device_event<R: Runtime>(
 ) -> Result<(), String> {
     let client = api_client()?;
     let settings = read_app_settings(app)?;
+    let app_version = app.package_info().version.to_string();
     let response = client
         .post(endpoint(&settings, "/telemetry/installations")?)
         .header("Accept", "application/json")
         .json(&json!({
             "deviceId": installation.device_id,
             "platform": installation.platform,
+            "appVersion": app_version,
             "eventType": event_type,
         }))
         .send()
@@ -906,13 +911,19 @@ pub(crate) async fn report_first_installation<R: Runtime>(
 ) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let mut installation = read_or_create_installation_state(&app)?;
-        if installation.reported_at.is_some() {
+        let app_version = app.package_info().version.to_string();
+        if installation.reported_at.is_some()
+            && installation.reported_version.as_deref() == Some(app_version.as_str())
+        {
             return Ok(false);
         }
 
         post_device_event(&app, &installation, "installation")?;
 
-        installation.reported_at = Some(Utc::now().to_rfc3339());
+        if installation.reported_at.is_none() {
+            installation.reported_at = Some(Utc::now().to_rfc3339());
+        }
+        installation.reported_version = Some(app_version);
         let value = serde_json::to_value(&installation).map_err(|error| error.to_string())?;
         write_json_atomic(&installation_state_path(&app)?, &value)?;
         Ok(true)

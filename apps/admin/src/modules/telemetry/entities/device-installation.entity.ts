@@ -8,6 +8,9 @@ export class DeviceInstallationEntity {
   @Column({ type: 'varchar', length: 20 })
   platform: string;
 
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  appVersion: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   firstSeenAt: Date;
 }

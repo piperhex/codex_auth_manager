@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS device_installations (
   "deviceId" uuid PRIMARY KEY,
   "platform" varchar(20) NOT NULL,
+  "appVersion" varchar(50),
   "firstSeenAt" timestamptz NOT NULL DEFAULT now()
 );
 

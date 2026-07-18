@@ -36,7 +36,8 @@ If production uses `POSTGRES_DB_SYNCHRONIZE=false`, apply `sql/20260704-admin-ma
 `sql/20260714-system-account-pool.sql`, `sql/20260717-invitation-policies.sql`,
 `sql/20260717-app-announcements.sql`, `sql/20260717-device-installations.sql`,
 `sql/20260718-announcement-scroll-speed.sql`,
-`sql/20260718-announcement-localization-link.sql`, `sql/20260718-user-feedback.sql`, and
+`sql/20260718-announcement-localization-link.sql`,
+`sql/20260718-device-installation-app-version.sql`, `sql/20260718-user-feedback.sql`, and
 `sql/20260718-dynamic-rbac.sql` before using
 the expanded admin console, provider sync,
 official account pool, reusable invitations, announcements, telemetry, and feedback management.

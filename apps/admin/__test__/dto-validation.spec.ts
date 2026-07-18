@@ -24,6 +24,7 @@ import {
   ListDeviceInstallationsQueryDto,
   ListTelemetryEventsQueryDto,
 } from '@/modules/telemetry/dto/list-telemetry.dto';
+import { CreateInstallationEventDto } from '@/modules/telemetry/dto/create-installation-event.dto';
 import { makeAccount, makeProvider } from './fixtures';
 
 async function messages<T extends object>(type: new () => T, value: object) {
@@ -193,14 +194,20 @@ describe('request DTO validation', () => {
     await expect(messages(ListDeviceInstallationsQueryDto, {
       page: 0,
       pageSize: 101,
-      platform: 'android',
+      platform: 'web',
       search: 'x'.repeat(37),
     })).resolves.toEqual(expect.arrayContaining([
       'page must not be less than 1',
       'pageSize must not be greater than 100',
-      'platform must be one of the following values: windows, macos, linux',
+      'platform must be one of the following values: windows, macos, linux, android, ios',
       'search must be shorter than or equal to 36 characters',
     ]));
+    await expect(messages(CreateInstallationEventDto, {
+      deviceId: '18f72fe6-1ec1-4d68-b5c1-f1b52b67503f',
+      platform: 'android',
+      appVersion: '0.1.0',
+      eventType: 'installation',
+    })).resolves.toEqual([]);
     await expect(messages(ListTelemetryEventsQueryDto, {
       page: '2',
       pageSize: '50',

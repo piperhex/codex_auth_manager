@@ -73,7 +73,7 @@ export interface FeedbackRow {
   createdAt: string;
 }
 
-export type TelemetryPlatform = "windows" | "macos" | "linux";
+export type TelemetryPlatform = "windows" | "macos" | "linux" | "android" | "ios";
 
 export interface TelemetryOverview {
   totalInstallations: number;
@@ -86,6 +86,7 @@ export interface TelemetryOverview {
 export interface DeviceInstallation {
   deviceId: string;
   platform: TelemetryPlatform;
+  appVersion?: string | null;
   firstSeenAt: string;
 }
 

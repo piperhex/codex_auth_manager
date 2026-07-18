@@ -9,7 +9,7 @@ import {
   Min,
 } from 'class-validator';
 
-const telemetryPlatforms = ['windows', 'macos', 'linux'] as const;
+const telemetryPlatforms = ['windows', 'macos', 'linux', 'android', 'ios'] as const;
 
 export class TelemetryPageQueryDto {
   @IsOptional()

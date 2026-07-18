@@ -72,7 +72,7 @@ const emptyTelemetryOverview: TelemetryOverview = {
   installationsLast30Days: 0,
   totalEvents: 0,
   eventsLast30Days: 0,
-  platforms: { windows: 0, macos: 0, linux: 0 },
+  platforms: { windows: 0, macos: 0, linux: 0, android: 0, ios: 0 },
 };
 const emptyAnnouncement: AnnouncementConfig = {
   contentZh: "",

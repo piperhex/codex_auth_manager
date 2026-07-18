@@ -42,6 +42,7 @@ describe('TelemetryService', () => {
     const event = {
       deviceId: '18f72fe6-1ec1-4d68-b5c1-f1b52b67503f',
       platform: 'windows' as const,
+      appVersion: ' 1.0.7 ',
       eventType: 'installation' as const,
     };
 
@@ -49,6 +50,7 @@ describe('TelemetryService', () => {
     expect(installations.upsert).toHaveBeenCalledWith({
       deviceId: event.deviceId,
       platform: event.platform,
+      appVersion: '1.0.7',
     }, ['deviceId']);
     expect(events.save).not.toHaveBeenCalled();
   });
@@ -100,7 +102,7 @@ describe('TelemetryService', () => {
       installationsLast30Days: 4,
       totalEvents: 6,
       eventsLast30Days: 2,
-      platforms: { windows: 7, macos: 3, linux: 0 },
+      platforms: { windows: 7, macos: 3, linux: 0, android: 0, ios: 0 },
     });
     expect(recentInstallationsBuilder.where).toHaveBeenCalledWith(
       'installation.firstSeenAt >= :since',

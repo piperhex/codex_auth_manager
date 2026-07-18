@@ -9,7 +9,7 @@ import type {
   ListTelemetryEventsQueryDto,
 } from './dto/list-telemetry.dto';
 
-const TELEMETRY_PLATFORMS = ['windows', 'macos', 'linux'] as const;
+const TELEMETRY_PLATFORMS = ['windows', 'macos', 'linux', 'android', 'ios'] as const;
 
 interface PlatformCountRow {
   platform: typeof TELEMETRY_PLATFORMS[number];
@@ -26,9 +26,11 @@ export class TelemetryService {
   ) {}
 
   async recordInstallation(dto: CreateInstallationEventDto) {
+    const appVersion = dto.appVersion?.trim();
     await this.installations.upsert({
       deviceId: dto.deviceId,
       platform: dto.platform,
+      ...(appVersion ? { appVersion } : {}),
     }, ['deviceId']);
     if (dto.eventType === 'base_url_changed') {
       await this.events.save(this.events.create({

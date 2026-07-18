@@ -28,7 +28,15 @@ interface TelemetryPageProps {
   onLoadEvents: (page?: number, pageSize?: number) => void | Promise<void>;
 }
 
-const platforms: TelemetryPlatform[] = ["windows", "macos", "linux"];
+const platforms: TelemetryPlatform[] = ["windows", "macos", "linux", "android", "ios"];
+
+const platformColors: Record<TelemetryPlatform, string> = {
+  windows: "blue",
+  macos: "purple",
+  linux: "orange",
+  android: "green",
+  ios: "cyan",
+};
 
 export function TelemetryPage({
   overview,
@@ -51,7 +59,7 @@ export function TelemetryPage({
     label: t(`telemetry.platform.${platform}`),
   }));
   const platformTag = (platform: TelemetryPlatform) => (
-    <Tag color={platform === "windows" ? "blue" : platform === "macos" ? "purple" : "orange"}>
+    <Tag color={platformColors[platform]}>
       {t(`telemetry.platform.${platform}`)}
     </Tag>
   );
@@ -67,6 +75,12 @@ export function TelemetryPage({
       dataIndex: "platform",
       width: 130,
       render: platformTag,
+    },
+    {
+      title: t("telemetry.appVersion"),
+      dataIndex: "appVersion",
+      width: 130,
+      render: (value?: string | null) => value || "-",
     },
     {
       title: t("telemetry.firstSeenAt"),
@@ -190,7 +204,7 @@ export function TelemetryPage({
                       showSizeChanger: true,
                     }}
                     onChange={(pagination) => onLoadInstallations(pagination.current, pagination.pageSize)}
-                    scroll={{ x: 760 }}
+                    scroll={{ x: 890 }}
                   />
                 </>
               ),

@@ -28,6 +28,7 @@ import {
   login,
 } from './src/api/client';
 import type { AccountSummary, AuthSession, UsageWindow, UserProfile } from './src/types';
+import { reportMobileInstallation } from './src/telemetry';
 
 const COLORS = {
   ink: '#13231c',
@@ -437,6 +438,7 @@ function AppContent() {
     void (async () => {
       try {
         const stored = await loadSession();
+        void reportMobileInstallation(stored?.baseUrl ?? DEFAULT_CLOUD_BASE_URL).catch(() => undefined);
         if (!mounted) return;
         setSession(stored);
         if (stored) {
@@ -468,6 +470,7 @@ function AppContent() {
   }, [refresh, session]);
 
   const handleLogin = useCallback((nextSession: AuthSession) => {
+    void reportMobileInstallation(nextSession.baseUrl).catch(() => undefined);
     setSession(nextSession);
     setProfile(nextSession.profile ?? null);
     setActivePage('accounts');
