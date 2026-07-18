@@ -412,6 +412,7 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
       message.success(t("announcement.saved"));
     } catch (error) {
       message.error((error as Error).message);
+      throw error;
     } finally {
       setAnnouncementSaving(false);
     }

@@ -41,7 +41,8 @@ button:focus-visible { outline: 3px solid rgba(45, 131, 87, .24); outline-offset
 .brand b { color: white; font-weight: 700; }
 .announcement-slot { min-width: 0; flex: 1 1 0; overflow: hidden; }
 .announcement-marquee { width: 100%; min-width: 0; max-width: 100%; height: 36px; padding: 0; overflow: hidden; display: flex; align-items: center; border: 1px solid rgba(111,177,112,.22); border-radius: 9px; color: #c4d7c8; background: rgba(255,255,255,.035); text-align: left; }
-.announcement-marquee-link { cursor: pointer; }
+.announcement-marquee-link,
+.announcement-marquee-link * { cursor: pointer; }
 .announcement-marquee-link:focus-visible { outline: 3px solid rgba(196,215,200,.32); outline-offset: 2px; }
 .announcement-track { width: max-content; min-width: 200%; display: flex; align-items: center; white-space: nowrap; font-size: 12px; animation: announcement-scroll 22s linear infinite; will-change: transform; }
 .announcement-copy { flex: 1 0 auto; padding: 0 12px; display: inline-flex; align-items: center; gap: 9px; }

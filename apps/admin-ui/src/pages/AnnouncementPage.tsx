@@ -1,9 +1,47 @@
-import { useEffect, useState } from "react";
-import { Button, ColorPicker, Form, Input, InputNumber, Space, Switch, Typography } from "antd";
-import { BellRing, RefreshCw, Save } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { App, Button, ColorPicker, Form, Input, InputNumber, Space, Switch, Typography } from "antd";
+import { BellRing, RefreshCw } from "lucide-react";
 import { useI18n } from "../i18n-context";
 import type { AnnouncementConfig } from "../types";
 import { formatDate } from "../utils/format";
+
+type EditableAnnouncement = Pick<
+  AnnouncementConfig,
+  "contentZh" | "contentEn" | "link" | "enabled" | "textColor"
+  | "backgroundColor" | "scrollDurationSeconds"
+>;
+
+function announcementsMatch(left: EditableAnnouncement, right: EditableAnnouncement) {
+  return left.contentZh === right.contentZh
+    && left.contentEn === right.contentEn
+    && left.link === right.link
+    && left.enabled === right.enabled
+    && left.textColor === right.textColor
+    && left.backgroundColor === right.backgroundColor
+    && left.scrollDurationSeconds === right.scrollDurationSeconds;
+}
+
+function editableAnnouncement(announcement: EditableAnnouncement): EditableAnnouncement {
+  return {
+    contentZh: announcement.contentZh.trim(),
+    contentEn: announcement.contentEn.trim(),
+    link: announcement.link.trim(),
+    enabled: announcement.enabled,
+    textColor: announcement.textColor,
+    backgroundColor: announcement.backgroundColor,
+    scrollDurationSeconds: announcement.scrollDurationSeconds,
+  };
+}
+
+function isValidAnnouncementLink(link: string) {
+  if (!link) return true;
+  try {
+    const url = new URL(link);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 interface AnnouncementPageProps {
   announcement: AnnouncementConfig;
@@ -26,6 +64,7 @@ export function AnnouncementPage({
   onSave,
   canManage,
 }: AnnouncementPageProps) {
+  const { message } = App.useApp();
   const { language, t } = useI18n();
   const [contentZh, setContentZh] = useState(announcement.contentZh);
   const [contentEn, setContentEn] = useState(announcement.contentEn);
@@ -36,8 +75,12 @@ export function AnnouncementPage({
   const [scrollDurationSeconds, setScrollDurationSeconds] = useState(
     announcement.scrollDurationSeconds,
   );
+  const lastSubmitted = useRef<EditableAnnouncement>(editableAnnouncement(announcement));
+  const pendingSaves = useRef(0);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
+    if (pendingSaves.current > 0) return;
     setContentZh(announcement.contentZh);
     setContentEn(announcement.contentEn);
     setLink(announcement.link);
@@ -45,20 +88,50 @@ export function AnnouncementPage({
     setTextColor(announcement.textColor);
     setBackgroundColor(announcement.backgroundColor);
     setScrollDurationSeconds(announcement.scrollDurationSeconds);
+    lastSubmitted.current = editableAnnouncement(announcement);
   }, [announcement]);
 
   const previewContent = language === "zh" ? contentZh : contentEn;
   const preview = previewContent.trim() || t("announcement.emptyPreview");
   const normalizedLink = link.trim();
-  let linkIsValid = true;
-  if (normalizedLink) {
-    try {
-      const url = new URL(normalizedLink);
-      linkIsValid = url.protocol === "http:" || url.protocol === "https:";
-    } catch {
-      linkIsValid = false;
+  const linkIsValid = isValidAnnouncementLink(normalizedLink);
+
+  const autoSave = (overrides: Partial<EditableAnnouncement> = {}) => {
+    const next = editableAnnouncement({
+      contentZh,
+      contentEn,
+      link,
+      enabled,
+      textColor,
+      backgroundColor,
+      scrollDurationSeconds,
+      ...overrides,
+    });
+
+    if (!isValidAnnouncementLink(next.link)) {
+      message.error(t("announcement.linkInvalid"));
+      return false;
     }
-  }
+    if (next.enabled && (!next.contentZh || !next.contentEn)) {
+      message.error(t("announcement.enabledHint"));
+      return false;
+    }
+    if (announcementsMatch(next, lastSubmitted.current)) return true;
+
+    const previous = lastSubmitted.current;
+    lastSubmitted.current = next;
+    pendingSaves.current += 1;
+    const queuedSave = saveQueue.current.then(() => onSave(next));
+    saveQueue.current = queuedSave.catch(() => undefined);
+    void queuedSave.catch(() => {
+      if (announcementsMatch(next, lastSubmitted.current)) {
+        lastSubmitted.current = previous;
+      }
+    }).finally(() => {
+      pendingSaves.current -= 1;
+    });
+    return true;
+  };
 
   return (
     <>
@@ -78,18 +151,16 @@ export function AnnouncementPage({
           </Button>
         </div>
       </div>
-      <div className="panel announcement-config-panel">
-        <Form layout="vertical" onFinish={() => void onSave({
-          contentZh: contentZh.trim(),
-          contentEn: contentEn.trim(),
-          link: normalizedLink,
-          enabled,
-          textColor,
-          backgroundColor,
-          scrollDurationSeconds,
-        })}>
+      <div className="panel announcement-config-panel" aria-busy={saving}>
+        <Form layout="vertical">
           <Form.Item label={t("announcement.enabled")} extra={t("announcement.enabledHint")}>
-            <Switch disabled={!canManage} checked={enabled} onChange={setEnabled} />
+            <Switch
+              disabled={!canManage}
+              checked={enabled}
+              onChange={(checked) => {
+                if (autoSave({ enabled: checked })) setEnabled(checked);
+              }}
+            />
           </Form.Item>
           <Form.Item label={t("announcement.contentZh")}>
             <Input.TextArea
@@ -99,6 +170,7 @@ export function AnnouncementPage({
               showCount
               placeholder={t("announcement.contentZhPlaceholder")}
               onChange={(event) => setContentZh(event.target.value)}
+              onBlur={() => autoSave()}
               disabled={!canManage}
             />
           </Form.Item>
@@ -110,6 +182,7 @@ export function AnnouncementPage({
               showCount
               placeholder={t("announcement.contentEnPlaceholder")}
               onChange={(event) => setContentEn(event.target.value)}
+              onBlur={() => autoSave()}
               disabled={!canManage}
             />
           </Form.Item>
@@ -124,6 +197,7 @@ export function AnnouncementPage({
               maxLength={2048}
               placeholder={t("announcement.linkPlaceholder")}
               onChange={(event) => setLink(event.target.value)}
+              onBlur={() => autoSave()}
               disabled={!canManage}
               allowClear
             />
@@ -134,6 +208,9 @@ export function AnnouncementPage({
                 value={textColor}
                 showText
                 onChange={(color) => setTextColor(color.toHexString().toUpperCase())}
+                onOpenChange={(open) => {
+                  if (!open) autoSave();
+                }}
                 disabled={!canManage}
               />
             </Form.Item>
@@ -142,6 +219,9 @@ export function AnnouncementPage({
                 value={backgroundColor}
                 showText
                 onChange={(color) => setBackgroundColor(color.toHexString().toUpperCase())}
+                onOpenChange={(open) => {
+                  if (!open) autoSave();
+                }}
                 disabled={!canManage}
               />
             </Form.Item>
@@ -156,6 +236,7 @@ export function AnnouncementPage({
                 value={scrollDurationSeconds}
                 addonAfter={t("announcement.secondsPerLoop")}
                 onChange={(value) => setScrollDurationSeconds(value ?? 22)}
+                onBlur={() => autoSave()}
                 disabled={!canManage}
               />
             </Form.Item>
@@ -175,18 +256,6 @@ export function AnnouncementPage({
               </div>
             </div>
           </Form.Item>
-          <Space>
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={saving}
-              disabled={!canManage || !linkIsValid
-                || (enabled && (!contentZh.trim() || !contentEn.trim()))}
-              icon={<Save size={15} />}
-            >
-              {t("announcement.save")}
-            </Button>
-          </Space>
         </Form>
       </div>
     </>
