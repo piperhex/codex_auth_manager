@@ -1,4 +1,4 @@
-export const DEFAULT_THEME_COLOR = "#077809";
+export const DEFAULT_THEME_COLOR = "#35ada7";
 
 const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
 
