@@ -185,3 +185,33 @@ export interface AccountArchiveImportResult {
 }
 
 export type BubbleResetDisplay = "countdown" | "resetAt";
+
+export interface DreamSkinThemeSummary {
+  id: string;
+  name: string;
+}
+
+export type DreamSkinSession = "unsupported" | "notInstalled" | "ready" | "active" | "paused";
+export type DreamSkinAppearance = "auto" | "light" | "dark";
+
+export interface DreamSkinStatus {
+  supported: boolean;
+  platform: string;
+  installed: boolean;
+  runtimeInstalled: boolean;
+  session: DreamSkinSession;
+  activeThemeId?: string | null;
+  activeThemeName?: string | null;
+  activeThemeAppearance?: DreamSkinAppearance | null;
+  enginePath?: string | null;
+  savedThemes: DreamSkinThemeSummary[];
+}
+
+export interface DreamSkinImportOptions {
+  name: string;
+  appearance: DreamSkinAppearance;
+  safeArea: "auto" | "left" | "right" | "center" | "none";
+  taskMode: "auto" | "ambient" | "banner" | "off";
+  focusX?: number | null;
+  focusY?: number | null;
+}

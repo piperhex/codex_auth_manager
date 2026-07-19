@@ -13,6 +13,9 @@ import type {
   CloudAnnouncement,
   CloudSyncResult,
   DirectConversationSyncResult,
+  DreamSkinImportOptions,
+  DreamSkinAppearance,
+  DreamSkinStatus,
   DailyTokenUsage,
   FeedbackImageInput,
   LoginStart,
@@ -44,7 +47,57 @@ const THEME_COLOR_EVENT = "codex-switch:theme-color-changed";
 const BUBBLE_RESET_DISPLAY_EVENT = "bubble-reset-display-changed";
 const LANGUAGE_EVENT = "codex-switch:language-changed";
 const PROVIDERS_EVENT = "codex-switch:providers-changed";
+const DREAM_SKIN_INSTALLED_PREVIEW_KEY = "codex-switch:dream-skin-installed";
+const DREAM_SKIN_SESSION_PREVIEW_KEY = "codex-switch:dream-skin-session";
+const DREAM_SKIN_THEME_PREVIEW_KEY = "codex-switch:dream-skin-theme";
+const DREAM_SKIN_APPEARANCE_PREVIEW_KEY = "codex-switch:dream-skin-appearance";
+const DREAM_SKIN_PREVIEW_THEME_NAMES: Record<string, string> = {
+  "preset-gothic-void-crusade": "Gothic Void Crusade",
+  "preset-rose-reverie": "Rose Reverie",
+  "preset-fortune-at-work": "Fortune at Work",
+  "preset-coral-horizon": "Coral Horizon",
+  "preset-sage-daylight": "Sage Daylight",
+  "preset-spark-studio": "Spark Studio",
+  "preset-cosmic-violet": "Cosmic Violet",
+  "preset-aqua-resonance": "Aqua Resonance",
+  "preset-midnight-gold": "Midnight Gold",
+};
+const DREAM_SKIN_PREVIEW_THEME_APPEARANCES: Record<string, DreamSkinAppearance> = {
+  "preset-gothic-void-crusade": "dark",
+  "preset-rose-reverie": "light",
+  "preset-fortune-at-work": "light",
+  "preset-coral-horizon": "light",
+  "preset-sage-daylight": "light",
+  "preset-spark-studio": "light",
+  "preset-cosmic-violet": "dark",
+  "preset-aqua-resonance": "light",
+  "preset-midnight-gold": "dark",
+};
 let updateCheckPromise: Promise<UpdateInfo | null> | null = null;
+
+function previewDreamSkinStatus(): DreamSkinStatus {
+  const installed = window.localStorage.getItem(DREAM_SKIN_INSTALLED_PREVIEW_KEY) === "true";
+  const storedSession = window.localStorage.getItem(DREAM_SKIN_SESSION_PREVIEW_KEY);
+  const session = !installed ? "notInstalled" : storedSession === "paused" ? "paused" : storedSession === "active" ? "active" : "ready";
+  const storedThemeId = window.localStorage.getItem(DREAM_SKIN_THEME_PREVIEW_KEY);
+  const activeThemeId = storedThemeId === "preset-arina-hashimoto" ? "preset-rose-reverie" : storedThemeId;
+  const storedAppearance = window.localStorage.getItem(DREAM_SKIN_APPEARANCE_PREVIEW_KEY);
+  const activeThemeAppearance: DreamSkinAppearance = storedAppearance === "light" || storedAppearance === "dark"
+    ? storedAppearance
+    : "auto";
+  return {
+    supported: true,
+    platform: navigator.platform.toLowerCase().includes("mac") ? "macos" : "windows",
+    installed,
+    runtimeInstalled: installed,
+    session,
+    activeThemeId,
+    activeThemeName: activeThemeId ? DREAM_SKIN_PREVIEW_THEME_NAMES[activeThemeId] ?? "Custom theme" : null,
+    activeThemeAppearance,
+    enginePath: installed ? "Preview / CodexDreamSkin" : null,
+    savedThemes: [],
+  };
+}
 
 function previewCloudState(): CloudAuthState {
   const storedBaseUrl = window.localStorage.getItem(CLOUD_BASE_URL_PREVIEW_KEY);
@@ -751,6 +804,118 @@ export async function syncDirectConversations(): Promise<DirectConversationSyncR
 
 export async function openManagedFolder(target: "codexHome" | "accountStore"): Promise<void> {
   if (isDesktopApp) await invoke("open_managed_folder", { target });
+}
+
+export async function loadDreamSkinStatus(): Promise<DreamSkinStatus> {
+  if (!isDesktopApp) return previewDreamSkinStatus();
+  return invoke<DreamSkinStatus>("get_dream_skin_status");
+}
+
+export async function installDreamSkin(): Promise<DreamSkinStatus> {
+  if (!isDesktopApp) {
+    window.localStorage.setItem(DREAM_SKIN_INSTALLED_PREVIEW_KEY, "true");
+    return previewDreamSkinStatus();
+  }
+  return invoke<DreamSkinStatus>("install_dream_skin");
+}
+
+export async function applyDreamSkinTheme(themeId: string): Promise<DreamSkinStatus> {
+  if (!isDesktopApp) {
+    window.localStorage.setItem(DREAM_SKIN_INSTALLED_PREVIEW_KEY, "true");
+    window.localStorage.setItem(DREAM_SKIN_SESSION_PREVIEW_KEY, "active");
+    window.localStorage.setItem(DREAM_SKIN_THEME_PREVIEW_KEY, themeId);
+    window.localStorage.setItem(
+      DREAM_SKIN_APPEARANCE_PREVIEW_KEY,
+      DREAM_SKIN_PREVIEW_THEME_APPEARANCES[themeId] ?? "auto",
+    );
+    return previewDreamSkinStatus();
+  }
+  return invoke<DreamSkinStatus>("apply_dream_skin_theme", { themeId });
+}
+
+export type ChooseDreamSkinImageResult =
+  | { status: "selected"; path: string }
+  | { status: "cancelled" }
+  | { status: "preview" };
+
+export async function chooseDreamSkinImage(): Promise<ChooseDreamSkinImageResult> {
+  if (!isDesktopApp) return { status: "preview" };
+  const selected = await open({
+    multiple: false,
+    filters: [{
+      name: "Dream Skin image",
+      extensions: ["png", "jpg", "jpeg", "webp", "heic", "tif", "tiff"],
+    }],
+  });
+  return selected ? { status: "selected", path: selected } : { status: "cancelled" };
+}
+
+export async function importDreamSkinImage(
+  path: string,
+  options: DreamSkinImportOptions,
+): Promise<DreamSkinStatus> {
+  if (!isDesktopApp) {
+    window.localStorage.setItem(DREAM_SKIN_INSTALLED_PREVIEW_KEY, "true");
+    window.localStorage.setItem(DREAM_SKIN_SESSION_PREVIEW_KEY, "active");
+    window.localStorage.setItem(DREAM_SKIN_THEME_PREVIEW_KEY, "custom");
+    window.localStorage.setItem(DREAM_SKIN_APPEARANCE_PREVIEW_KEY, options.appearance);
+    return previewDreamSkinStatus();
+  }
+  return invoke<DreamSkinStatus>("import_dream_skin_image", { path, options });
+}
+
+export async function saveDreamSkinTheme(name: string): Promise<DreamSkinStatus> {
+  if (!isDesktopApp) return previewDreamSkinStatus();
+  return invoke<DreamSkinStatus>("save_dream_skin_theme", { name });
+}
+
+export async function setDreamSkinAppearance(appearance: DreamSkinAppearance): Promise<DreamSkinStatus> {
+  if (!isDesktopApp) {
+    window.localStorage.setItem(DREAM_SKIN_APPEARANCE_PREVIEW_KEY, appearance);
+    return previewDreamSkinStatus();
+  }
+  return invoke<DreamSkinStatus>("set_dream_skin_appearance", { appearance });
+}
+
+export async function setDreamSkinPaused(paused: boolean): Promise<DreamSkinStatus> {
+  if (!isDesktopApp) {
+    window.localStorage.setItem(DREAM_SKIN_SESSION_PREVIEW_KEY, paused ? "paused" : "active");
+    return previewDreamSkinStatus();
+  }
+  return invoke<DreamSkinStatus>("set_dream_skin_paused", { paused });
+}
+
+export async function reapplyDreamSkin(): Promise<DreamSkinStatus> {
+  if (!isDesktopApp) {
+    window.localStorage.setItem(DREAM_SKIN_SESSION_PREVIEW_KEY, "active");
+    return previewDreamSkinStatus();
+  }
+  return invoke<DreamSkinStatus>("reapply_dream_skin");
+}
+
+export async function verifyDreamSkin(): Promise<string> {
+  if (!isDesktopApp) return "Preview verification completed.";
+  return invoke<string>("verify_dream_skin");
+}
+
+export async function restoreDreamSkin(): Promise<DreamSkinStatus> {
+  if (!isDesktopApp) {
+    window.localStorage.removeItem(DREAM_SKIN_INSTALLED_PREVIEW_KEY);
+    window.localStorage.removeItem(DREAM_SKIN_SESSION_PREVIEW_KEY);
+    window.localStorage.removeItem(DREAM_SKIN_THEME_PREVIEW_KEY);
+    window.localStorage.removeItem(DREAM_SKIN_APPEARANCE_PREVIEW_KEY);
+    return previewDreamSkinStatus();
+  }
+  return invoke<DreamSkinStatus>("restore_dream_skin");
+}
+
+export async function openDreamSkinFolder(): Promise<void> {
+  if (isDesktopApp) await invoke("open_dream_skin_folder");
+}
+
+export async function loadDreamSkinThemePreview(themeId: string): Promise<string | null> {
+  if (!isDesktopApp) return null;
+  return invoke<string | null>("get_dream_skin_theme_preview", { themeId });
 }
 
 export function checkForUpdate({ force = false }: { force?: boolean } = {}): Promise<UpdateInfo | null> {

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-spark-studio",
+  "name": "灵感小宇宙 / Spark Studio",
+  "brandSubtitle": "CODEX DREAM SKIN",
+  "tagline": "Turn bright ideas into something real.",
+  "projectPrefix": "Select project · ",
+  "projectLabel": "Select project",
+  "statusText": "SPARK STUDIO ONLINE",
+  "quote": "MAKE THE IDEA MOVE",
+  "image": "background.jpg",
+  "appearance": "light",
+  "art": {
+    "focusX": 0.78,
+    "focusY": 0.46,
+    "safeArea": "left",
+    "taskMode": "ambient"
+  },
+  "palette": {
+    "accent": "#0ca89a"
+  },
+  "colors": {
+    "background": "#fff8df",
+    "panel": "#fffdf3",
+    "panelAlt": "#e8f3e7",
+    "accent": "#0ca89a",
+    "accentAlt": "#f0b62d",
+    "secondary": "#ee755c",
+    "highlight": "#55bfd0",
+    "text": "#283a36",
+    "muted": "#6b7d76",
+    "line": "rgba(12, 168, 154, .25)"
+  }
+}

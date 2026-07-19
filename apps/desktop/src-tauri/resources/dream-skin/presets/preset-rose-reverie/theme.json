@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-rose-reverie",
+  "name": "粉系玫瑰 / Rose Reverie",
+  "brandSubtitle": "CODEX DREAM SKIN",
+  "tagline": "A soft rose-garden studio for luminous ideas.",
+  "projectPrefix": "Select project · ",
+  "projectLabel": "Select project",
+  "statusText": "ROSE REVERIE ONLINE",
+  "quote": "MAKE SOMETHING WONDERFUL",
+  "image": "background.jpg",
+  "appearance": "light",
+  "art": {
+    "focusX": 0.77,
+    "focusY": 0.44,
+    "safeArea": "left",
+    "taskMode": "ambient"
+  },
+  "palette": {
+    "accent": "#d96888"
+  },
+  "colors": {
+    "background": "#fff5f7",
+    "panel": "#fffafb",
+    "panelAlt": "#fbe8ed",
+    "accent": "#d96888",
+    "accentAlt": "#ef9caf",
+    "secondary": "#b85d78",
+    "highlight": "#f4bdc9",
+    "text": "#402b32",
+    "muted": "#8a6973",
+    "line": "rgba(217, 104, 136, .24)"
+  }
+}

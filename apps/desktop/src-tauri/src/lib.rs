@@ -3,6 +3,9 @@ mod auth;
 mod cloud;
 mod codex_api;
 mod commands;
+mod dream_skin;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+mod dream_skin_native;
 mod floating_bubble;
 mod local_proxy;
 mod models;
@@ -43,6 +46,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             size_main_window_to_screen(app)?;
+            if let Err(error) = dream_skin::setup(app.handle()) {
+                eprintln!("failed to restore Dream Skin monitor: {error}");
+            }
             match local_proxy::restore_local_proxy_if_enabled(app.handle()) {
                 Ok(true) => {}
                 Ok(false) => providers::cleanup_stale_local_proxy_config(app.handle())?,
@@ -91,6 +97,18 @@ pub fn run() {
             commands::consume_reset_credit,
             commands::restart_chatgpt,
             commands::sync_direct_conversations,
+            dream_skin::get_dream_skin_status,
+            dream_skin::install_dream_skin,
+            dream_skin::apply_dream_skin_theme,
+            dream_skin::import_dream_skin_image,
+            dream_skin::save_dream_skin_theme,
+            dream_skin::set_dream_skin_appearance,
+            dream_skin::set_dream_skin_paused,
+            dream_skin::reapply_dream_skin,
+            dream_skin::verify_dream_skin,
+            dream_skin::restore_dream_skin,
+            dream_skin::open_dream_skin_folder,
+            dream_skin::get_dream_skin_theme_preview,
             providers::list_providers,
             providers::save_provider,
             providers::switch_provider,

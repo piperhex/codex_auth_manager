@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-midnight-gold",
+  "name": "舞台黑金 / Midnight Gold",
+  "brandSubtitle": "CODEX DREAM SKIN",
+  "tagline": "A quiet black-and-gold stage for deep focus.",
+  "projectPrefix": "Select project · ",
+  "projectLabel": "Select project",
+  "statusText": "MIDNIGHT GOLD ONLINE",
+  "quote": "MAKE THE MOMENT COUNT",
+  "image": "background.jpg",
+  "appearance": "dark",
+  "art": {
+    "focusX": 0.77,
+    "focusY": 0.43,
+    "safeArea": "left",
+    "taskMode": "ambient"
+  },
+  "palette": {
+    "accent": "#c5a15c"
+  },
+  "colors": {
+    "background": "#070707",
+    "panel": "#151311",
+    "panelAlt": "#211d18",
+    "accent": "#c5a15c",
+    "accentAlt": "#e0c27d",
+    "secondary": "#743b32",
+    "highlight": "#a77a3b",
+    "text": "#f2eadb",
+    "muted": "#b6a68d",
+    "line": "rgba(197, 161, 92, .30)"
+  }
+}

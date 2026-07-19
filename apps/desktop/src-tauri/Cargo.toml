@@ -19,6 +19,7 @@ aes-gcm = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
 flate2 = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 rand = "0.9"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
@@ -29,10 +30,23 @@ tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tiny_http = "0.12"
+tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 zip = { version = "2", default-features = false }
 rusqlite = { version = "0.32.1", default-features = false, features = ["bundled"] }
+sysinfo = "0.37"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Networking_WinHttp", "Win32_Storage_FileSystem"] }
+windows = { version = "0.61", features = [
+  "ApplicationModel",
+  "ApplicationModel_Core",
+  "Foundation",
+  "Management_Deployment",
+  "Storage",
+  "Storage_Search",
+  "Win32_System_Com",
+  "Win32_System_WinRT",
+  "Win32_UI_Shell",
+] }

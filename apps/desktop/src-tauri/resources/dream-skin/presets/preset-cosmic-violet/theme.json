@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-cosmic-violet",
+  "name": "蓝紫星夜 / Cosmic Violet",
+  "brandSubtitle": "CODEX DREAM SKIN",
+  "tagline": "Ideas glow brighter beneath a violet sky.",
+  "projectPrefix": "Select project · ",
+  "projectLabel": "Select project",
+  "statusText": "COSMIC VIOLET ONLINE",
+  "quote": "FOLLOW THE LIGHT",
+  "image": "background.jpg",
+  "appearance": "dark",
+  "art": {
+    "focusX": 0.76,
+    "focusY": 0.43,
+    "safeArea": "left",
+    "taskMode": "ambient"
+  },
+  "palette": {
+    "accent": "#9259f4"
+  },
+  "colors": {
+    "background": "#080c4e",
+    "panel": "#15145f",
+    "panelAlt": "#24217b",
+    "accent": "#9259f4",
+    "accentAlt": "#36c7ee",
+    "secondary": "#d650d1",
+    "highlight": "#70dcff",
+    "text": "#f3efff",
+    "muted": "#b8afe2",
+    "line": "rgba(146, 89, 244, .32)"
+  }
+}

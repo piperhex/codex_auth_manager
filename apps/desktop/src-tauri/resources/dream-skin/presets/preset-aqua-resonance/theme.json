@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-aqua-resonance",
+  "name": "青蓝歌姬 / Aqua Resonance",
+  "brandSubtitle": "CODEX DREAM SKIN",
+  "tagline": "A bright digital stage for playful creation.",
+  "projectPrefix": "Select project · ",
+  "projectLabel": "Select project",
+  "statusText": "AQUA RESONANCE ONLINE",
+  "quote": "CREATE IN HARMONY",
+  "image": "background.jpg",
+  "appearance": "light",
+  "art": {
+    "focusX": 0.76,
+    "focusY": 0.43,
+    "safeArea": "left",
+    "taskMode": "ambient"
+  },
+  "palette": {
+    "accent": "#2bbbc5"
+  },
+  "colors": {
+    "background": "#eefcff",
+    "panel": "#f9fdff",
+    "panelAlt": "#e6f1ff",
+    "accent": "#2bbbc5",
+    "accentAlt": "#7598f4",
+    "secondary": "#dc6fb3",
+    "highlight": "#7ee4e8",
+    "text": "#263a46",
+    "muted": "#687d8a",
+    "line": "rgba(43, 187, 197, .25)"
+  }
+}

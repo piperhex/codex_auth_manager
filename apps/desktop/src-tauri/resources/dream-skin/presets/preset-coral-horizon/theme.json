@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-coral-horizon",
+  "name": "红白未来城 / Coral Horizon",
+  "brandSubtitle": "CODEX DREAM SKIN",
+  "tagline": "A clear horizon for building the future.",
+  "projectPrefix": "Select project · ",
+  "projectLabel": "Select project",
+  "statusText": "CORAL HORIZON ONLINE",
+  "quote": "BUILD THE NEXT HORIZON",
+  "image": "background.jpg",
+  "appearance": "light",
+  "art": {
+    "focusX": 0.79,
+    "focusY": 0.45,
+    "safeArea": "left",
+    "taskMode": "ambient"
+  },
+  "palette": {
+    "accent": "#ea5c60"
+  },
+  "colors": {
+    "background": "#fff8f6",
+    "panel": "#fffdfc",
+    "panelAlt": "#fde9e6",
+    "accent": "#ea5c60",
+    "accentAlt": "#ff8b84",
+    "secondary": "#b9444c",
+    "highlight": "#ffaca2",
+    "text": "#3c292b",
+    "muted": "#80696b",
+    "line": "rgba(234, 92, 96, .24)"
+  }
+}

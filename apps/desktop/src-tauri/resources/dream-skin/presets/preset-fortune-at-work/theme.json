@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-fortune-at-work",
+  "name": "财神打工 / Fortune at Work",
+  "brandSubtitle": "CODEX DREAM SKIN",
+  "tagline": "Warm focus, steady progress, and a little good fortune.",
+  "projectPrefix": "Select project · ",
+  "projectLabel": "Select project",
+  "statusText": "FORTUNE AT WORK",
+  "quote": "BUILD WITH GOOD FORTUNE",
+  "image": "background.jpg",
+  "appearance": "light",
+  "art": {
+    "focusX": 0.78,
+    "focusY": 0.48,
+    "safeArea": "left",
+    "taskMode": "ambient"
+  },
+  "palette": {
+    "accent": "#c63d2f"
+  },
+  "colors": {
+    "background": "#fff7e5",
+    "panel": "#fffaf0",
+    "panelAlt": "#f5e5c2",
+    "accent": "#c63d2f",
+    "accentAlt": "#d99b2b",
+    "secondary": "#8f2f25",
+    "highlight": "#e6b84f",
+    "text": "#432b1d",
+    "muted": "#846c50",
+    "line": "rgba(198, 61, 47, .24)"
+  }
+}

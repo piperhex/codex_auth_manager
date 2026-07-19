@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-sage-daylight",
+  "name": "清透鼠尾草 / Sage Daylight",
+  "brandSubtitle": "CODEX DREAM SKIN",
+  "tagline": "Quiet daylight and calm botanical focus.",
+  "projectPrefix": "Select project · ",
+  "projectLabel": "Select project",
+  "statusText": "SAGE DAYLIGHT ONLINE",
+  "quote": "WORK WITH QUIET CLARITY",
+  "image": "background.jpg",
+  "appearance": "light",
+  "art": {
+    "focusX": 0.76,
+    "focusY": 0.43,
+    "safeArea": "left",
+    "taskMode": "ambient"
+  },
+  "palette": {
+    "accent": "#87946e"
+  },
+  "colors": {
+    "background": "#f5f2e9",
+    "panel": "#fbfaf5",
+    "panelAlt": "#e8e7db",
+    "accent": "#87946e",
+    "accentAlt": "#b5b890",
+    "secondary": "#657257",
+    "highlight": "#d2c99d",
+    "text": "#34372e",
+    "muted": "#737669",
+    "line": "rgba(135, 148, 110, .26)"
+  }
+}

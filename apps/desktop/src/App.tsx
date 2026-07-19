@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfigProvider, Popconfirm, Tooltip, theme as antdTheme } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
-import { BarChart3, CalendarClock, Check, CircleHelp, Cloud, Download, Github, LogIn, LogOut, Megaphone, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Upload, UploadCloud, UserRound } from "lucide-react";
+import { BarChart3, CalendarClock, Check, CircleHelp, Cloud, Download, Github, LogIn, LogOut, Megaphone, Palette, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Upload, UploadCloud, UserRound } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { checkForUpdate, chooseAndExportDiagnosticLogs, consumeResetCredit, DEFAULT_CLOUD_BASE_URL, fetchCloudAnnouncement, isDesktopApp, openManagedFolder, reportAnnouncementClick, reportBaseUrlChange, reportFirstInstallation, restartChatGpt, showTokenUsageWindow, submitFeedback, syncDirectConversations } from "./api/backend";
 import { HelpModal, type HelpVersionState } from "./components/modals/HelpModal";
@@ -29,6 +29,7 @@ import { useThemeColor } from "./hooks/useThemeColor";
 import { useTokenUsagePreferences } from "./hooks/useTokenUsagePreferences";
 import { useToast } from "./hooks/useToast";
 import { AccountsPage } from "./pages/AccountsPage";
+import { DreamSkinPage } from "./pages/DreamSkinPage";
 import { ProvidersPage } from "./pages/ProvidersPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { formatRefreshTime } from "./utils/format";
@@ -39,6 +40,7 @@ const IGNORED_UPDATE_VERSION_KEY = "codex-switch:ignored-update-version";
 const REPOSITORY_URL = "https://github.com/piperhex/codex-switch.git";
 const APP_LOGO_URL = new URL("../src-tauri/icons/128x128.png", import.meta.url).href;
 const MemoAccountsPage = memo(AccountsPage);
+const MemoDreamSkinPage = memo(DreamSkinPage);
 const MemoProvidersPage = memo(ProvidersPage);
 const MemoSettingsPage = memo(SettingsPage);
 
@@ -63,7 +65,7 @@ function normalizeHttpUrl(value: string | undefined) {
 }
 
 function DashboardApp() {
-  const [page, setPage] = useState<"accounts" | "providers" | "tokens" | "settings">("accounts");
+  const [page, setPage] = useState<"accounts" | "providers" | "tokens" | "dreamSkin" | "settings">("accounts");
   const [showLogin, setShowLogin] = useState(false);
   const [showCloudLogin, setShowCloudLogin] = useState(false);
   const [showCloudAccount, setShowCloudAccount] = useState(false);
@@ -446,6 +448,8 @@ function DashboardApp() {
               <Server size={19} />{t("nav.providers")}</button>
             <button className={page === "tokens" ? "selected" : ""} onClick={() => setPage("tokens")}>
               <BarChart3 size={19} />{t("nav.tokenUsage")}</button>
+            <button className={page === "dreamSkin" ? "selected" : ""} onClick={() => setPage("dreamSkin")}>
+              <Palette size={19} />{t("nav.dreamSkin")}</button>
             <button className={page === "settings" ? "selected" : ""} onClick={() => setPage("settings")}>
               <Settings size={19} />{t("nav.settings")}</button>
           </nav>
@@ -491,8 +495,8 @@ function DashboardApp() {
           </div>
         </header>
 
-        <main className={page === "accounts" ? "accounts-main" : page === "tokens" ? "tokens-main" : undefined}>
-          {page !== "tokens" && (
+        <main className={page === "accounts" ? "accounts-main" : page === "tokens" ? "tokens-main" : page === "dreamSkin" ? "dream-skin-main" : undefined}>
+          {page !== "tokens" && page !== "dreamSkin" && (
           <header className={`topbar${page === "accounts" && providerManager.localProxy?.running ? " accounts-topbar" : ""}`}>
             {page === "accounts" && providerManager.localProxy?.running ? (
               <TokenUsageHeatmap weeks={tokenUsagePreferences.weeks}
@@ -572,6 +576,9 @@ function DashboardApp() {
           </header>
           )}
 
+          <section className="page-panel" hidden={page !== "dreamSkin"}>
+            <MemoDreamSkinPage t={t} notify={notify} />
+          </section>
           <section className="page-panel" hidden={page !== "settings"}>
             <MemoSettingsPage info={manager.info} autoRefreshEnabled={autoRefresh.enabled}
               autoRefreshSeconds={autoRefresh.seconds} onEnabledChange={autoRefresh.setEnabled}

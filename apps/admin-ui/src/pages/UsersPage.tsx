@@ -87,11 +87,19 @@ export function UsersPage({
     {
       title: t("common.actions"),
       key: "actions",
-      width: 310,
+      width: 350,
       render: (_, row) => (
         <div className="table-actions">
           <Tooltip title={t("users.syncAccounts")}>
             <Button className="icon-button" icon={<Database size={15} />} onClick={() => onOpenAccounts(row)} />
+          </Tooltip>
+          <Tooltip title={t("users.bindOfficialAccount")}>
+            <Button
+              className="icon-button"
+              icon={<Link2 size={15} />}
+              disabled={!canBindOfficialAccounts}
+              onClick={() => onBindPoolAccounts([row])}
+            />
           </Tooltip>
           <Tooltip title={t("common.edit")}>
             <Button disabled={!canManage} className="icon-button" icon={<Edit3 size={15} />} onClick={() => onEditUser(row)} />
@@ -192,7 +200,7 @@ export function UsersPage({
             showSizeChanger: true,
           }}
           onChange={(pagination: TablePaginationConfig) => onLoadUsers(pagination.current, pagination.pageSize)}
-          scroll={{ x: 1120 }}
+          scroll={{ x: 1160 }}
         />
       </div>
     </>
