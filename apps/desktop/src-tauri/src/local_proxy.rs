@@ -2041,7 +2041,7 @@ fn should_skip_header(name: &str, skip_auth: bool) -> bool {
 }
 
 fn http_client() -> Result<Client, String> {
-    Client::builder()
+    crate::system_proxy::apply(Client::builder())
         .timeout(UPSTREAM_TIMEOUT)
         .connect_timeout(UPSTREAM_CONNECT_TIMEOUT)
         .build()

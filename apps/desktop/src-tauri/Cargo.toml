@@ -35,4 +35,4 @@ zip = { version = "2", default-features = false }
 rusqlite = { version = "0.32.1", default-features = false, features = ["bundled"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Networking_WinHttp", "Win32_Storage_FileSystem"] }

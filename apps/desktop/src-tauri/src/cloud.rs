@@ -148,14 +148,14 @@ fn clear_cloud_credentials<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), 
 }
 
 fn api_client() -> Result<Client, String> {
-    Client::builder()
+    crate::system_proxy::apply(Client::builder())
         .timeout(Duration::from_secs(20))
         .build()
         .map_err(|error| format!("Failed to create cloud HTTP client: {error}"))
 }
 
 fn feedback_client() -> Result<Client, String> {
-    Client::builder()
+    crate::system_proxy::apply(Client::builder())
         .timeout(Duration::from_secs(60))
         .build()
         .map_err(|error| format!("Failed to create feedback HTTP client: {error}"))

@@ -732,7 +732,7 @@ fn update_desktop_thread_catalogs(codex_home: &Path) -> Result<(), String> {
 }
 
 fn api_client() -> Result<Client, String> {
-    Client::builder()
+    crate::system_proxy::apply(Client::builder())
         .timeout(Duration::from_secs(20))
         .build()
         .map_err(|error| format!("创建网络客户端失败：{error}"))

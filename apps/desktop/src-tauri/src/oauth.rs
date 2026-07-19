@@ -244,7 +244,10 @@ fn run_login_loop<R: Runtime + 'static>(
             emit_login(&app, false, "登录失败：授权响应缺少 code", None);
             break;
         };
-        let client = match Client::builder().timeout(Duration::from_secs(25)).build() {
+        let client = match crate::system_proxy::apply(Client::builder())
+            .timeout(Duration::from_secs(25))
+            .build()
+        {
             Ok(client) => client,
             Err(error) => {
                 html_response(request, 500, "登录失败", "无法创建安全网络连接。");

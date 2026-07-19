@@ -28,7 +28,7 @@ fn normalized_version(value: &str) -> Result<Version, String> {
 }
 
 fn fetch_update(current_version: String) -> Result<Option<UpdateInfo>, String> {
-    let client = Client::builder()
+    let client = crate::system_proxy::apply(Client::builder())
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|error| format!("创建更新检查客户端失败：{error}"))?;

@@ -9,6 +9,7 @@ mod models;
 mod oauth;
 mod providers;
 mod storage;
+mod system_proxy;
 mod system_tray;
 mod update;
 
