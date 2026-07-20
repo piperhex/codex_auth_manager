@@ -1,7 +1,7 @@
 {
   "name": "codex-switch",
   "private": true,
-  "version": "1.0.15",
+  "version": "1.0.16",
   "license": "Apache-2.0",
   "packageManager": "npm@10.8.2",
   "workspaces": [
