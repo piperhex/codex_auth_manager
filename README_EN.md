@@ -30,6 +30,8 @@ Codex Switch is a local-first Tauri 2 desktop application for signing in to, sto
 
 ### Dream Skin
 
+Dream Skin repository: [Fei-Away/Codex-Dream-Skin](https://github.com/Fei-Away/Codex-Dream-Skin)
+
 ![Codex Switch Dream Skin](docs/assets/codex-switch-dream-skin.png)
 
 ## Features

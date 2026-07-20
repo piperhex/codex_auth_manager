@@ -32,6 +32,8 @@ QQ 技术交流群：`1051213898`。
 
 ### Dream Skin 换肤
 
+Dream Skin 项目仓库：[Fei-Away/Codex-Dream-Skin](https://github.com/Fei-Away/Codex-Dream-Skin)
+
 ![Codex Switch Dream Skin 换肤界面](docs/assets/codex-switch-dream-skin.png)
 
 ## 功能
