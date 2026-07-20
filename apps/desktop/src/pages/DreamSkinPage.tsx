@@ -270,9 +270,23 @@ export function DreamSkinPage({ t, notify }: DreamSkinPageProps) {
     }
   }, [notify]);
 
+  const confirmChatGptRestart = useCallback((operation: () => Promise<unknown>) => {
+    Modal.confirm({
+      title: t("dreamSkin.restart.confirmTitle"),
+      content: t("dreamSkin.restart.confirmDescription"),
+      okText: t("dreamSkin.restart.confirmAction"),
+      cancelText: t("table.cancel"),
+      onOk: operation,
+    });
+  }, [t]);
+
   const applyTheme = useCallback((themeId: string) => {
-    void runStatusOperation(`apply:${themeId}`, () => applyDreamSkinTheme(themeId), t("dreamSkin.toast.applied"));
-  }, [runStatusOperation, t]);
+    confirmChatGptRestart(() => runStatusOperation(
+      `apply:${themeId}`,
+      () => applyDreamSkinTheme(themeId),
+      t("dreamSkin.toast.applied"),
+    ));
+  }, [confirmChatGptRestart, runStatusOperation, t]);
 
   const changeAppearance = useCallback((appearance: DreamSkinAppearance) => {
     void runStatusOperation(
@@ -299,13 +313,15 @@ export function DreamSkinPage({ t, notify }: DreamSkinPageProps) {
 
   const submitImport = useCallback(async () => {
     if (!importPath || !importOptions.name.trim()) return;
-    const ok = await runStatusOperation(
-      "import",
-      () => importDreamSkinImage(importPath, { ...importOptions, name: importOptions.name.trim() }),
-      t("dreamSkin.toast.imported"),
-    );
-    if (ok) setImportOpen(false);
-  }, [importOptions, importPath, runStatusOperation, t]);
+    confirmChatGptRestart(async () => {
+      const ok = await runStatusOperation(
+        "import",
+        () => importDreamSkinImage(importPath, { ...importOptions, name: importOptions.name.trim() }),
+        t("dreamSkin.toast.imported"),
+      );
+      if (ok) setImportOpen(false);
+    });
+  }, [confirmChatGptRestart, importOptions, importPath, runStatusOperation, t]);
 
   const submitSave = useCallback(async () => {
     if (!saveName.trim()) return;
@@ -374,7 +390,9 @@ export function DreamSkinPage({ t, notify }: DreamSkinPageProps) {
           <div className="dream-tools-actions">
             <Button type={status?.installed ? "default" : "primary"} icon={<Sparkles size={14} />}
               loading={busy === "install"} disabled={isBusy && busy !== "install"}
-              onClick={() => void runStatusOperation("install", installDreamSkin, t("dreamSkin.toast.installed"))}>
+              onClick={() => confirmChatGptRestart(() => runStatusOperation(
+                "install", installDreamSkin, t("dreamSkin.toast.installed"),
+              ))}>
               {status?.installed ? t("dreamSkin.updateRuntime") : t("dreamSkin.install")}
             </Button>
             <Tooltip title={t("dreamSkin.refresh")}><Button aria-label={t("dreamSkin.refresh")}
@@ -382,13 +400,17 @@ export function DreamSkinPage({ t, notify }: DreamSkinPageProps) {
               onClick={() => void refresh()} /></Tooltip>
             <Button icon={status?.session === "paused" ? <CirclePlay size={15} /> : <CirclePause size={15} />}
               disabled={!status?.installed || isBusy} loading={busy === "pause"}
-              onClick={() => void runStatusOperation("pause", () => setDreamSkinPaused(status?.session !== "paused"),
-                status?.session === "paused" ? t("dreamSkin.toast.resumed") : t("dreamSkin.toast.paused"))}>
+              onClick={() => {
+                const operation = () => runStatusOperation("pause", () => setDreamSkinPaused(status?.session !== "paused"),
+                  status?.session === "paused" ? t("dreamSkin.toast.resumed") : t("dreamSkin.toast.paused"));
+                if (status?.session === "paused") confirmChatGptRestart(operation);
+                else void operation();
+              }}>
               {status?.session === "paused" ? t("dreamSkin.resume") : t("dreamSkin.pause")}
             </Button>
             <Button icon={<RefreshCw size={15} />} disabled={!status?.installed || isBusy}
-              loading={busy === "reapply"} onClick={() => void runStatusOperation(
-                "reapply", reapplyDreamSkin, t("dreamSkin.toast.reapplied"))}>{t("dreamSkin.reapply")}</Button>
+              loading={busy === "reapply"} onClick={() => confirmChatGptRestart(() => runStatusOperation(
+                "reapply", reapplyDreamSkin, t("dreamSkin.toast.reapplied")))}>{t("dreamSkin.reapply")}</Button>
             <Button icon={<Save size={15} />} disabled={!status?.installed || !status.activeThemeId || isBusy}
               onClick={() => { setSaveName(status?.activeThemeName ?? ""); setSaveOpen(true); }}>
               {t("dreamSkin.saveCurrent")}</Button>

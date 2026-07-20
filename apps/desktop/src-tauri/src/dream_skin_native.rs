@@ -21,7 +21,7 @@ use tungstenite::{client, Message, WebSocket};
 use url::Url;
 use uuid::Uuid;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::process::Command;
 
 use crate::dream_skin::{
@@ -117,7 +117,7 @@ struct LoadedTheme {
 struct CodexInstall {
     executable: PathBuf,
     #[cfg(target_os = "windows")]
-    app_user_model_id: String,
+    app_user_model_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -1060,6 +1060,10 @@ fn path_eq(left: &Path, right: &Path) -> bool {
     return left == right;
 }
 
+fn same_install(left: &CodexInstall, right: &CodexInstall) -> bool {
+    path_eq(&left.executable, &right.executable)
+}
+
 fn stop_codex(install: &CodexInstall) -> Result<(), String> {
     let expected = install
         .executable
@@ -1093,7 +1097,7 @@ fn stop_codex(install: &CodexInstall) -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
-fn find_codex_install() -> Result<CodexInstall, String> {
+fn find_codex_installs() -> Result<Vec<((u16, u16, u16, u16), CodexInstall)>, String> {
     use windows::{
         core::HSTRING,
         Management::Deployment::PackageManager,
@@ -1162,16 +1166,68 @@ fn find_codex_install() -> Result<CodexInstall, String> {
                     ),
                     CodexInstall {
                         executable: executable.clone(),
-                        app_user_model_id: aumid,
+                        app_user_model_id: Some(aumid),
                     },
                 ));
             }
         }
     }
-    matches.sort_by_key(|(version, _)| *version);
-    matches.pop().map(|(_, install)| install).ok_or_else(|| {
+    if matches.is_empty() {
+        return Err(
+            "The official OpenAI Codex Microsoft Store package is not installed.".to_string(),
+        );
+    }
+    Ok(matches)
+}
+
+#[cfg(target_os = "windows")]
+fn find_running_codex_install() -> Option<CodexInstall> {
+    let mut system = System::new_all();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    for process in system.processes().values() {
+        let Some(executable) = process.exe() else {
+            continue;
+        };
+        if !executable
+            .file_name()
+            .is_some_and(|name| name.eq_ignore_ascii_case("ChatGPT.exe"))
+        {
+            continue;
+        }
+        let executable = executable
+            .canonicalize()
+            .unwrap_or_else(|_| executable.to_path_buf());
+        let is_codex_shell = executable.parent().is_some_and(|app_dir| {
+            app_dir
+                .file_name()
+                .is_some_and(|name| name.eq_ignore_ascii_case("app"))
+                && app_dir.join("resources").join("codex.exe").is_file()
+        });
+        if is_codex_shell {
+            return Some(CodexInstall {
+                executable,
+                app_user_model_id: None,
+            });
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn find_default_codex_install() -> Result<CodexInstall, String> {
+    let mut installs = find_codex_installs()?;
+    installs.sort_by_key(|(version, _)| *version);
+    installs.pop().map(|(_, install)| install).ok_or_else(|| {
         "The official OpenAI Codex Microsoft Store package is not installed.".to_string()
     })
+}
+
+#[cfg(target_os = "windows")]
+fn find_codex_install() -> Result<CodexInstall, String> {
+    if let Some(running) = find_running_codex_install() {
+        return Ok(running);
+    }
+    find_default_codex_install()
 }
 
 #[cfg(target_os = "windows")]
@@ -1187,28 +1243,42 @@ fn launch_codex(install: &CodexInstall, arguments: &str) -> Result<u32, String> 
         },
     };
 
-    struct ComGuard;
-    impl Drop for ComGuard {
-        fn drop(&mut self) {
-            unsafe { CoUninitialize() };
+    if let Some(app_user_model_id) = &install.app_user_model_id {
+        struct ComGuard;
+        impl Drop for ComGuard {
+            fn drop(&mut self) {
+                unsafe { CoUninitialize() };
+            }
         }
+
+        unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }
+            .ok()
+            .map_err(|error| format!("Failed to initialize Windows app activation: {error}"))?;
+        let _com = ComGuard;
+        let manager: IApplicationActivationManager = unsafe {
+            CoCreateInstance(&ApplicationActivationManager, None, CLSCTX_LOCAL_SERVER)
+        }
+        .map_err(|error| format!("Failed to create Windows app activation manager: {error}"))?;
+        return unsafe {
+            manager.ActivateApplication(
+                &HSTRING::from(app_user_model_id),
+                &HSTRING::from(arguments),
+                AO_NONE,
+            )
+        }
+        .map_err(|error| format!("Failed to launch Codex: {error}"));
     }
 
-    unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }
-        .ok()
-        .map_err(|error| format!("Failed to initialize Windows app activation: {error}"))?;
-    let _com = ComGuard;
-    let manager: IApplicationActivationManager =
-        unsafe { CoCreateInstance(&ApplicationActivationManager, None, CLSCTX_LOCAL_SERVER) }
-            .map_err(|error| format!("Failed to create Windows app activation manager: {error}"))?;
-    unsafe {
-        manager.ActivateApplication(
-            &HSTRING::from(&install.app_user_model_id),
-            &HSTRING::from(arguments),
-            AO_NONE,
-        )
+    let mut command = Command::new(&install.executable);
+    for argument in arguments.split_whitespace() {
+        command.arg(argument);
     }
-    .map_err(|error| format!("Failed to launch Codex: {error}"))
+    command.spawn().map(|child| child.id()).map_err(|error| {
+        format!(
+            "Failed to launch Codex from {}: {error}",
+            install.executable.display()
+        )
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -1234,6 +1304,11 @@ fn find_codex_install() -> Result<CodexInstall, String> {
 }
 
 #[cfg(target_os = "macos")]
+fn find_default_codex_install() -> Result<CodexInstall, String> {
+    find_codex_install()
+}
+
+#[cfg(target_os = "macos")]
 fn launch_codex(install: &CodexInstall, arguments: &str) -> Result<u32, String> {
     let mut command = Command::new(&install.executable);
     for argument in arguments.split_whitespace() {
@@ -1245,8 +1320,7 @@ fn launch_codex(install: &CodexInstall, arguments: &str) -> Result<u32, String> 
         .map_err(|error| format!("Failed to launch Codex: {error}"))
 }
 
-fn restart_with_skin(paths: &RuntimePaths) -> Result<(), String> {
-    let install = find_codex_install()?;
+fn start_with_skin(paths: &RuntimePaths, install: &CodexInstall) -> Result<(), String> {
     stop_codex(&install)?;
     let port = select_port()?;
     let arguments = format!("--remote-debugging-address=127.0.0.1 --remote-debugging-port={port}");
@@ -1264,6 +1338,28 @@ fn restart_with_skin(paths: &RuntimePaths) -> Result<(), String> {
     Ok(())
 }
 
+fn restart_with_skin(paths: &RuntimePaths) -> Result<(), String> {
+    let install = find_codex_install()?;
+    let fallback = find_default_codex_install()
+        .ok()
+        .filter(|fallback| !same_install(&install, fallback));
+    match start_with_skin(paths, &install) {
+        Ok(()) => Ok(()),
+        Err(primary_error) if fallback.is_some() => {
+            let _ = stop_codex(&install);
+            let fallback = fallback.expect("checked above");
+            start_with_skin(paths, &fallback).map_err(|fallback_error| {
+                format!(
+                    "Dream Skin could not start from the running ChatGPT path ({}): {primary_error}; fallback path ({}) also failed: {fallback_error}",
+                    install.executable.display(),
+                    fallback.executable.display(),
+                )
+            })
+        }
+        Err(error) => Err(error),
+    }
+}
+
 pub(crate) fn setup(app: &AppHandle) -> Result<(), String> {
     if !marker_path()?.is_file() {
         return Ok(());
@@ -1274,9 +1370,9 @@ pub(crate) fn setup(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn install_unlocked(app: &AppHandle) -> Result<(), String> {
+fn install_unlocked(app: &AppHandle, restart_chatgpt: bool) -> Result<(), String> {
     let root = bundled_root(app)?;
-    find_codex_install()?;
+    let install = find_codex_install()?;
     initialize_store(&root)?;
     write_json(
         &marker_path()?,
@@ -1290,6 +1386,24 @@ fn install_unlocked(app: &AppHandle) -> Result<(), String> {
         write_session(&NativeSessionState::default())?;
     }
     ensure_monitor(RuntimePaths { bundled_root: root });
+    if restart_chatgpt {
+        // The user has acknowledged this in the UI.  Stop the exact ChatGPT/Codex
+        // executable discovered from the running process before completing setup.
+        stop_codex(&install)?;
+        let fallback = find_default_codex_install()?;
+        if let Err(primary_error) = launch_codex(&install, "") {
+            if same_install(&install, &fallback) {
+                return Err(primary_error);
+            }
+            launch_codex(&fallback, "").map_err(|fallback_error| {
+                format!(
+                    "Dream Skin could not relaunch ChatGPT from the running path ({}): {primary_error}; fallback path ({}) also failed: {fallback_error}",
+                    install.executable.display(),
+                    fallback.executable.display(),
+                )
+            })?;
+        }
+    }
     Ok(())
 }
 
@@ -1297,12 +1411,12 @@ pub(crate) fn install(app: &AppHandle) -> Result<(), String> {
     let _operation = OPERATION_LOCK
         .lock()
         .map_err(|_| "Dream Skin operation lock is unavailable.".to_string())?;
-    install_unlocked(app)
+    install_unlocked(app, true)
 }
 
 fn ensure_installed(app: &AppHandle) -> Result<RuntimePaths, String> {
     if !marker_path()?.is_file() {
-        install_unlocked(app)?;
+        install_unlocked(app, false)?;
     }
     let paths = RuntimePaths {
         bundled_root: bundled_root(app)?,
@@ -1678,9 +1792,10 @@ mod tests {
     #[test]
     #[ignore = "requires the official Codex Store package"]
     fn discovers_official_codex_package() {
-        let install = find_codex_install().expect("official Codex package should be discoverable");
+        let install =
+            find_default_codex_install().expect("official Codex package should be discoverable");
         assert!(install.executable.ends_with("app\\ChatGPT.exe"));
-        assert!(install.app_user_model_id.contains('!'));
+        assert!(install.app_user_model_id.is_some_and(|id| id.contains('!')));
     }
 
     #[cfg(target_os = "windows")]

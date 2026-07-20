@@ -36,7 +36,7 @@ The retired named-person preset is not bundled, displayed, or used as a default 
 
 ## Runtime
 
-This project does not redistribute Node.js. At runtime it validates and uses the Node.js executable already signed and bundled inside the user's official Codex desktop application.
+Dream Skin uses a Rust-native local CDP runtime. It does not redistribute, require, or execute Node.js at runtime.
 
 ## Security model
 
