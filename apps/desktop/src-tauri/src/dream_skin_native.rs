@@ -1133,12 +1133,12 @@ fn monitor_iteration(
             }
             *unavailable_iterations = unavailable_iterations.saturating_add(1);
             // A manually started ChatGPT process has no remote-debugging port,
-            // so it cannot receive the renderer payload.  Once its normal
-            // startup has had a few seconds to settle, restart it once through
-            // the managed launcher.  Pausing the skin remains an explicit opt
-            // out, and closing ChatGPT does not relaunch it because no process
-            // is detected.
-            if *unavailable_iterations >= 3 && has_running_codex_install() {
+            // so it cannot receive the renderer payload.  Take it over as soon
+            // as the process appears; SKIN_LAUNCHING already prevents this path
+            // from racing a managed launch.  Pausing the skin remains an
+            // explicit opt out, and closing ChatGPT does not relaunch it because
+            // no process is detected.
+            if *unavailable_iterations >= 1 && has_running_codex_install() {
                 *unavailable_iterations = 0;
                 if let Err(restart_error) = recover_running_codex(paths) {
                     eprintln!(
@@ -1226,7 +1226,7 @@ fn monitor_loop(control: Arc<MonitorControl>) {
                 .unwrap_or_else(|error| error.into_inner());
             let (guard, _) = control
                 .wake
-                .wait_timeout(guard, Duration::from_millis(1200))
+                .wait_timeout(guard, Duration::from_millis(250))
                 .unwrap_or_else(|error| error.into_inner());
             guard.clone()
         };
@@ -1248,7 +1248,18 @@ fn monitor_loop(control: Arc<MonitorControl>) {
 
 #[cfg(target_os = "windows")]
 fn has_running_codex_install() -> bool {
-    find_running_codex_install().is_some()
+    // ChatGPT's bootstrap executable can exit shortly after handing control
+    // to the persistent `codex.exe` process.  Looking only for ChatGPT.exe
+    // therefore misses a manually started client before recovery begins.
+    let mut system = System::new_all();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    system.processes().values().any(|process| {
+        let name = process.name().to_string_lossy();
+        matches!(
+            name.as_ref().to_ascii_lowercase().as_str(),
+            "chatgpt" | "chatgpt.exe" | "codex" | "codex.exe"
+        )
+    })
 }
 
 #[cfg(not(target_os = "windows"))]

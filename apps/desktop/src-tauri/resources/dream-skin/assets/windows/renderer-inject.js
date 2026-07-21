@@ -385,11 +385,15 @@
 
   const scheduler = { timeout: null };
   const scheduleEnsure = () => {
-    if (scheduler.timeout) clearTimeout(scheduler.timeout);
+    // React performs a continuous stream of mutations while the shell boots.
+    // Debouncing here postpones the skin until the UI becomes quiet (or until
+    // the slow fallback timer fires). Throttle instead so the first batch is
+    // handled almost immediately and later mutations are coalesced.
+    if (scheduler.timeout) return;
     scheduler.timeout = setTimeout(() => {
       scheduler.timeout = null;
       ensure();
-    }, 180);
+    }, 32);
   };
   observer = new MutationObserver(() => {
     if (samplingNativeShell) return;
@@ -401,7 +405,7 @@
     attributes: true,
     attributeFilter: ["class", "data-theme", "data-appearance", "data-color-mode"],
   });
-  const timer = setInterval(ensure, 5000);
+  const timer = setInterval(ensure, 1000);
   window[STATE_KEY] = {
     ensure, cleanup, observer, timer, scheduler, artUrl, profile, config, installToken, version: "1.2.0",
   };
