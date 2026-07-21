@@ -10,8 +10,8 @@ use crate::{
     auth::validate_auth,
     models::{ProviderApiFormat, ProviderProfile, ProviderSummary},
     storage::{
-        read_json, read_state, resolve_paths, write_json_atomic, write_state, write_text_atomic,
-        Paths,
+        managed_auth_path, read_json, read_state, resolve_paths, write_json_atomic,
+        write_json_if_changed, write_state, write_text_atomic, Paths,
     },
 };
 
@@ -508,12 +508,25 @@ fn is_local_proxy_url(url: &Url) -> bool {
 }
 
 fn ensure_official_auth_for_local_proxy(paths: &Paths) -> Result<(), String> {
-    let auth = read_json(&paths.current_auth)?;
+    if let Ok(auth) = read_json(&paths.current_auth) {
+        if validate_auth(&auth).is_ok() {
+            return Ok(());
+        }
+    }
+
+    let state = read_state(paths);
+    let account_id = state.active_account_id.ok_or_else(|| {
+        "Official Codex local proxy requires a signed-in official Codex account. Add or switch to an official account before starting proxy."
+            .to_string()
+    })?;
+    let auth = read_json(&managed_auth_path(paths, &account_id))?;
     validate_auth(&auth).map_err(|error| {
         format!(
-            "Official Codex local proxy requires a ChatGPT auth.json with tokens.access_token. Activate a third-party Provider or switch to a signed-in official Codex account before starting proxy: {error}"
+            "Official Codex local proxy requires a ChatGPT auth.json with tokens.access_token. Switch to a valid signed-in official Codex account before starting proxy: {error}"
         )
-    })
+    })?;
+    write_json_if_changed(&paths.current_auth, &auth)?;
+    Ok(())
 }
 
 fn validate_provider_id(id: &str) -> Result<(), String> {
@@ -952,6 +965,8 @@ fn toml_string(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    use serde_json::json;
 
     fn provider() -> ProviderProfile {
         ProviderProfile {
@@ -964,6 +979,69 @@ mod tests {
             model_selection_controlled_by_codex: false,
             api_format: ProviderApiFormat::OpenaiResponses,
         }
+    }
+
+    fn test_auth() -> Value {
+        let claims = json!({
+            "email": "first@example.com",
+            "sub": "first-user",
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": "first-account"
+            }
+        });
+        let token = format!(
+            "e30.{}.sig",
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap())
+        );
+        json!({
+            "auth_mode": "chatgpt",
+            "tokens": {
+                "id_token": token,
+                "access_token": "header.payload.signature",
+                "refresh_token": "refresh-token",
+                "account_id": "first-account"
+            }
+        })
+    }
+
+    fn test_paths() -> Paths {
+        let root = std::env::temp_dir().join(format!(
+            "codex-switch-provider-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let codex_home = root.join("codex-home");
+        let app_data = root.join("app-data");
+        Paths {
+            current_auth: codex_home.join("auth.json"),
+            current_config: codex_home.join("config.toml"),
+            codex_home,
+            accounts: app_data.join("accounts"),
+            providers: app_data.join("providers"),
+            config_backup: app_data.join("config-before-provider.toml"),
+            state_file: app_data.join("state.json"),
+        }
+    }
+
+    #[test]
+    fn official_proxy_restores_missing_current_auth_from_active_account() {
+        let paths = test_paths();
+        let auth = test_auth();
+        let (_, _, _, id) = crate::auth::account_fields(&auth).unwrap();
+        write_json_atomic(&managed_auth_path(&paths, &id), &auth).unwrap();
+        write_state(
+            &paths,
+            &crate::models::ManagerStateFile {
+                active_account_id: Some(id),
+                ..crate::models::ManagerStateFile::default()
+            },
+        )
+        .unwrap();
+
+        ensure_official_auth_for_local_proxy(&paths).unwrap();
+
+        assert_eq!(read_json(&paths.current_auth).unwrap(), auth);
+        let root = paths.codex_home.parent().unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

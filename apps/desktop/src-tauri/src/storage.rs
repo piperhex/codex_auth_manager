@@ -387,6 +387,17 @@ pub(crate) fn write_app_settings<R: Runtime>(
     write_json_atomic(&path, &value)
 }
 
+fn should_activate_import(
+    state: &ManagerStateFile,
+    activate: bool,
+    current_auth_exists: bool,
+) -> bool {
+    activate
+        || (!current_auth_exists
+            && state.active_account_id.is_none()
+            && state.active_provider_id.is_none())
+}
+
 pub(crate) fn import_value<R: Runtime>(
     app: &tauri::AppHandle<R>,
     auth: Value,
@@ -395,10 +406,11 @@ pub(crate) fn import_value<R: Runtime>(
     validate_auth(&auth)?;
     let paths = resolve_paths(app)?;
     let (_, _, _, id) = account_fields(&auth)?;
+    let mut state = read_state(&paths);
+    let should_activate = should_activate_import(&state, activate, paths.current_auth.exists());
     write_managed_auth_if_changed(&paths, &id, &auth)?;
-    if activate {
+    if should_activate {
         write_json_if_changed(&paths.current_auth, &auth)?;
-        let mut state = read_state(&paths);
         state.active_account_id = Some(id.clone());
         write_state(&paths, &state)?;
         if crate::local_proxy::is_running() {
@@ -437,4 +449,47 @@ pub(crate) fn load_usage(path: &Path) -> UsageSummary {
 pub(crate) fn save_usage(path: &Path, usage: &UsageSummary) -> Result<(), String> {
     let value = serde_json::to_value(usage).map_err(|error| error.to_string())?;
     write_json_atomic(path, &value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_activate_import;
+    use crate::models::ManagerStateFile;
+
+    #[test]
+    fn first_official_import_becomes_active_when_codex_has_no_auth() {
+        assert!(should_activate_import(
+            &ManagerStateFile::default(),
+            false,
+            false
+        ));
+    }
+
+    #[test]
+    fn passive_import_does_not_replace_existing_codex_auth() {
+        assert!(!should_activate_import(
+            &ManagerStateFile::default(),
+            false,
+            true
+        ));
+    }
+
+    #[test]
+    fn passive_import_does_not_take_over_an_active_provider() {
+        let state = ManagerStateFile {
+            active_provider_id: Some("provider-1".to_string()),
+            ..ManagerStateFile::default()
+        };
+
+        assert!(!should_activate_import(&state, false, false));
+    }
+
+    #[test]
+    fn explicit_activation_still_replaces_existing_codex_auth() {
+        assert!(should_activate_import(
+            &ManagerStateFile::default(),
+            true,
+            true
+        ));
+    }
 }
