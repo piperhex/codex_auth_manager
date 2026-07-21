@@ -96,6 +96,16 @@ pub(crate) fn setup(app: &AppHandle) -> Result<(), String> {
     }
 }
 
+/// Starts ChatGPT/Codex through the Dream Skin launcher when the skin is
+/// currently enabled.  Regular account-management restarts use this so they
+/// keep the CDP arguments required for renderer injection.
+pub(crate) fn restart_active_session() -> Result<bool, String> {
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    return crate::dream_skin_native::restart_active_session();
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    Ok(false)
+}
+
 async fn run_blocking<T, F>(operation: F) -> Result<T, String>
 where
     T: Send + 'static,

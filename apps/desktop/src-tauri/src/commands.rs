@@ -428,6 +428,10 @@ pub(crate) fn switch_account_and_restart_chatgpt<R: Runtime>(
     // When no client is running, write the replacement credential immediately.
     // When one is running, the preceding shutdown gives the same guarantee.
     switch_account_unlocked(&app, &id)?;
+    if crate::dream_skin::restart_active_session()? {
+        return Ok(());
+    }
+
     start_chatgpt(launch_target.as_ref()).map_err(|error| {
         format!(
             "账户已切换，但无法自动启动 ChatGPT/Codex（{error}）。请手动启动 ChatGPT 或 Codex。"
@@ -547,7 +551,11 @@ pub(crate) fn restart_chatgpt<R: Runtime>(app: tauri::AppHandle<R>) -> Result<()
     stop_chatgpt_processes()?;
     wait_for_chatgpt_processes_to_exit(Duration::from_secs(10))?;
     sync_active_proxy_auth_for_restart(&app)?;
-    start_chatgpt(launch_target.as_ref())
+    if crate::dream_skin::restart_active_session()? {
+        Ok(())
+    } else {
+        start_chatgpt(launch_target.as_ref())
+    }
 }
 
 fn sync_active_proxy_auth_for_restart<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {

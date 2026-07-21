@@ -4,7 +4,10 @@ use std::{
     io::ErrorKind,
     net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
-    sync::{Arc, Condvar, Mutex, OnceLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Condvar, Mutex, OnceLock,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -98,6 +101,7 @@ const RETIRED_THEME_IDS: [&str; 1] = ["preset-arina-hashimoto"];
 
 static OPERATION_LOCK: Mutex<()> = Mutex::new(());
 static MONITOR: OnceLock<Arc<MonitorControl>> = OnceLock::new();
+static SKIN_LAUNCHING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone)]
 struct RuntimePaths {
@@ -107,6 +111,21 @@ struct RuntimePaths {
 struct MonitorControl {
     paths: Mutex<Option<RuntimePaths>>,
     wake: Condvar,
+}
+
+struct SkinLaunchGuard;
+
+impl SkinLaunchGuard {
+    fn acquire() -> Self {
+        SKIN_LAUNCHING.store(true, Ordering::Release);
+        Self
+    }
+}
+
+impl Drop for SkinLaunchGuard {
+    fn drop(&mut self) {
+        SKIN_LAUNCHING.store(false, Ordering::Release);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1077,16 +1096,19 @@ fn monitor_iteration(
     paths: &RuntimePaths,
     injected: &mut HashMap<String, InjectedTarget>,
     last_port: &mut Option<u16>,
+    unavailable_iterations: &mut u8,
 ) -> Result<(), String> {
     if !marker_path()?.is_file() {
         injected.clear();
         *last_port = None;
+        *unavailable_iterations = 0;
         return Ok(());
     }
     let state = read_session();
     let Some(port) = state.port else {
         injected.clear();
         *last_port = None;
+        *unavailable_iterations = 0;
         return Ok(());
     };
     if *last_port != Some(port) {
@@ -1099,7 +1121,35 @@ fn monitor_iteration(
     } else {
         Some(load_payload(paths)?)
     };
-    let targets = list_targets(port)?;
+    let targets = match list_targets(port) {
+        Ok(targets) => {
+            *unavailable_iterations = 0;
+            targets
+        }
+        Err(error) if error.contains("CDP is unavailable") => {
+            if SKIN_LAUNCHING.load(Ordering::Acquire) {
+                *unavailable_iterations = 0;
+                return Ok(());
+            }
+            *unavailable_iterations = unavailable_iterations.saturating_add(1);
+            // A manually started ChatGPT process has no remote-debugging port,
+            // so it cannot receive the renderer payload.  Once its normal
+            // startup has had a few seconds to settle, restart it once through
+            // the managed launcher.  Pausing the skin remains an explicit opt
+            // out, and closing ChatGPT does not relaunch it because no process
+            // is detected.
+            if *unavailable_iterations >= 3 && has_running_codex_install() {
+                *unavailable_iterations = 0;
+                if let Err(restart_error) = recover_running_codex(paths) {
+                    eprintln!(
+                        "Dream Skin could not recover a manual ChatGPT restart: {restart_error}"
+                    );
+                }
+            }
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
     injected.retain(|id, _| targets.iter().any(|target| &target.id == id));
     for target in targets {
         let current = injected.get(&target.id).cloned();
@@ -1149,9 +1199,20 @@ fn monitor_iteration(
     Ok(())
 }
 
+fn recover_running_codex(paths: &RuntimePaths) -> Result<(), String> {
+    let _operation = OPERATION_LOCK
+        .lock()
+        .map_err(|_| "Dream Skin operation lock is unavailable.".to_string())?;
+    if SKIN_LAUNCHING.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    restart_with_skin(paths)
+}
+
 fn monitor_loop(control: Arc<MonitorControl>) {
     let mut injected = HashMap::new();
     let mut last_port = None;
+    let mut unavailable_iterations = 0;
     loop {
         let paths = {
             let guard = control
@@ -1167,12 +1228,27 @@ fn monitor_loop(control: Arc<MonitorControl>) {
         let Some(paths) = paths else {
             continue;
         };
-        if let Err(error) = monitor_iteration(&paths, &mut injected, &mut last_port) {
+        if let Err(error) = monitor_iteration(
+            &paths,
+            &mut injected,
+            &mut last_port,
+            &mut unavailable_iterations,
+        ) {
             if !error.contains("CDP is unavailable") {
                 eprintln!("Dream Skin native monitor: {error}");
             }
         }
     }
+}
+
+#[cfg(target_os = "windows")]
+fn has_running_codex_install() -> bool {
+    find_running_codex_install().is_some()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn has_running_codex_install() -> bool {
+    false
 }
 
 fn ensure_monitor(paths: RuntimePaths) {
@@ -1551,6 +1627,7 @@ fn launch_codex(install: &CodexInstall, arguments: &str) -> Result<u32, String> 
 }
 
 fn start_with_skin(paths: &RuntimePaths, install: &CodexInstall) -> Result<(), String> {
+    let _launch = SkinLaunchGuard::acquire();
     stop_codex(&install)?;
     let port = select_port()?;
     let arguments = format!("--remote-debugging-address=127.0.0.1 --remote-debugging-port={port}");
@@ -1598,6 +1675,27 @@ pub(crate) fn setup(app: &AppHandle) -> Result<(), String> {
     initialize_store(&root)?;
     ensure_monitor(RuntimePaths { bundled_root: root });
     Ok(())
+}
+
+pub(crate) fn restart_active_session() -> Result<bool, String> {
+    if !marker_path()?.is_file() || pause_path()?.is_file() {
+        return Ok(false);
+    }
+    let _operation = OPERATION_LOCK
+        .lock()
+        .map_err(|_| "Dream Skin operation lock is unavailable.".to_string())?;
+    let paths = MONITOR
+        .get()
+        .and_then(|control| {
+            control
+                .paths
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone()
+        })
+        .ok_or_else(|| "Dream Skin runtime is not initialized.".to_string())?;
+    restart_with_skin(&paths)?;
+    Ok(true)
 }
 
 fn install_unlocked(app: &AppHandle, restart_chatgpt: bool) -> Result<(), String> {
