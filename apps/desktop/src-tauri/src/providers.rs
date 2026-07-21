@@ -25,7 +25,7 @@ pub(crate) const LOCAL_PROXY_BASE_URL: &str = "http://127.0.0.1:15722/v1";
 pub(crate) const LOCAL_PROXY_TOKEN: &str = "CODEX_SWITCH_LOCAL_PROXY";
 const LOCAL_PROXY_PROVIDER_ID: &str = "codex-switch-local";
 const LOCAL_PROXY_PROVIDER_NAME: &str = "Codex Switch Local Proxy";
-pub(crate) const DEFAULT_OFFICIAL_MODEL: &str = "gpt-5-codex";
+pub(crate) const DEFAULT_OFFICIAL_MODEL: &str = "gpt-5.6-sol";
 const MODEL_CATALOG_FILENAME: &str = "codex-switch-model-catalog.json";
 const DEFAULT_MODEL_CONTEXT_WINDOW: u64 = 128_000;
 
@@ -775,7 +775,7 @@ fn merge_local_proxy_config(
         toml_string(LOCAL_PROXY_BASE_URL)
     ));
     config.push_str("wire_api = \"responses\"\n");
-    config.push_str("requires_openai_auth = true\n");
+    config.push_str("requires_openai_auth = false\n");
     config.push_str(&format!(
         "experimental_bearer_token = {}\n",
         toml_string(LOCAL_PROXY_TOKEN)
