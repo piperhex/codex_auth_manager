@@ -76,7 +76,7 @@ pub(crate) fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent
         return;
     }
     if id == RESTART_CHATGPT_ID {
-        if let Err(error) = commands::restart_chatgpt() {
+        if let Err(error) = commands::restart_chatgpt(app.clone()) {
             eprintln!("failed to restart ChatGPT from menu: {error}");
         }
         return;

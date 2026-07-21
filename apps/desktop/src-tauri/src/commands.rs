@@ -487,11 +487,40 @@ pub(crate) fn delete_account<R: Runtime>(
 }
 
 #[tauri::command]
-pub(crate) fn restart_chatgpt() -> Result<(), String> {
+pub(crate) fn restart_chatgpt<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
+    // Keep a manual account switch and a restart as one operation.  In proxy mode the
+    // switch deliberately leaves auth.json alone while Codex is running, so the
+    // restarted process must receive the selected credential before it starts.
+    let _switch_guard = account_switch_lock()
+        .lock()
+        .map_err(|_| "Account switch lock is poisoned".to_string())?;
     let launch_target = chatgpt_launch_target();
     stop_chatgpt_processes()?;
     thread::sleep(Duration::from_millis(450));
+    sync_active_proxy_auth_for_restart(&app)?;
     start_chatgpt(launch_target.as_ref())
+}
+
+fn sync_active_proxy_auth_for_restart<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
+    if !crate::local_proxy::is_running() {
+        return Ok(());
+    }
+
+    let paths = resolve_paths(app)?;
+    let state = read_state(&paths);
+    // Third-party Provider mode does not use the selected official account.  Only
+    // synchronize the official-account proxy mode, where a stale auth.json can make
+    // a freshly restarted ChatGPT/Codex session fail during its bootstrap.
+    if state.active_provider_id.is_some() {
+        return Ok(());
+    }
+    let Some(account_id) = state.active_account_id else {
+        return Ok(());
+    };
+
+    let auth = read_json(&managed_auth_path(&paths, &account_id))?;
+    validate_auth(&auth)?;
+    write_json_atomic(&paths.current_auth, &auth)
 }
 
 #[derive(Debug, Serialize)]
