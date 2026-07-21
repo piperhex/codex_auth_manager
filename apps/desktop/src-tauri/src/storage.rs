@@ -9,7 +9,7 @@ use serde_json::Value;
 use tauri::{Manager, Runtime};
 
 use crate::{
-    auth::{account_fields, validate_auth},
+    auth::{account_fields, canonicalize_chatgpt_auth, validate_auth},
     models::{AccountFieldModifiedAt, AppSettings, ManagerStateFile, UsageSummary},
 };
 
@@ -400,9 +400,10 @@ fn should_activate_import(
 
 pub(crate) fn import_value<R: Runtime>(
     app: &tauri::AppHandle<R>,
-    auth: Value,
+    mut auth: Value,
     activate: bool,
 ) -> Result<String, String> {
+    canonicalize_chatgpt_auth(&mut auth)?;
     validate_auth(&auth)?;
     let paths = resolve_paths(app)?;
     let (_, _, _, id) = account_fields(&auth)?;
@@ -410,11 +411,14 @@ pub(crate) fn import_value<R: Runtime>(
     let should_activate = should_activate_import(&state, activate, paths.current_auth.exists());
     write_managed_auth_if_changed(&paths, &id, &auth)?;
     if should_activate {
-        write_json_if_changed(&paths.current_auth, &auth)?;
-        state.active_account_id = Some(id.clone());
-        write_state(&paths, &state)?;
-        if crate::local_proxy::is_running() {
-            crate::providers::apply_local_proxy_config_for_paths(&paths)?;
+        let can_activate = crate::local_proxy::is_running()
+            || crate::commands::sync_current_auth_if_client_stopped(&paths, &auth)?;
+        if can_activate {
+            state.active_account_id = Some(id.clone());
+            write_state(&paths, &state)?;
+            if crate::local_proxy::is_running() {
+                crate::providers::apply_local_proxy_config_for_paths(&paths)?;
+            }
         }
     }
     Ok(id)
@@ -425,9 +429,13 @@ pub(crate) fn sync_current_into_store<R: Runtime>(app: &tauri::AppHandle<R>) -> 
     if !paths.current_auth.exists() {
         return Ok(());
     }
-    let auth = read_json(&paths.current_auth)?;
+    let mut auth = read_json(&paths.current_auth)?;
+    let repaired = canonicalize_chatgpt_auth(&mut auth)?;
     validate_auth(&auth)?;
-    let id = import_value(app, auth, false)?;
+    let id = import_value(app, auth.clone(), false)?;
+    if repaired {
+        crate::commands::sync_current_auth_if_client_stopped(&paths, &auth)?;
+    }
     let mut state = read_state(&paths);
     // The current auth file remains on disk while a third-party Provider is active,
     // but it is not the selected runtime identity in that mode. Do not let a routine

@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -90,6 +91,59 @@ pub(crate) fn validate_auth(auth: &Value) -> Result<(), String> {
     account_fields(auth).map(|_| ())
 }
 
+/// Bring a managed ChatGPT credential up to the shape expected by current Codex builds.
+/// Unknown fields are deliberately preserved so newer Codex metadata can round-trip through
+/// Codex Switch without being discarded.
+pub(crate) fn canonicalize_chatgpt_auth(auth: &mut Value) -> Result<bool, String> {
+    let original = auth.clone();
+    let access_token = token_string(auth, "access_token").map(str::to_string);
+    let valid_id_token = token_string(auth, "id_token")
+        .filter(|token| decode_jwt(token).is_ok())
+        .map(str::to_string);
+
+    let auth_object = auth
+        .as_object_mut()
+        .ok_or_else(|| "auth.json 顶层必须是对象".to_string())?;
+    let tokens = auth_object
+        .get_mut("tokens")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "auth.json 缺少 tokens 对象".to_string())?;
+
+    if valid_id_token.is_none() {
+        if let Some(access_token) = access_token.filter(|token| decode_jwt(token).is_ok()) {
+            // Compatible account exports sometimes contain only an access JWT. Codex requires
+            // an id_token field to deserialize TokenData, and accepts the same claim layout.
+            tokens.insert("id_token".to_string(), Value::String(access_token));
+        }
+    }
+    if !tokens
+        .get("refresh_token")
+        .is_some_and(|value| value.is_string())
+    {
+        // TokenData structurally requires this field. An empty value keeps access-only imports
+        // usable until expiry while still making refresh failure explicit when it is attempted.
+        tokens.insert("refresh_token".to_string(), Value::String(String::new()));
+    }
+
+    auth_object.insert(
+        "auth_mode".to_string(),
+        Value::String("chatgpt".to_string()),
+    );
+    auth_object.insert("OPENAI_API_KEY".to_string(), Value::Null);
+    let last_refresh_is_valid = auth_object
+        .get("last_refresh")
+        .and_then(Value::as_str)
+        .is_some_and(|value| DateTime::parse_from_rfc3339(value).is_ok());
+    if !last_refresh_is_valid {
+        auth_object.insert(
+            "last_refresh".to_string(),
+            Value::String(Utc::now().to_rfc3339()),
+        );
+    }
+
+    Ok(*auth != original)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,5 +177,45 @@ mod tests {
         assert_eq!(plan, "plus");
         assert_eq!(account_id.as_deref(), Some("account-1"));
         assert_eq!(id.len(), 24);
+    }
+
+    #[test]
+    fn canonicalizes_chatgpt_auth_without_discarding_newer_fields() {
+        let access_token = jwt(json!({
+            "email": "person@example.com",
+            "sub": "user-1"
+        }));
+        let mut auth = json!({
+            "tokens": { "access_token": access_token },
+            "newer_codex_field": { "keep": true }
+        });
+
+        assert!(canonicalize_chatgpt_auth(&mut auth).unwrap());
+        assert_eq!(auth["auth_mode"], "chatgpt");
+        assert!(auth["OPENAI_API_KEY"].is_null());
+        assert_eq!(auth["tokens"]["id_token"], auth["tokens"]["access_token"]);
+        assert_eq!(auth["tokens"]["refresh_token"], "");
+        assert!(DateTime::parse_from_rfc3339(auth["last_refresh"].as_str().unwrap()).is_ok());
+        assert_eq!(auth["newer_codex_field"]["keep"], true);
+        validate_auth(&auth).unwrap();
+    }
+
+    #[test]
+    fn canonicalization_preserves_a_valid_last_refresh() {
+        let timestamp = "2026-07-01T02:03:04.123456Z";
+        let token = jwt(json!({ "email": "person@example.com", "sub": "user-1" }));
+        let mut auth = json!({
+            "auth_mode": "chatgpt",
+            "OPENAI_API_KEY": null,
+            "tokens": {
+                "id_token": token,
+                "access_token": token,
+                "refresh_token": "refresh"
+            },
+            "last_refresh": timestamp
+        });
+
+        assert!(!canonicalize_chatgpt_auth(&mut auth).unwrap());
+        assert_eq!(auth["last_refresh"], timestamp);
     }
 }

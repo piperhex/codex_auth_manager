@@ -12,7 +12,7 @@ use tauri::{Emitter, Manager, Runtime};
 use uuid::Uuid;
 
 use crate::{
-    auth::{account_fields, validate_auth},
+    auth::{account_fields, canonicalize_chatgpt_auth, validate_auth},
     models::{
         AccountFieldModifiedAt, AppSettings, CloudAccountPayload, CloudAuthState, CloudSyncResult,
         ProviderProfile, ProviderSyncPayload,
@@ -22,7 +22,7 @@ use crate::{
         load_or_init_last_modified, load_usage, managed_auth_path, note_path, parse_last_modified,
         read_app_settings, read_json, read_state, resolve_paths, save_account_field_modified_at,
         save_expiration, save_note, save_usage, usage_path, write_app_settings, write_json_atomic,
-        write_json_if_changed, write_state,
+        write_json_if_changed, write_managed_auth_if_changed, write_state,
     },
 };
 
@@ -325,9 +325,13 @@ fn collect_local_accounts<R: Runtime>(
         if !auth_path.exists() {
             continue;
         }
-        let auth = read_json(&auth_path)?;
+        let mut auth = read_json(&auth_path)?;
+        let repaired = canonicalize_chatgpt_auth(&mut auth)?;
         validate_auth(&auth)?;
         let (email, plan, account_id, id) = account_fields(&auth)?;
+        if repaired {
+            write_managed_auth_if_changed(&paths, &id, &auth)?;
+        }
         let field_modified_at = load_or_init_account_field_modified_at(&paths, &id)?;
         let last_modified_at = load_or_init_last_modified(&paths, &id)?.to_rfc3339();
         accounts.push(CloudAccountPayload {
@@ -414,8 +418,10 @@ fn apply_remote_account<R: Runtime>(
     app: &tauri::AppHandle<R>,
     account: &CloudAccountPayload,
 ) -> Result<bool, String> {
-    validate_auth(&account.auth)?;
-    let (_, _, _, computed_id) = account_fields(&account.auth)?;
+    let mut remote_auth = account.auth.clone();
+    canonicalize_chatgpt_auth(&mut remote_auth)?;
+    validate_auth(&remote_auth)?;
+    let (_, _, _, computed_id) = account_fields(&remote_auth)?;
     if computed_id != account.id {
         return Err(format!(
             "Cloud account {} does not match its auth.json identity",
@@ -457,11 +463,11 @@ fn apply_remote_account<R: Runtime>(
     );
 
     let account_auth = if apply_auth {
-        write_json_if_changed(&auth_path, &account.auth)?;
+        write_json_if_changed(&auth_path, &remote_auth)?;
         local_field_modified_at.auth = remote_field_modified_at.auth.clone();
-        account.auth.clone()
+        remote_auth.clone()
     } else {
-        local_auth.unwrap_or_else(|| account.auth.clone())
+        local_auth.unwrap_or(remote_auth)
     };
 
     if apply_note {
@@ -485,14 +491,17 @@ fn apply_remote_account<R: Runtime>(
 
     let active_account_id = read_state(&paths).active_account_id;
     if apply_auth && active_account_id.as_deref() == Some(&account.id) {
-        write_json_if_changed(&paths.current_auth, &account_auth)?;
+        crate::commands::sync_current_auth_if_client_stopped(&paths, &account_auth)?;
     } else if apply_active && account.active && active_account_id.is_none() {
-        write_json_if_changed(&paths.current_auth, &account_auth)?;
-        let mut state = read_state(&paths);
-        state.active_account_id = Some(account.id.clone());
-        write_state(&paths, &state)?;
-        if crate::local_proxy::is_running() {
-            crate::providers::apply_local_proxy_config_for_paths(&paths)?;
+        let can_activate = crate::local_proxy::is_running()
+            || crate::commands::sync_current_auth_if_client_stopped(&paths, &account_auth)?;
+        if can_activate {
+            let mut state = read_state(&paths);
+            state.active_account_id = Some(account.id.clone());
+            write_state(&paths, &state)?;
+            if crate::local_proxy::is_running() {
+                crate::providers::apply_local_proxy_config_for_paths(&paths)?;
+            }
         }
     }
     Ok(apply_auth || apply_note || apply_expires_at || apply_usage || apply_active)

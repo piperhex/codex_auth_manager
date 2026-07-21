@@ -7,7 +7,7 @@ export const LANGUAGE_OPTIONS = [
 
 export type Language = (typeof LANGUAGE_OPTIONS)[number]["value"];
 
-export const DEFAULT_LANGUAGE: Language = "en";
+export const DEFAULT_LANGUAGE: Language = "zh";
 
 const translations = {
   en: {

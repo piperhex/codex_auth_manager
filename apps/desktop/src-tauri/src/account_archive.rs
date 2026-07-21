@@ -16,13 +16,13 @@ use tauri::{Emitter, Runtime};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::{
-    auth::{account_fields, validate_auth},
+    auth::{account_fields, canonicalize_chatgpt_auth, validate_auth},
     models::{ProviderProfile, ProviderSyncPayload, UsageSummary},
     storage::{
         expiration_path, load_expiration, load_note, load_or_init_last_modified, load_usage,
         managed_auth_path, note_path, parse_last_modified, read_json, read_state, resolve_paths,
         save_account_last_modified, save_expiration, save_note, save_usage, usage_path,
-        write_json_if_changed, write_state,
+        write_json_if_changed, write_managed_auth_if_changed, write_state,
     },
 };
 
@@ -130,9 +130,13 @@ fn collect_accounts<R: Runtime>(
             if !auth_path.exists() {
                 continue;
             }
-            let auth = read_json(&auth_path)?;
+            let mut auth = read_json(&auth_path)?;
+            let repaired = canonicalize_chatgpt_auth(&mut auth)?;
             validate_auth(&auth)?;
             let (_, _, _, id) = account_fields(&auth)?;
+            if repaired {
+                write_managed_auth_if_changed(&paths, &id, &auth)?;
+            }
             let last_modified_at = Some(load_or_init_last_modified(&paths, &id)?.to_rfc3339());
             accounts.push(AccountArchiveEntry {
                 note: load_note(&note_path(&paths, &id)),
@@ -177,7 +181,8 @@ fn apply_archive<R: Runtime>(
         .map_err(|error| format!("Failed to create provider store: {error}"))?;
 
     let mut validated_accounts = Vec::new();
-    for account in payload.accounts {
+    for mut account in payload.accounts {
+        canonicalize_chatgpt_auth(&mut account.auth)?;
         validate_auth(&account.auth)?;
         let (_, _, _, computed_id) = account_fields(&account.auth)?;
         if computed_id != account.id {
@@ -237,14 +242,19 @@ fn apply_archive<R: Runtime>(
     }
 
     let active_account_id = if let Some((id, auth)) = active_account {
-        write_json_if_changed(&paths.current_auth, &auth)?;
-        let mut state = read_state(&paths);
-        state.active_account_id = Some(id.clone());
-        write_state(&paths, &state)?;
-        if crate::local_proxy::is_running() {
-            crate::providers::apply_local_proxy_config_for_paths(&paths)?;
+        let can_activate = crate::local_proxy::is_running()
+            || crate::commands::sync_current_auth_if_client_stopped(&paths, &auth)?;
+        if !can_activate {
+            None
+        } else {
+            let mut state = read_state(&paths);
+            state.active_account_id = Some(id.clone());
+            write_state(&paths, &state)?;
+            if crate::local_proxy::is_running() {
+                crate::providers::apply_local_proxy_config_for_paths(&paths)?;
+            }
+            Some(id)
         }
-        Some(id)
     } else {
         None
     };

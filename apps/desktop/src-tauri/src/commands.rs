@@ -20,7 +20,7 @@ use tauri::{Emitter, Runtime};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::{
-    auth::{account_fields, validate_auth},
+    auth::{account_fields, canonicalize_chatgpt_auth, validate_auth},
     codex_api::{
         consume_reset_credit_request, parse_reset_credits, parse_usage, refresh_tokens,
         reset_credits_request, token_expiring, usage_request,
@@ -130,8 +130,12 @@ pub(crate) fn list_accounts<R: Runtime>(
         if !auth_path.exists() {
             continue;
         }
-        let auth = read_json(&auth_path)?;
+        let mut auth = read_json(&auth_path)?;
+        let repaired = canonicalize_chatgpt_auth(&mut auth)?;
         let (email, plan, account_id, id) = account_fields(&auth)?;
+        if repaired {
+            write_managed_auth_if_changed(&paths, &id, &auth)?;
+        }
         let auto_switch_enabled = !state.disabled_account_ids.contains(&id);
         accounts.push(AccountSummary {
             active: active_id.as_deref() == Some(&id),
@@ -288,6 +292,7 @@ fn normalize_compatible_json_auth(value: &Value) -> Result<Value, String> {
         refresh_tokens(&client, &mut auth)?;
     }
 
+    canonicalize_chatgpt_auth(&mut auth)?;
     validate_auth(&auth)?;
     Ok(auth)
 }
@@ -415,7 +420,8 @@ pub(crate) fn switch_account_and_restart_chatgpt<R: Runtime>(
     // Validate the target before stopping ChatGPT so a malformed managed
     // credential cannot leave the user with a closed application.
     let paths = resolve_paths(&app)?;
-    let selected = read_json(&managed_auth_path(&paths, &id))?;
+    let mut selected = read_json(&managed_auth_path(&paths, &id))?;
+    canonicalize_chatgpt_auth(&mut selected)?;
     validate_auth(&selected)?;
 
     let launch_target = refresh_and_get_chatgpt_launch_target(&app);
@@ -441,7 +447,10 @@ pub(crate) fn switch_account_and_restart_chatgpt<R: Runtime>(
 fn switch_account_unlocked<R: Runtime>(app: &tauri::AppHandle<R>, id: &str) -> Result<(), String> {
     let proxy_running = crate::local_proxy::is_running();
     let paths = resolve_paths(app)?;
-    let selected = read_json(&managed_auth_path(&paths, id))?;
+    let mut selected = read_json(&managed_auth_path(&paths, id))?;
+    if canonicalize_chatgpt_auth(&mut selected)? {
+        write_managed_auth_if_changed(&paths, id, &selected)?;
+    }
     validate_auth(&selected)?;
     if !proxy_running {
         // The local proxy reads the selected managed credential.  Avoid modifying the
@@ -870,7 +879,10 @@ fn load_auth_for_request<R: Runtime>(
     // The current .codex/auth.json is a startup-only import source. Subsequent
     // account operations use the managed copy so external file changes cannot
     // silently alter the active account.
-    let auth = read_json(&managed_path)?;
+    let mut auth = read_json(&managed_path)?;
+    if canonicalize_chatgpt_auth(&mut auth)? {
+        write_managed_auth_if_changed(paths, id, &auth)?;
+    }
     validate_auth(&auth)?;
     Ok(auth)
 }
@@ -1122,10 +1134,40 @@ fn consume_reset_credit_blocking<R: Runtime>(
 }
 
 fn sync_active_auth(paths: &Paths, id: &str, auth: &Value) -> Result<(), String> {
-    if is_active_account(paths, id) {
-        write_json_if_changed(&paths.current_auth, auth)?;
+    if !is_active_account(paths, id) {
+        return Ok(());
     }
+
+    sync_current_auth_if_client_stopped(paths, auth)?;
     Ok(())
+}
+
+/// Synchronize the startup credential only when no ChatGPT/Codex process can be observing it.
+/// A failed process check is treated as "running" so background work never risks a hot write.
+pub(crate) fn sync_current_auth_if_client_stopped(
+    paths: &Paths,
+    auth: &Value,
+) -> Result<bool, String> {
+    let Ok(_switch_guard) = account_switch_lock().lock() else {
+        return Ok(false);
+    };
+    if matches!(read_json(&paths.current_auth), Ok(current) if current == *auth) {
+        return Ok(true);
+    }
+    let client_running = chatgpt_or_codex_is_running().unwrap_or(true);
+    sync_current_auth_with_client_state(paths, auth, client_running)
+}
+
+fn sync_current_auth_with_client_state(
+    paths: &Paths,
+    auth: &Value,
+    client_running: bool,
+) -> Result<bool, String> {
+    if client_running {
+        return Ok(false);
+    }
+    write_json_if_changed(&paths.current_auth, auth)?;
+    Ok(true)
 }
 
 #[cfg(target_os = "windows")]
@@ -1530,9 +1572,11 @@ mod compatible_json_import_tests {
     use super::{
         normalize_compatible_json_auth, parse_compatible_json_auth_values,
         should_disable_account_auto_switch, sync_conversation_metadata,
-        update_disabled_account_ids, LOCAL_PROXY_CONVERSATION_PROVIDER,
+        sync_current_auth_with_client_state, update_disabled_account_ids,
+        LOCAL_PROXY_CONVERSATION_PROVIDER,
     };
     use crate::models::ManagerStateFile;
+    use crate::storage::{read_json, write_json_atomic, Paths};
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     use rusqlite::Connection;
     use serde_json::{json, Value};
@@ -1554,6 +1598,24 @@ mod compatible_json_import_tests {
                 "chatgpt_account_id": "compatible-account"
             }
         }))
+    }
+
+    fn test_paths() -> Paths {
+        let root = std::env::temp_dir().join(format!(
+            "codex-switch-auth-sync-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let codex_home = root.join("codex-home");
+        let app_data = root.join("app-data");
+        Paths {
+            current_auth: codex_home.join("auth.json"),
+            current_config: codex_home.join("config.toml"),
+            codex_home,
+            accounts: app_data.join("accounts"),
+            providers: app_data.join("providers"),
+            config_backup: app_data.join("config-before-provider.toml"),
+            state_file: app_data.join("state.json"),
+        }
     }
 
     #[test]
@@ -1582,6 +1644,11 @@ mod compatible_json_import_tests {
                 .and_then(Value::as_str),
             Some("refresh-token")
         );
+        assert_eq!(auth["auth_mode"], "chatgpt");
+        assert!(auth["OPENAI_API_KEY"].is_null());
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(auth["last_refresh"].as_str().unwrap()).is_ok()
+        );
     }
 
     #[test]
@@ -1600,6 +1667,23 @@ mod compatible_json_import_tests {
             auth.pointer("/tokens/access_token").and_then(Value::as_str),
             Some(token.as_str())
         );
+        assert_eq!(auth["tokens"]["refresh_token"], "");
+    }
+
+    #[test]
+    fn background_auth_sync_defers_writes_while_client_is_running() {
+        let paths = test_paths();
+        let old_auth = json!({ "credential": "old" });
+        let new_auth = json!({ "credential": "new" });
+        write_json_atomic(&paths.current_auth, &old_auth).unwrap();
+
+        assert!(!sync_current_auth_with_client_state(&paths, &new_auth, true).unwrap());
+        assert_eq!(read_json(&paths.current_auth).unwrap(), old_auth);
+
+        assert!(sync_current_auth_with_client_state(&paths, &new_auth, false).unwrap());
+        assert_eq!(read_json(&paths.current_auth).unwrap(), new_auth);
+
+        fs::remove_dir_all(paths.codex_home.parent().unwrap()).unwrap();
     }
 
     #[test]

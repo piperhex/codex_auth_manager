@@ -52,6 +52,14 @@ pub(crate) fn refresh_tokens(client: &Client, auth: &mut Value) -> Result<(), St
     let payload: Value = response
         .json()
         .map_err(|error| format!("解析刷新响应失败：{error}"))?;
+    apply_refreshed_tokens(auth, &payload, Utc::now())
+}
+
+fn apply_refreshed_tokens(
+    auth: &mut Value,
+    payload: &Value,
+    refreshed_at: chrono::DateTime<Utc>,
+) -> Result<(), String> {
     let tokens = auth
         .get_mut("tokens")
         .and_then(Value::as_object_mut)
@@ -63,7 +71,10 @@ pub(crate) fn refresh_tokens(client: &Client, auth: &mut Value) -> Result<(), St
     }
     auth.as_object_mut()
         .ok_or_else(|| "auth.json 顶层格式无效".to_string())?
-        .remove("last_refresh");
+        .insert(
+            "last_refresh".to_string(),
+            Value::String(refreshed_at.to_rfc3339()),
+        );
     Ok(())
 }
 
@@ -185,6 +196,7 @@ pub(crate) fn parse_usage(payload: &Value) -> UsageSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
 
     #[test]
     fn maps_used_quota_to_remaining_quota() {
@@ -196,6 +208,34 @@ mod tests {
         }));
         assert_eq!(usage.primary.unwrap().remaining_percent, 58.0);
         assert_eq!(usage.secondary.unwrap().window_minutes, Some(10080));
+    }
+
+    #[test]
+    fn refreshed_tokens_update_last_refresh() {
+        let mut auth = json!({
+            "tokens": {
+                "id_token": "old-id",
+                "access_token": "old-access",
+                "refresh_token": "old-refresh"
+            },
+            "last_refresh": "2025-01-01T00:00:00Z"
+        });
+        let refreshed_at = Utc.with_ymd_and_hms(2026, 7, 21, 1, 2, 3).unwrap();
+
+        apply_refreshed_tokens(
+            &mut auth,
+            &json!({
+                "id_token": "new-id",
+                "access_token": "new-access",
+                "refresh_token": "new-refresh"
+            }),
+            refreshed_at,
+        )
+        .unwrap();
+
+        assert_eq!(auth["tokens"]["access_token"], "new-access");
+        assert_eq!(auth["tokens"]["refresh_token"], "new-refresh");
+        assert_eq!(auth["last_refresh"], "2026-07-21T01:02:03+00:00");
     }
 
     #[test]
