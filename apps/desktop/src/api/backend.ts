@@ -13,7 +13,6 @@ import type {
   CloudAuthState,
   CloudAnnouncement,
   CloudSyncResult,
-  DirectConversationSyncResult,
   DreamSkinImportOptions,
   DreamSkinAppearance,
   DreamSkinStatus,
@@ -786,11 +785,6 @@ export async function consumeResetCredit(id: string): Promise<void> {
 
 export async function restartChatGpt(): Promise<void> {
   if (isDesktopApp) await invoke("restart_chatgpt");
-}
-
-export async function syncDirectConversations(): Promise<DirectConversationSyncResult> {
-  if (isDesktopApp) return invoke<DirectConversationSyncResult>("sync_direct_conversations");
-  return { conversationsUpdated: 0, rolloutFilesUpdated: 0 };
 }
 
 export async function openManagedFolder(target: "codexHome" | "accountStore"): Promise<void> {

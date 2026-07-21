@@ -99,7 +99,6 @@ pub fn run() {
             commands::fetch_reset_credits,
             commands::consume_reset_credit,
             commands::restart_chatgpt,
-            commands::sync_direct_conversations,
             dream_skin::get_dream_skin_status,
             dream_skin::install_dream_skin,
             dream_skin::apply_dream_skin_theme,

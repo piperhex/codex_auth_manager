@@ -5,7 +5,6 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Output},
     sync::{Mutex, OnceLock},
-    thread,
     time::Duration,
 };
 
@@ -585,42 +584,6 @@ fn sync_active_proxy_auth_for_restart<R: Runtime>(app: &tauri::AppHandle<R>) -> 
 pub(crate) struct DirectConversationSyncResult {
     conversations_updated: usize,
     rollout_files_updated: usize,
-}
-
-#[tauri::command]
-pub(crate) async fn sync_direct_conversations<R: Runtime + 'static>(
-    app: tauri::AppHandle<R>,
-) -> Result<DirectConversationSyncResult, String> {
-    tauri::async_runtime::spawn_blocking(move || sync_direct_conversations_blocking(app))
-        .await
-        .map_err(|error| format!("同步直连对话任务失败：{error}"))?
-}
-
-fn sync_direct_conversations_blocking<R: Runtime>(
-    app: tauri::AppHandle<R>,
-) -> Result<DirectConversationSyncResult, String> {
-    if !crate::local_proxy::is_running() {
-        return Err("请先启动本地代理，再同步直连对话".to_string());
-    }
-
-    let paths = resolve_paths(&app)?;
-    let launch_target = refresh_and_get_chatgpt_launch_target(&app);
-    stop_chatgpt_processes()?;
-    thread::sleep(Duration::from_millis(650));
-
-    let sync_result = sync_conversation_metadata_if_present(&paths.codex_home);
-    let start_result = start_chatgpt(launch_target.as_ref());
-
-    match (sync_result, start_result) {
-        (Ok(result), Ok(())) => Ok(result),
-        (Err(sync_error), Ok(())) => Err(sync_error),
-        (Ok(_), Err(start_error)) => Err(format!(
-            "直连对话已同步，但重新启动 ChatGPT 失败：{start_error}"
-        )),
-        (Err(sync_error), Err(start_error)) => Err(format!(
-            "同步直连对话失败：{sync_error}；重新启动 ChatGPT 也失败：{start_error}"
-        )),
-    }
 }
 
 pub(crate) fn sync_conversation_metadata_if_present(

@@ -1,15 +1,13 @@
 import { Button, Popconfirm, Switch, Tag, Tooltip } from "antd";
-import { Copy, Power, PowerOff, RadioTower } from "lucide-react";
+import { Power, PowerOff, RadioTower } from "lucide-react";
 import type { Translate } from "../i18n";
 import type { LocalProxyStatus } from "../types";
 
 interface LocalProxyCardProps {
   localProxy: LocalProxyStatus | null;
   proxyBusy: boolean;
-  conversationSyncBusy: boolean;
   onStartProxy: () => void;
   onStopProxy: () => void;
-  onSyncDirectConversations: () => void;
   onAutoSwitchChange: (enabled: boolean) => void;
   onAutoDisableUnreachableChange: (enabled: boolean) => void;
   t: Translate;
@@ -18,10 +16,8 @@ interface LocalProxyCardProps {
 export function LocalProxyCard({
   localProxy,
   proxyBusy,
-  conversationSyncBusy,
   onStartProxy,
   onStopProxy,
-  onSyncDirectConversations,
   onAutoSwitchChange,
   onAutoDisableUnreachableChange,
   t,
@@ -30,7 +26,6 @@ export function LocalProxyCard({
   const proxyBaseUrl = localProxy?.baseUrl ?? "http://127.0.0.1:15722/v1";
   const actionButton = (
     <Button size="small" type={proxyRunning ? "default" : "primary"} loading={proxyBusy}
-      disabled={conversationSyncBusy}
       icon={proxyRunning ? <PowerOff size={14} /> : <Power size={14} />}
       onClick={proxyRunning ? onStopProxy : undefined}>
       {proxyRunning ? t("providers.proxy.stop") : t("providers.proxy.start")}
@@ -63,28 +58,12 @@ export function LocalProxyCard({
           </Popconfirm>
         )}
         {proxyRunning && (
-          <Popconfirm title={t("providers.proxy.syncDirectConfirmTitle")}
-            description={(
-              <span className="sync-direct-confirm-description">
-                {t("providers.proxy.syncDirectConfirmDescription")}
-              </span>
-            )}
-            okText={t("providers.proxy.syncDirect")} cancelText={t("providers.proxy.cancel")}
-            disabled={proxyBusy || conversationSyncBusy}
-            onConfirm={onSyncDirectConversations}>
-            <Tooltip title={t("providers.proxy.syncDirectTooltip")}>
-              <Button size="small" icon={<Copy size={14} />} loading={conversationSyncBusy}
-                disabled={proxyBusy}>{t("providers.proxy.syncDirect")}</Button>
-            </Tooltip>
-          </Popconfirm>
-        )}
-        {proxyRunning && (
           <>
             {localProxy?.autoSwitchOnQuotaExhaustion && (
               <Tooltip title={t("providers.proxy.autoDisableUnreachableTooltip")}>
                 <span className="proxy-auto-switch">
                   <Switch size="small" checked={localProxy.autoDisableUnreachableAccounts}
-                    disabled={proxyBusy || conversationSyncBusy} onChange={onAutoDisableUnreachableChange} />
+                    disabled={proxyBusy} onChange={onAutoDisableUnreachableChange} />
                   <span>{t("providers.proxy.autoDisableUnreachable")}</span>
                 </span>
               </Tooltip>
@@ -92,7 +71,7 @@ export function LocalProxyCard({
             <Tooltip title={t("providers.proxy.autoSwitchTooltip")}>
               <span className="proxy-auto-switch">
                 <Switch size="small" checked={localProxy?.autoSwitchOnQuotaExhaustion ?? false}
-                  disabled={proxyBusy || conversationSyncBusy} onChange={onAutoSwitchChange} />
+                  disabled={proxyBusy} onChange={onAutoSwitchChange} />
                 <span>{t("providers.proxy.autoSwitch")}</span>
               </span>
             </Tooltip>

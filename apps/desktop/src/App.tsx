@@ -4,7 +4,7 @@ import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
 import { BarChart3, CalendarClock, Check, CircleHelp, Cloud, Download, Github, LogIn, LogOut, Megaphone, Palette, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Upload, UploadCloud, UserRound } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { checkForUpdate, chooseAndExportDiagnosticLogs, consumeResetCredit, DEFAULT_CLOUD_BASE_URL, fetchCloudAnnouncement, isDesktopApp, loadAppSettings, openManagedFolder, reportAnnouncementClick, reportBaseUrlChange, reportFirstInstallation, restartChatGpt, setProxyOnboardingChoice, showTokenUsageWindow, submitFeedback, syncDirectConversations } from "./api/backend";
+import { checkForUpdate, chooseAndExportDiagnosticLogs, consumeResetCredit, DEFAULT_CLOUD_BASE_URL, fetchCloudAnnouncement, isDesktopApp, loadAppSettings, openManagedFolder, reportAnnouncementClick, reportBaseUrlChange, reportFirstInstallation, restartChatGpt, setProxyOnboardingChoice, showTokenUsageWindow, submitFeedback } from "./api/backend";
 import { HelpModal, type HelpVersionState } from "./components/modals/HelpModal";
 import { FeedbackModal } from "./components/modals/FeedbackModal";
 import { FloatingUsageBubble } from "./components/FloatingUsageBubble";
@@ -78,7 +78,6 @@ function DashboardApp() {
   const [availableUpdate, setAvailableUpdate] = useState<UpdateInfo | null>(null);
   const [lastRefreshAllAt, setLastRefreshAllAt] = useState<string | null>(storedRefreshAllTime);
   const [restartingChatGpt, setRestartingChatGpt] = useState(false);
-  const [syncingDirectConversations, setSyncingDirectConversations] = useState(false);
   const [exportingLogs, setExportingLogs] = useState(false);
   const [resetCreditBusyAccountId, setResetCreditBusyAccountId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState<CloudAnnouncement | null>(null);
@@ -367,23 +366,6 @@ function DashboardApp() {
       notify(String(error));
     } finally {
       setRestartingChatGpt(false);
-    }
-  }, [notify, t]);
-  const syncDirectConversationHistory = useCallback(async () => {
-    setSyncingDirectConversations(true);
-    try {
-      const result = await syncDirectConversations();
-      if (!isDesktopApp) {
-        notify(t("toast.previewSyncDirectConversations"));
-      } else if (result.conversationsUpdated > 0) {
-        notify(t("toast.directConversationsSynced", { count: result.conversationsUpdated }));
-      } else {
-        notify(t("toast.directConversationsAlreadySynced"));
-      }
-    } catch (error) {
-      notify(String(error));
-    } finally {
-      setSyncingDirectConversations(false);
     }
   }, [notify, t]);
   const openTokenUsage = useCallback(async () => {
@@ -678,12 +660,10 @@ function DashboardApp() {
             <MemoProvidersPage providers={providerManager.providers} loading={providerManager.loading}
               busyProviderId={providerManager.busyProviderId} saving={providerManager.saving}
               localProxy={providerManager.localProxy} proxyBusy={providerManager.proxyBusy}
-              conversationSyncBusy={syncingDirectConversations}
               info={manager.info} onSave={providerManager.saveProvider}
               onSwitch={switchProvider} onSwitchModel={switchProviderModel}
               onModelControlChange={setProviderModelControl} onDelete={deleteProvider}
               onStartProxy={providerManager.startProxy} onStopProxy={providerManager.stopProxy}
-              onSyncDirectConversations={() => void syncDirectConversationHistory()}
               onAutoSwitchChange={providerManager.setProxyAutoSwitch}
               onAutoDisableUnreachableChange={providerManager.setProxyAutoDisableUnreachable}
               displayMode={accountDisplayMode.displayMode} t={t} />
@@ -699,7 +679,6 @@ function DashboardApp() {
             <MemoAccountsPage accounts={manager.accounts} loading={manager.loading}
               busyAccountId={manager.busyAccountId} onAdd={openLogin}
               localProxy={providerManager.localProxy} proxyBusy={providerManager.proxyBusy}
-              conversationSyncBusy={syncingDirectConversations}
               onSwitch={switchAccount}
               onRefresh={refreshUsage}
               onDelete={deleteAccount}
@@ -711,7 +690,6 @@ function DashboardApp() {
               onUseResetCredit={(id) => void useResetCredit(id)}
               resetCreditBusyAccountId={resetCreditBusyAccountId}
               onStartProxy={providerManager.startProxy} onStopProxy={providerManager.stopProxy}
-              onSyncDirectConversations={() => void syncDirectConversationHistory()}
               onAutoSwitchChange={providerManager.setProxyAutoSwitch}
               onAutoDisableUnreachableChange={providerManager.setProxyAutoDisableUnreachable}
               privacyMode={privacyMode.enabled}
