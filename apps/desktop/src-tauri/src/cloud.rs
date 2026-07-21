@@ -21,8 +21,8 @@ use crate::{
         expiration_path, load_expiration, load_note, load_or_init_account_field_modified_at,
         load_or_init_last_modified, load_usage, managed_auth_path, note_path, parse_last_modified,
         read_app_settings, read_json, read_state, resolve_paths, save_account_field_modified_at,
-        save_expiration, save_note, save_usage, sync_current_into_store, usage_path,
-        write_app_settings, write_json_atomic, write_json_if_changed, write_state,
+        save_expiration, save_note, save_usage, usage_path, write_app_settings, write_json_atomic,
+        write_json_if_changed, write_state,
     },
 };
 
@@ -309,7 +309,6 @@ fn cloud_request(
 fn collect_local_accounts<R: Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Result<Vec<CloudAccountPayload>, String> {
-    let _ = sync_current_into_store(app);
     let paths = resolve_paths(app)?;
     fs::create_dir_all(&paths.accounts)
         .map_err(|error| format!("Failed to create account store: {error}"))?;

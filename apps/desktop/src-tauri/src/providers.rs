@@ -10,8 +10,8 @@ use crate::{
     auth::validate_auth,
     models::{ProviderApiFormat, ProviderProfile, ProviderSummary},
     storage::{
-        read_json, read_state, resolve_paths, sync_current_into_store, write_json_atomic,
-        write_state, write_text_atomic, Paths,
+        read_json, read_state, resolve_paths, write_json_atomic, write_state, write_text_atomic,
+        Paths,
     },
 };
 
@@ -134,7 +134,6 @@ pub(crate) fn switch_provider<R: Runtime>(
     app: tauri::AppHandle<R>,
     id: String,
 ) -> Result<(), String> {
-    let _ = sync_current_into_store(&app);
     let paths = resolve_paths(&app)?;
     let provider = read_provider(&paths, &id)?;
     ensure_not_local_proxy_base_url(&provider.base_url)?;

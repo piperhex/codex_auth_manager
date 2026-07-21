@@ -86,7 +86,9 @@ pub(crate) fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent
         return;
     }
     if let Some(account_id) = id.strip_prefix(ACCOUNT_PREFIX) {
-        if let Err(error) = commands::switch_account(app.clone(), account_id.to_string()) {
+        if let Err(error) =
+            commands::switch_account_and_restart_chatgpt(app.clone(), account_id.to_string())
+        {
             eprintln!("failed to switch account from tray: {error}");
         }
         return;

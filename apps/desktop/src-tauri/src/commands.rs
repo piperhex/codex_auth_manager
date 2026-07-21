@@ -36,6 +36,7 @@ use crate::{
     },
 };
 
+#[cfg(unix)]
 const CHATGPT_COMMAND: &str = "chatgpt";
 const OFFICIAL_CONVERSATION_PROVIDER: &str = "openai";
 const LOCAL_PROXY_CONVERSATION_PROVIDER: &str = "codex-switch-local";
@@ -53,6 +54,13 @@ fn account_auto_switch_state_lock() -> &'static Mutex<()> {
 
 fn account_switch_lock() -> &'static Mutex<()> {
     ACCOUNT_SWITCH_LOCK.get_or_init(|| Mutex::new(()))
+}
+
+/// Import the externally managed credential only once, when Codex Switch starts.
+/// Later operations deliberately use the managed account store instead.
+pub(crate) fn initialize_local_state<R: Runtime>(app: &tauri::AppHandle<R>) {
+    let _ = sync_current_into_store(app);
+    refresh_local_codex_path(app);
 }
 
 #[cfg(target_os = "windows")]
@@ -106,9 +114,6 @@ pub(crate) fn list_accounts<R: Runtime>(
     app: tauri::AppHandle<R>,
 ) -> Result<Vec<AccountSummary>, String> {
     // 非 ChatGPT 模式或损坏的当前 auth.json 不应阻止管理器打开。
-    if !crate::local_proxy::is_running() {
-        let _ = sync_current_into_store(&app);
-    }
     let paths = resolve_paths(&app)?;
     fs::create_dir_all(&paths.accounts).map_err(|error| format!("创建账户目录失败：{error}"))?;
     let state = read_state(&paths);
@@ -383,13 +388,56 @@ pub(crate) fn switch_account<R: Runtime>(
     let _switch_guard = account_switch_lock()
         .lock()
         .map_err(|_| "Account switch lock is poisoned".to_string())?;
-    let proxy_running = crate::local_proxy::is_running();
-    // 尽力保存 Codex 在上次切换后自行刷新的 token。
-    if !proxy_running {
-        let _ = sync_current_into_store(&app);
+    refresh_local_codex_path(&app);
+    switch_account_unlocked(&app, &id)
+}
+
+/// Switch an official account without ever exposing a running ChatGPT/Codex
+/// process to the replacement credential.  The local proxy owns the active
+/// credential while it is running, so proxy switches intentionally remain
+/// hot and do not restart ChatGPT.
+#[tauri::command]
+pub(crate) fn switch_account_and_restart_chatgpt<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    id: String,
+) -> Result<(), String> {
+    let _switch_guard = account_switch_lock()
+        .lock()
+        .map_err(|_| "Account switch lock is poisoned".to_string())?;
+
+    // Refresh the launch hint for every account switch, including hot proxy
+    // switches where no restart is needed.
+    refresh_local_codex_path(&app);
+    if crate::local_proxy::is_running() {
+        return switch_account_unlocked(&app, &id);
     }
+
+    // Validate the target before stopping ChatGPT so a malformed managed
+    // credential cannot leave the user with a closed application.
     let paths = resolve_paths(&app)?;
     let selected = read_json(&managed_auth_path(&paths, &id))?;
+    validate_auth(&selected)?;
+
+    let launch_target = refresh_and_get_chatgpt_launch_target(&app);
+    if chatgpt_or_codex_is_running()? {
+        stop_chatgpt_processes()?;
+        wait_for_chatgpt_processes_to_exit(Duration::from_secs(10))?;
+    }
+
+    // When no client is running, write the replacement credential immediately.
+    // When one is running, the preceding shutdown gives the same guarantee.
+    switch_account_unlocked(&app, &id)?;
+    start_chatgpt(launch_target.as_ref()).map_err(|error| {
+        format!(
+            "账户已切换，但无法自动启动 ChatGPT/Codex（{error}）。请手动启动 ChatGPT 或 Codex。"
+        )
+    })
+}
+
+fn switch_account_unlocked<R: Runtime>(app: &tauri::AppHandle<R>, id: &str) -> Result<(), String> {
+    let proxy_running = crate::local_proxy::is_running();
+    let paths = resolve_paths(app)?;
+    let selected = read_json(&managed_auth_path(&paths, id))?;
     validate_auth(&selected)?;
     if !proxy_running {
         // The local proxy reads the selected managed credential.  Avoid modifying the
@@ -405,9 +453,9 @@ pub(crate) fn switch_account<R: Runtime>(
             crate::providers::restore_official_config(&paths)?;
         }
     }
-    state.active_account_id = Some(id.clone());
+    state.active_account_id = Some(id.to_string());
     write_state(&paths, &state)?;
-    touch_account_field(&paths, &id, AccountSyncField::Active)?;
+    touch_account_field(&paths, id, AccountSyncField::Active)?;
     app.emit("accounts-changed", ())
         .map_err(|error| error.to_string())?;
     app.emit("providers-changed", ())
@@ -494,9 +542,9 @@ pub(crate) fn restart_chatgpt<R: Runtime>(app: tauri::AppHandle<R>) -> Result<()
     let _switch_guard = account_switch_lock()
         .lock()
         .map_err(|_| "Account switch lock is poisoned".to_string())?;
-    let launch_target = chatgpt_launch_target();
+    let launch_target = refresh_and_get_chatgpt_launch_target(&app);
     stop_chatgpt_processes()?;
-    thread::sleep(Duration::from_millis(450));
+    wait_for_chatgpt_processes_to_exit(Duration::from_secs(10))?;
     sync_active_proxy_auth_for_restart(&app)?;
     start_chatgpt(launch_target.as_ref())
 }
@@ -547,7 +595,7 @@ fn sync_direct_conversations_blocking<R: Runtime>(
     }
 
     let paths = resolve_paths(&app)?;
-    let launch_target = chatgpt_launch_target();
+    let launch_target = refresh_and_get_chatgpt_launch_target(&app);
     stop_chatgpt_processes()?;
     thread::sleep(Duration::from_millis(650));
 
@@ -801,62 +849,18 @@ fn is_active_account(paths: &Paths, id: &str) -> bool {
     read_state(paths).active_account_id.as_deref() == Some(id)
 }
 
-fn mark_active_account(paths: &Paths, id: &str) -> Result<bool, String> {
-    let mut state = read_state(paths);
-    if state.active_account_id.as_deref() == Some(id) {
-        return Ok(false);
-    }
-    state.active_account_id = Some(id.to_string());
-    write_state(paths, &state)?;
-    Ok(true)
-}
-
 fn load_auth_for_request<R: Runtime>(
-    app: &tauri::AppHandle<R>,
+    _app: &tauri::AppHandle<R>,
     paths: &Paths,
     id: &str,
 ) -> Result<Value, String> {
     let managed_path = managed_auth_path(paths, id);
-    let state_says_active = is_active_account(paths, id);
-    let current_auth = read_json(&paths.current_auth).and_then(|auth| {
-        validate_auth(&auth)?;
-        let (_, _, _, current_id) = account_fields(&auth)?;
-        Ok((auth, current_id))
-    });
-
-    match current_auth {
-        Ok((auth, current_id)) if current_id == id => {
-            write_managed_auth_if_changed(paths, id, &auth)?;
-            let active_changed = mark_active_account(paths, id)?;
-            if active_changed {
-                touch_account_field(paths, id, AccountSyncField::Active)?;
-                app.emit("accounts-changed", ())
-                    .map_err(|error| error.to_string())?;
-                crate::system_tray::refresh_menu(app);
-            }
-            return Ok(auth);
-        }
-        Ok((auth, current_id)) if state_says_active => {
-            write_managed_auth_if_changed(paths, &current_id, &auth)?;
-            if mark_active_account(paths, &current_id)? {
-                touch_account_field(paths, &current_id, AccountSyncField::Active)?;
-            }
-            app.emit("accounts-changed", ())
-                .map_err(|error| error.to_string())?;
-            crate::system_tray::refresh_menu(app);
-            return Err(
-                "当前 Codex auth.json 已切换到其他账户，已同步到账户列表，请重新选择后刷新"
-                    .to_string(),
-            );
-        }
-        Ok(_) => {}
-        Err(error) if state_says_active => {
-            return Err(format!("当前 Codex auth.json 不可用：{error}"));
-        }
-        Err(_) => {}
-    }
-
-    read_json(&managed_path)
+    // The current .codex/auth.json is a startup-only import source. Subsequent
+    // account operations use the managed copy so external file changes cannot
+    // silently alter the active account.
+    let auth = read_json(&managed_path)?;
+    validate_auth(&auth)?;
+    Ok(auth)
 }
 
 fn persist_request_auth(paths: &Paths, id: &str, auth: &Value) -> Result<(), String> {
@@ -1113,50 +1117,96 @@ fn sync_active_auth(paths: &Paths, id: &str, auth: &Value) -> Result<(), String>
 }
 
 #[cfg(target_os = "windows")]
-fn chatgpt_launch_target() -> Option<ChatGptLaunchTarget> {
-    windows_powershell_line(
-        "$app = Get-StartApps | Where-Object { $_.Name -eq 'ChatGPT' -and $_.AppID -like 'OpenAI.Codex_*' } | Select-Object -First 1; if ($app) { $app.AppID }",
-    )
-    .map(ChatGptLaunchTarget::ShellApp)
-    .or_else(|| {
-        windows_powershell_line(
-            "$app = Get-StartApps | Where-Object { $_.AppID -like 'OpenAI.Codex_*' -or $_.AppID -eq 'com.openai.codex' } | Select-Object -First 1; if ($app) { $app.AppID }",
-        )
-        .map(ChatGptLaunchTarget::ShellApp)
-    })
-    .or_else(|| {
-        windows_powershell_line(
-            "(Get-Process -Name ChatGPT -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Path)",
-        )
-        .and_then(|path| normalize_windows_chatgpt_target(&path))
-        .map(ChatGptLaunchTarget::Executable)
-    })
-    .or_else(|| {
-        windows_powershell_line(
-            "(Get-Process -Name codex -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Path)",
-        )
-        .and_then(|path| normalize_windows_chatgpt_target(&path))
-        .map(ChatGptLaunchTarget::Executable)
-    })
-    .or_else(|| {
-        windows_powershell_line(
-            "(Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty InstallLocation)",
-        )
-        .and_then(|path| {
-            let target = Path::new(&path).join("app").join("ChatGPT.exe");
-            if target.exists() {
-                Some(target.as_os_str().to_string_lossy().into_owned())
-            } else {
-                None
-            }
-        })
-        .map(ChatGptLaunchTarget::Executable)
-    })
+fn refresh_local_codex_path<R: Runtime>(app: &tauri::AppHandle<R>) {
+    let Some(path) = discover_running_chatgpt_or_codex_path() else {
+        return;
+    };
+    let Ok(paths) = resolve_paths(app) else {
+        return;
+    };
+    let mut state = read_state(&paths);
+    if state.local_codex_path.as_deref() != Some(path.as_str()) {
+        state.local_codex_path = Some(path);
+        let _ = write_state(&paths, &state);
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
-fn chatgpt_launch_target() -> Option<ChatGptLaunchTarget> {
-    None
+fn refresh_local_codex_path<R: Runtime>(_app: &tauri::AppHandle<R>) {}
+
+#[cfg(target_os = "windows")]
+fn discover_running_chatgpt_or_codex_path() -> Option<String> {
+    windows_powershell_line(
+        "Get-Process -Name ChatGPT,codex -ErrorAction SilentlyContinue | Where-Object { $_.Path } | Select-Object -First 1 -ExpandProperty Path",
+    )
+    .and_then(|path| normalize_windows_chatgpt_target(&path))
+}
+
+fn refresh_and_get_chatgpt_launch_target<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Option<ChatGptLaunchTarget> {
+    refresh_local_codex_path(app);
+
+    #[cfg(target_os = "windows")]
+    {
+        let saved_target = resolve_paths(app)
+            .ok()
+            .and_then(|paths| read_state(&paths).local_codex_path)
+            .filter(|path| Path::new(path).is_file())
+            .map(ChatGptLaunchTarget::Executable);
+        saved_target.or_else(official_default_chatgpt_target)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn official_default_chatgpt_target() -> Option<ChatGptLaunchTarget> {
+    windows_powershell_line(
+        "(Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty InstallLocation)",
+    )
+    .and_then(|path| {
+        let target = Path::new(&path).join("app").join("ChatGPT.exe");
+        target
+            .is_file()
+            .then(|| target.as_os_str().to_string_lossy().into_owned())
+    })
+    .map(ChatGptLaunchTarget::Executable)
+    .or_else(|| {
+        windows_powershell_line(
+            "$app = Get-StartApps | Where-Object { $_.Name -eq 'ChatGPT' -and $_.AppID -like 'OpenAI.Codex_*' } | Select-Object -First 1; if ($app) { $app.AppID }",
+        )
+        .map(ChatGptLaunchTarget::ShellApp)
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn chatgpt_or_codex_is_running() -> Result<bool, String> {
+    let output = windows_hidden_command("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "if (@(Get-Process -Name ChatGPT,codex -ErrorAction SilentlyContinue).Count -gt 0) { exit 0 } else { exit 1 }",
+        ])
+        .status()
+        .map_err(|error| format!("检查 ChatGPT/Codex 进程失败：{error}"))?;
+    Ok(output.success())
+}
+
+#[cfg(unix)]
+fn chatgpt_or_codex_is_running() -> Result<bool, String> {
+    for name in [CHATGPT_COMMAND, LEGACY_CODEX_COMMAND] {
+        match Command::new("pgrep").args(["-x", name]).status() {
+            Ok(status) if status.success() => return Ok(true),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(format!("检查 ChatGPT/Codex 进程失败：{error}")),
+        }
+    }
+    Ok(false)
 }
 
 #[cfg(target_os = "windows")]
@@ -1176,6 +1226,51 @@ fn stop_chatgpt_processes() -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn wait_for_chatgpt_processes_to_exit(timeout: Duration) -> Result<(), String> {
+    // ChatGPT is a multi-process application.  Its main process can exit before a
+    // renderer or the bundled `codex.exe` has gone away, and a remaining process
+    // may briefly respawn another one.  Keep checking and terminating during the
+    // whole grace period instead of terminating once and only passively waiting.
+    let timeout_ms = timeout.as_millis();
+    let script = format!(
+        r#"
+$deadline = [DateTime]::UtcNow.AddMilliseconds({timeout_ms})
+while ($true) {{
+    $running = @(Get-Process -Name ChatGPT,codex -ErrorAction SilentlyContinue)
+    if ($running.Count -eq 0) {{ exit 0 }}
+
+    $running | Stop-Process -Force -ErrorAction SilentlyContinue
+    if ([DateTime]::UtcNow -ge $deadline) {{
+        $details = $running | ForEach-Object {{ "$($_.ProcessName) (PID $($_.Id))" }}
+        [Console]::Error.WriteLine("仍在运行：" + ($details -join ", "))
+        exit 1
+    }}
+    Start-Sleep -Milliseconds 150
+}}
+"#,
+    );
+    let output = windows_hidden_command("powershell")
+        .args(["-NoProfile", "-Command", &script])
+        .output()
+        .map_err(|error| format!("确认 ChatGPT 已退出失败：{error}"))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let details = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let suffix = if details.is_empty() {
+            String::new()
+        } else {
+            format!("（{details}）")
+        };
+        Err(format!(
+            "ChatGPT/Codex 进程未在 {} 秒内完全退出，已取消启动以避免旧凭据与新凭据竞争{suffix}",
+            timeout.as_secs()
+        ))
+    }
+}
+
 #[cfg(unix)]
 fn stop_chatgpt_processes() -> Result<(), String> {
     stop_unix_process(CHATGPT_COMMAND)?;
@@ -1185,6 +1280,11 @@ fn stop_chatgpt_processes() -> Result<(), String> {
         stop_unix_process("ChatGPT")?;
         stop_unix_process("Codex")?;
     }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn wait_for_chatgpt_processes_to_exit(_timeout: Duration) -> Result<(), String> {
     Ok(())
 }
 
@@ -1213,7 +1313,7 @@ fn start_chatgpt(target: Option<&ChatGptLaunchTarget>) -> Result<(), String> {
                 .map_err(|error| format!("启动 ChatGPT 失败：{error}"))
         }
         Some(ChatGptLaunchTarget::Executable(target)) => start_windows_executable(target),
-        None => start_windows_executable(CHATGPT_COMMAND),
+        None => Err("未找到本地 ChatGPT/Codex 路径，且官方默认安装路径不可用".to_string()),
     }
 }
 

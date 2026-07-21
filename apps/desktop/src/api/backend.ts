@@ -745,7 +745,7 @@ export async function chooseAndExportDiagnosticLogs(): Promise<ExportDiagnosticL
 }
 
 export async function activateAccount(id: string): Promise<void> {
-  if (isDesktopApp) await invoke("switch_account", { id });
+  if (isDesktopApp) await invoke("switch_account_and_restart_chatgpt", { id });
 }
 
 export async function setAccountAutoSwitchEnabled(id: string, enabled: boolean): Promise<void> {

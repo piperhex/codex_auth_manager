@@ -21,8 +21,8 @@ use crate::{
     storage::{
         expiration_path, load_expiration, load_note, load_or_init_last_modified, load_usage,
         managed_auth_path, note_path, parse_last_modified, read_json, read_state, resolve_paths,
-        save_account_last_modified, save_expiration, save_note, save_usage,
-        sync_current_into_store, usage_path, write_json_if_changed, write_state,
+        save_account_last_modified, save_expiration, save_note, save_usage, usage_path,
+        write_json_if_changed, write_state,
     },
 };
 
@@ -72,7 +72,6 @@ pub(crate) fn export_accounts_archive<R: Runtime>(
     app: tauri::AppHandle<R>,
     path: String,
 ) -> Result<String, String> {
-    let _ = sync_current_into_store(&app);
     let payload = collect_accounts(&app)?;
     if payload.accounts.is_empty() && payload.providers.is_empty() {
         return Err("No local accounts or providers to export".to_string());

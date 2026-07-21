@@ -46,6 +46,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             size_main_window_to_screen(app)?;
+            commands::initialize_local_state(app.handle());
             if let Err(error) = dream_skin::setup(app.handle()) {
                 eprintln!("failed to restore Dream Skin monitor: {error}");
             }
@@ -89,6 +90,7 @@ pub fn run() {
             account_archive::export_accounts_archive,
             account_archive::import_accounts_archive,
             commands::switch_account,
+            commands::switch_account_and_restart_chatgpt,
             commands::set_account_auto_switch_enabled,
             commands::update_account_note,
             commands::delete_account,

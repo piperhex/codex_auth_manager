@@ -51,6 +51,10 @@ pub(crate) struct ResetCreditsSummary {
 pub(crate) struct ManagerStateFile {
     pub(crate) active_account_id: Option<String>,
     pub(crate) active_provider_id: Option<String>,
+    /// Last known executable used by the local ChatGPT/Codex desktop app. This is
+    /// intentionally only a local launch hint; it is never synced with accounts.
+    #[serde(default)]
+    pub(crate) local_codex_path: Option<String>,
     #[serde(default)]
     pub(crate) local_proxy_enabled: bool,
     #[serde(default)]
