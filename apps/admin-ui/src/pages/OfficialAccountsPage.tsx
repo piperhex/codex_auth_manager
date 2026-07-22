@@ -13,6 +13,7 @@ interface OfficialAccountsPageProps {
   onLoadAccounts: (page?: number, pageSize?: number) => void | Promise<void>;
   onCreate: () => void;
   onCompatibleCreate: () => void;
+  onSub2apiCreate: () => void;
   onOAuthCreate: () => void;
   onEdit: (account: SystemAccount) => void;
   onBind: (account: SystemAccount) => void;
@@ -27,6 +28,7 @@ export function OfficialAccountsPage({
   onBind,
   onCreate,
   onCompatibleCreate,
+  onSub2apiCreate,
   onOAuthCreate,
   onDelete,
   onEdit,
@@ -110,6 +112,9 @@ export function OfficialAccountsPage({
               </Button>
               <Button icon={<Files size={15} />} onClick={onCompatibleCreate}>
                 {t("officialAccounts.compatibleImport")}
+              </Button>
+              <Button icon={<Files size={15} />} onClick={onSub2apiCreate}>
+                {t("officialAccounts.sub2apiImport")}
               </Button>
               <Button type="primary" icon={<LogIn size={15} />} onClick={onOAuthCreate}>
                 {t("officialAccounts.oauthCreate")}

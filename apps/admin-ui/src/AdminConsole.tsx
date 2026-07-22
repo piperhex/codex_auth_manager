@@ -204,7 +204,7 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
   const [providersLoading, setProvidersLoading] = useState(false);
   const [editingAccount, setEditingAccount] = useState<SyncAccount | null>(null);
   const [systemAccountModalOpen, setSystemAccountModalOpen] = useState(false);
-  const [systemAccountCompatibleImport, setSystemAccountCompatibleImport] = useState(false);
+  const [systemAccountImportMode, setSystemAccountImportMode] = useState<"standard" | "compatible" | "sub2api">("standard");
   const [systemAccountOAuthOpen, setSystemAccountOAuthOpen] = useState(false);
   const [editingSystemAccount, setEditingSystemAccount] = useState<SystemAccount | null>(null);
   const [bindingSystemAccount, setBindingSystemAccount] = useState<SystemAccount | null>(null);
@@ -805,18 +805,23 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
           onLoadAccounts={loadSystemAccounts}
           onCreate={() => {
             setEditingSystemAccount(null);
-            setSystemAccountCompatibleImport(false);
+            setSystemAccountImportMode("standard");
             setSystemAccountModalOpen(true);
           }}
           onCompatibleCreate={() => {
             setEditingSystemAccount(null);
-            setSystemAccountCompatibleImport(true);
+            setSystemAccountImportMode("compatible");
+            setSystemAccountModalOpen(true);
+          }}
+          onSub2apiCreate={() => {
+            setEditingSystemAccount(null);
+            setSystemAccountImportMode("sub2api");
             setSystemAccountModalOpen(true);
           }}
           onOAuthCreate={() => setSystemAccountOAuthOpen(true)}
           onEdit={(account) => {
             setEditingSystemAccount(account);
-            setSystemAccountCompatibleImport(false);
+            setSystemAccountImportMode("standard");
             setSystemAccountModalOpen(true);
           }}
           onBind={(account) => void openSystemAccountBindings(account)}
@@ -1176,12 +1181,12 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
       <SystemAccountModal
         open={systemAccountModalOpen}
         account={editingSystemAccount}
-        compatible={systemAccountCompatibleImport}
+        mode={systemAccountImportMode}
         api={api}
         onClose={() => {
           setSystemAccountModalOpen(false);
           setEditingSystemAccount(null);
-          setSystemAccountCompatibleImport(false);
+          setSystemAccountImportMode("standard");
         }}
         onSaved={loadSystemAccounts}
       />

@@ -4,8 +4,10 @@ import type { AuthUser } from '@/common/decorators/user.decorator';
 import type { AdminService } from '@/modules/admin/admin.service';
 import {
   normalizeCompatibleAuth,
+  normalizeSub2apiAuth,
   OfficialAccountImportService,
   parseCompatibleJsonAccounts,
+  parseSub2apiJsonAccounts,
 } from '@/modules/admin/official-account-import.service';
 
 const actor: AuthUser = {
@@ -58,6 +60,75 @@ describe('OfficialAccountImportService', () => {
     expect(normalizeCompatibleAuth({
       session_json: JSON.stringify({ accessToken: token }),
     })).toEqual({ tokens: { access_token: token } });
+  });
+
+  it('parses and normalizes sub2api Agent Identity exports', () => {
+    const privateKey = Buffer.alloc(48, 7).toString('base64');
+    const content = JSON.stringify({
+      type: 'sub2api-data',
+      version: 1,
+      proxies: [],
+      accounts: [{
+        platform: 'openai',
+        type: 'oauth',
+        credentials: {
+          auth_mode: 'agentIdentity',
+          agent_runtime_id: 'agent-runtime',
+          agent_private_key: privateKey,
+          account_id: 'workspace-1',
+          chatgpt_user_id: 'user-1',
+          email: 'agent@example.com',
+          plan_type: 'business',
+        },
+      }],
+    });
+
+    const values = parseSub2apiJsonAccounts(content);
+    expect(values).toHaveLength(1);
+    expect(normalizeSub2apiAuth(values[0])).toEqual({
+      auth_mode: 'agentIdentity',
+      agent_identity: {
+        agent_runtime_id: 'agent-runtime',
+        agent_private_key: privateKey,
+        account_id: 'workspace-1',
+        chatgpt_user_id: 'user-1',
+        email: 'agent@example.com',
+        plan_type: 'business',
+        chatgpt_account_is_fedramp: false,
+      },
+    });
+  });
+
+  it('imports sub2api accounts without attempting an OAuth token refresh', async () => {
+    const admin = {
+      createSystemAccount: vi.fn().mockResolvedValue({ id: 'agent-account' }),
+    };
+    const service = new OfficialAccountImportService({}, admin as unknown as AdminService);
+    const content = JSON.stringify({
+      type: 'sub2api-data',
+      version: 1,
+      proxies: [],
+      accounts: [{
+        platform: 'openai',
+        type: 'oauth',
+        credentials: {
+          auth_mode: 'agentIdentity',
+          agent_runtime_id: 'agent-runtime',
+          agent_private_key: Buffer.alloc(48, 7).toString('base64'),
+          account_id: 'workspace-1',
+          chatgpt_user_id: 'user-1',
+        },
+      }],
+    });
+
+    await expect(service.importSub2api(actor, { content })).resolves.toMatchObject({
+      importedCount: 1,
+    });
+    expect(admin.createSystemAccount).toHaveBeenCalledWith(actor, {
+      auth: expect.objectContaining({ auth_mode: 'agentIdentity' }),
+      note: undefined,
+      expiresAt: undefined,
+    });
   });
 
   it('imports every normalized account and applies shared metadata', async () => {

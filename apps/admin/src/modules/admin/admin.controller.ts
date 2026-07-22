@@ -250,6 +250,13 @@ export class AdminController {
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermissions(Permission.OfficialAccountsManage)
+  @Post('api/official-accounts/import/sub2api')
+  importSub2apiSystemAccounts(@CurrentUser() user: AuthUser, @Body() dto: ImportSystemAccountsDto) {
+    return this.officialAccountImport.importSub2api(user, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(Permission.OfficialAccountsManage)
   @Post('api/official-accounts/oauth/start')
   startSystemAccountOAuth(@CurrentUser() user: AuthUser) {
     return this.officialAccountOAuth.start(user);

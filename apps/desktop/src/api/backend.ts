@@ -715,6 +715,17 @@ export async function chooseAndImportCompatibleJson(): Promise<CompatibleJsonImp
   return { status: "imported", ids: result.importedIds };
 }
 
+export async function chooseAndImportSub2apiJson(): Promise<CompatibleJsonImportResult> {
+  if (!isDesktopApp) return { status: "preview" };
+  const selected = await open({
+    multiple: false,
+    filters: [{ name: "sub2api export JSON", extensions: ["json"] }],
+  });
+  if (!selected) return { status: "cancelled" };
+  const result = await invoke<{ importedIds: string[] }>("import_sub2api_json_file", { path: selected });
+  return { status: "imported", ids: result.importedIds };
+}
+
 export async function chooseAndExportAccountArchive(): Promise<ExportAccountArchiveResult> {
   if (!isDesktopApp) return { status: "preview" };
   const selected = await save({

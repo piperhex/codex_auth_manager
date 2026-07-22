@@ -802,6 +802,37 @@ export class SyncService {
     if (!auth || Array.isArray(auth)) {
       throw new BadRequestException('auth.json must be a JSON object');
     }
+    const authMode = this.stringValue(auth.auth_mode);
+    const agentIdentity = this.objectValue(auth.agent_identity);
+    if (authMode?.toLowerCase() === 'agentidentity' || agentIdentity) {
+      if (!agentIdentity) throw new BadRequestException('auth.json is missing agent_identity');
+      const runtimeId = this.stringValue(agentIdentity.agent_runtime_id);
+      const privateKey = this.stringValue(agentIdentity.agent_private_key);
+      const codexAccountId = this.stringValue(agentIdentity.account_id)
+        ?? this.stringValue(agentIdentity.chatgpt_account_id);
+      const identity = this.stringValue(agentIdentity.chatgpt_user_id);
+      if (!runtimeId || !privateKey || !codexAccountId || !identity) {
+        throw new BadRequestException('auth.json contains an incomplete Agent Identity credential');
+      }
+      const normalizedKey = privateKey.replace(/\s+/g, '').replace(/=+$/, '');
+      const decodedKey = Buffer.from(privateKey, 'base64');
+      if (decodedKey.length < 32 || decodedKey.toString('base64').replace(/=+$/, '') !== normalizedKey) {
+        throw new BadRequestException('auth.json contains an invalid Agent Identity private key');
+      }
+      const email = this.stringValue(agentIdentity.email) ?? 'Unknown account';
+      const plan = this.stringValue(agentIdentity.plan_type) ?? 'ChatGPT';
+      if (email.length > 240 || plan.length > 80 || codexAccountId.length > 160) {
+        throw new BadRequestException('Official account identity exceeds the supported length');
+      }
+      const syncAccountId = createHash('sha256')
+        .update(identity)
+        .update('\0')
+        .update(codexAccountId)
+        .digest()
+        .subarray(0, 12)
+        .toString('hex');
+      return { syncAccountId, email, plan, codexAccountId };
+    }
     const tokens = this.objectValue(auth.tokens);
     const accessToken = this.stringValue(tokens?.access_token);
     if (!accessToken) throw new BadRequestException('auth.json is missing tokens.access_token');

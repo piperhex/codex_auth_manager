@@ -355,6 +355,10 @@ function DashboardApp() {
     setShowLogin(false);
     void manager.importCompatibleJson();
   };
+  const importSub2apiJson = () => {
+    setShowLogin(false);
+    void manager.importSub2apiJson();
+  };
   const refreshAll = () => {
     markRefreshAll();
     void manager.refreshAll();
@@ -713,7 +717,7 @@ function DashboardApp() {
           </section>
         </main>
 
-        {showLogin && <LoginModal onClose={() => setShowLogin(false)} onStart={startLogin} onImport={importAuth} onImportCompatibleJson={importCompatibleJson} t={t} />}
+        {showLogin && <LoginModal onClose={() => setShowLogin(false)} onStart={startLogin} onImport={importAuth} onImportCompatibleJson={importCompatibleJson} onImportSub2apiJson={importSub2apiJson} t={t} />}
         {showCloudLogin && <CloudLoginModal loading={cloud.loading} onClose={() => setShowCloudLogin(false)}
           sendingRegistrationCode={cloud.sendingRegistrationCode} onLogin={loginCloudAccount}
           onForgotPassword={openCloudPasswordReset} onRegister={registerCloudAccount}

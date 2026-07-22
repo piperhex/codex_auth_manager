@@ -8,7 +8,7 @@ import type { ApiClient, SystemAccount } from "../../types";
 interface SystemAccountModalProps {
   open: boolean;
   account: SystemAccount | null;
-  compatible?: boolean;
+  mode?: "standard" | "compatible" | "sub2api";
   api: ApiClient;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
@@ -29,7 +29,7 @@ const MAX_IMPORT_FILE_SIZE = 5 * 1024 * 1024;
 export function SystemAccountModal({
   account,
   api,
-  compatible = false,
+  mode = "standard",
   onClose,
   onSaved,
   open,
@@ -39,6 +39,7 @@ export function SystemAccountModal({
   const [form] = Form.useForm<FormValues>();
   const [saving, setSaving] = useState(false);
   const [selectedFileName, setSelectedFileName] = useState("");
+  const isBatchImport = mode !== "standard";
 
   useEffect(() => {
     if (!open) return;
@@ -57,7 +58,7 @@ export function SystemAccountModal({
       note: values.note ?? "",
       expiresAt: values.expiresAt?.format("YYYY-MM-DD") ?? "",
     };
-    if (content && !compatible) {
+    if (content && !isBatchImport) {
       try {
         const auth = JSON.parse(content.replace(/^\uFEFF/, ""));
         if (!auth || typeof auth !== "object" || Array.isArray(auth)) throw new Error();
@@ -74,7 +75,7 @@ export function SystemAccountModal({
         return;
       }
     }
-    if (compatible && account) {
+    if (isBatchImport && account) {
       message.error(t("officialAccounts.compatibleCreateOnly"));
       return;
     }
@@ -84,12 +85,17 @@ export function SystemAccountModal({
     }
     setSaving(true);
     try {
-      if (compatible) {
-        const result = await api<CompatibleImportResult>("/admin/api/official-accounts/import", {
+      if (isBatchImport) {
+        const endpoint = mode === "sub2api"
+          ? "/admin/api/official-accounts/import/sub2api"
+          : "/admin/api/official-accounts/import";
+        const result = await api<CompatibleImportResult>(endpoint, {
           method: "POST",
           body: JSON.stringify({ ...body, content }),
         });
-        message.success(t("officialAccounts.compatibleImported", { count: result.importedCount }));
+        message.success(t(mode === "sub2api"
+          ? "officialAccounts.sub2apiImported"
+          : "officialAccounts.compatibleImported", { count: result.importedCount }));
       } else {
         await api(account ? `/admin/api/official-accounts/${account.id}` : "/admin/api/official-accounts", {
           method: account ? "PATCH" : "POST",
@@ -124,8 +130,10 @@ export function SystemAccountModal({
     <Modal
       title={t(account
         ? "officialAccounts.editTitle"
-        : compatible
-          ? "officialAccounts.compatibleImportTitle"
+        : mode === "sub2api"
+          ? "officialAccounts.sub2apiImportTitle"
+          : mode === "compatible"
+            ? "officialAccounts.compatibleImportTitle"
           : "officialAccounts.createTitle")}
       open={open}
       onCancel={onClose}
@@ -148,25 +156,37 @@ export function SystemAccountModal({
           <FileUp size={26} />
           <div>{t("officialAccounts.chooseFile")}</div>
           <div className="ant-upload-hint">
-            {selectedFileName || t(compatible
-              ? "officialAccounts.compatibleFileHint"
-              : "officialAccounts.authFileHint")}
+            {selectedFileName || t(mode === "sub2api"
+              ? "officialAccounts.sub2apiFileHint"
+              : mode === "compatible"
+                ? "officialAccounts.compatibleFileHint"
+                : "officialAccounts.authFileHint")}
           </div>
         </Upload.Dragger>
         <Form.Item
           name="authJson"
-          label={t(compatible ? "officialAccounts.compatibleJson" : "officialAccounts.authJson")}
+          label={t(mode === "sub2api"
+            ? "officialAccounts.sub2apiJson"
+            : mode === "compatible"
+              ? "officialAccounts.compatibleJson"
+              : "officialAccounts.authJson")}
           extra={account
             ? t("officialAccounts.authJsonEditHint")
-            : t(compatible ? "officialAccounts.compatibleJsonHint" : "officialAccounts.authJsonHint")}
+            : t(mode === "sub2api"
+              ? "officialAccounts.sub2apiJsonHint"
+              : mode === "compatible"
+                ? "officialAccounts.compatibleJsonHint"
+                : "officialAccounts.authJsonHint")}
           style={{ marginTop: 20 }}
         >
           <Input.TextArea
             rows={10}
             autoComplete="off"
-            placeholder={compatible
-              ? t("officialAccounts.compatibleJsonPlaceholder")
-              : '{"tokens":{"access_token":"..."}}'}
+            placeholder={mode === "sub2api"
+              ? t("officialAccounts.sub2apiJsonPlaceholder")
+              : mode === "compatible"
+                ? t("officialAccounts.compatibleJsonPlaceholder")
+                : '{"tokens":{"access_token":"..."}}'}
           />
         </Form.Item>
         <Form.Item name="note" label={t("common.note")}>

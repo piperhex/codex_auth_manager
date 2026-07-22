@@ -212,6 +212,131 @@ pub(crate) fn import_compatible_json_file<R: Runtime>(
     Ok(CompatibleJsonImportResult { imported_ids })
 }
 
+/// Imports the explicit `sub2api-data` export format and converts each supported
+/// OpenAI Agent Identity account into the auth.json shape consumed by Codex.
+#[tauri::command]
+pub(crate) fn import_sub2api_json_file<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    path: String,
+) -> Result<CompatibleJsonImportResult, String> {
+    let content =
+        fs::read_to_string(&path).map_err(|error| format!("读取 {} 失败：{error}", path))?;
+    let auth_values = parse_sub2api_auth_values(&content)?;
+    let mut imported_ids = Vec::new();
+
+    for (index, value) in auth_values.iter().enumerate() {
+        let auth = normalize_sub2api_auth(value)
+            .map_err(|error| format!("第 {} 个账号无法导入：{error}", index + 1))?;
+        let id = import_value(&app, auth, false)?;
+        if !imported_ids.contains(&id) {
+            imported_ids.push(id);
+        }
+    }
+
+    app.emit("accounts-changed", ())
+        .map_err(|error| error.to_string())?;
+    crate::system_tray::refresh_menu(&app);
+    Ok(CompatibleJsonImportResult { imported_ids })
+}
+
+fn parse_sub2api_auth_values(content: &str) -> Result<Vec<Value>, String> {
+    let content = content.trim_start_matches('\u{feff}').trim();
+    if content.is_empty() {
+        return Err("导入文件为空".to_string());
+    }
+    let value: Value =
+        serde_json::from_str(content).map_err(|error| format!("sub2api JSON 格式无效：{error}"))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| "sub2api 导出文件顶层必须是 JSON 对象".to_string())?;
+    if object.get("type").and_then(Value::as_str) != Some("sub2api-data") {
+        return Err("不是有效的 sub2api-data 导出文件".to_string());
+    }
+    if object.get("version").and_then(Value::as_i64) != Some(1) {
+        return Err("仅支持 version=1 的 sub2api 导出文件".to_string());
+    }
+    let accounts = object
+        .get("accounts")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "sub2api 导出文件缺少 accounts 数组".to_string())?;
+    if accounts.is_empty() {
+        return Err("sub2api 导出文件中没有账号".to_string());
+    }
+    if accounts.len() > 1000 {
+        return Err("单次最多导入 1000 个账号".to_string());
+    }
+    Ok(accounts.clone())
+}
+
+fn sub2api_required_string<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .ok_or_else(|| format!("sub2api credentials 缺少 {key}"))
+}
+
+fn normalize_sub2api_auth(value: &Value) -> Result<Value, String> {
+    let account = value
+        .as_object()
+        .ok_or_else(|| "sub2api account 必须是 JSON 对象".to_string())?;
+    if account.get("platform").and_then(Value::as_str) != Some("openai")
+        || account.get("type").and_then(Value::as_str) != Some("oauth")
+    {
+        return Err("仅支持 platform=openai、type=oauth 的账号".to_string());
+    }
+    let credentials = account
+        .get("credentials")
+        .ok_or_else(|| "sub2api account 缺少 credentials".to_string())?;
+    let auth_mode = sub2api_required_string(credentials, "auth_mode")?;
+    if !auth_mode.eq_ignore_ascii_case("agentIdentity") {
+        return Err("仅支持 auth_mode=agentIdentity 的 sub2api 账号".to_string());
+    }
+
+    let mut identity = serde_json::Map::new();
+    for key in [
+        "agent_runtime_id",
+        "agent_private_key",
+        "account_id",
+        "chatgpt_user_id",
+    ] {
+        identity.insert(
+            key.to_string(),
+            Value::String(sub2api_required_string(credentials, key)?.to_string()),
+        );
+    }
+    for key in ["task_id", "email", "plan_type"] {
+        if let Some(value) = credentials
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+        {
+            identity.insert(key.to_string(), Value::String(value.to_string()));
+        }
+    }
+    identity.insert(
+        "chatgpt_account_is_fedramp".to_string(),
+        Value::Bool(
+            credentials
+                .get("chatgpt_account_is_fedramp")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        ),
+    );
+
+    let mut auth = serde_json::Map::new();
+    auth.insert(
+        "auth_mode".to_string(),
+        Value::String("agentIdentity".to_string()),
+    );
+    auth.insert("agent_identity".to_string(), Value::Object(identity));
+    let auth = Value::Object(auth);
+    validate_auth(&auth)?;
+    Ok(auth)
+}
+
 fn parse_compatible_json_auth_values(content: &str) -> Result<Vec<Value>, String> {
     let content = content.trim_start_matches('\u{feff}').trim();
     if content.is_empty() {
@@ -1576,8 +1701,8 @@ fn status_error(action: &str, status: std::process::ExitStatus) -> String {
 #[cfg(test)]
 mod compatible_json_import_tests {
     use super::{
-        normalize_compatible_json_auth, parse_compatible_json_auth_values,
-        should_disable_account_auto_switch, sync_conversation_metadata,
+        normalize_compatible_json_auth, normalize_sub2api_auth, parse_compatible_json_auth_values,
+        parse_sub2api_auth_values, should_disable_account_auto_switch, sync_conversation_metadata,
         sync_current_auth_with_client_state, update_disabled_account_ids,
         write_managed_auth_to_current, LOCAL_PROXY_CONVERSATION_PROVIDER,
     };
@@ -1674,6 +1799,40 @@ mod compatible_json_import_tests {
             Some(token.as_str())
         );
         assert_eq!(auth["tokens"]["refresh_token"], "");
+    }
+
+    #[test]
+    fn converts_sub2api_agent_identity_exports_to_auth_json() {
+        let input = json!({
+            "type": "sub2api-data",
+            "version": 1,
+            "exported_at": "2026-07-22T01:42:51Z",
+            "proxies": [],
+            "accounts": [{
+                "name": "agent@example.com",
+                "platform": "openai",
+                "type": "oauth",
+                "credentials": {
+                    "auth_mode": "agentIdentity",
+                    "agent_runtime_id": "agent-runtime",
+                    "agent_private_key": base64::engine::general_purpose::STANDARD.encode([9_u8; 48]),
+                    "account_id": "workspace-1",
+                    "chatgpt_user_id": "user-1",
+                    "email": "agent@example.com",
+                    "plan_type": "business",
+                    "chatgpt_account_is_fedramp": false
+                }
+            }]
+        })
+        .to_string();
+
+        let values = parse_sub2api_auth_values(&input).expect("parse sub2api export");
+        assert_eq!(values.len(), 1);
+        let auth = normalize_sub2api_auth(&values[0]).expect("normalize sub2api account");
+        assert_eq!(auth["auth_mode"], "agentIdentity");
+        assert_eq!(auth["agent_identity"]["account_id"], "workspace-1");
+        assert_eq!(auth["agent_identity"]["email"], "agent@example.com");
+        assert!(auth.get("tokens").is_none());
     }
 
     #[test]

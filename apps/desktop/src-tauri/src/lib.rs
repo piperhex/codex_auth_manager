@@ -89,6 +89,7 @@ pub fn run() {
             commands::list_accounts,
             commands::import_auth_file,
             commands::import_compatible_json_file,
+            commands::import_sub2api_json_file,
             account_archive::export_accounts_archive,
             account_archive::import_accounts_archive,
             commands::switch_account,

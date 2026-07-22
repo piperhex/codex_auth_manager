@@ -469,6 +469,38 @@ describe('SyncService', () => {
     expect(systemAccounts.create).toHaveBeenCalledWith(expect.objectContaining({ auth }));
   });
 
+  it('derives official account identity from Agent Identity auth.json', async () => {
+    const auth = {
+      auth_mode: 'agentIdentity',
+      agent_identity: {
+        agent_runtime_id: 'agent-runtime',
+        agent_private_key: Buffer.alloc(48, 7).toString('base64'),
+        account_id: 'workspace-agent',
+        chatgpt_user_id: 'user-agent',
+        email: 'agent@example.com',
+        plan_type: 'business',
+      },
+    };
+    systemAccounts.findOne.mockResolvedValue(null);
+    systemAccounts.save.mockImplementationOnce(async (value) => ({
+      id: '10000000-0000-4000-8000-000000000009',
+      createdAt: new Date('2026-07-22T00:00:00.000Z'),
+      updatedAt: new Date('2026-07-22T00:00:00.000Z'),
+      bindings: [],
+      ...value,
+    }));
+
+    const result = await service.createSystemAccount({ auth });
+
+    expect(result).toMatchObject({
+      email: 'agent@example.com',
+      plan: 'business',
+      accountId: 'workspace-agent',
+    });
+    expect(result.syncAccountId).toMatch(/^[a-f0-9]{24}$/);
+    expect(systemAccounts.create).toHaveBeenCalledWith(expect.objectContaining({ auth }));
+  });
+
   it('copies a personal synced account into the official account pool without changing the source', async () => {
     const claims = {
       email: 'personal@example.com',

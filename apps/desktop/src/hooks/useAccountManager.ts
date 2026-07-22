@@ -3,6 +3,7 @@ import {
   activateAccount,
   beginLogin,
   chooseAndImportCompatibleJson,
+  chooseAndImportSub2apiJson,
   chooseAndExportAccountArchive,
   chooseAndImportAccountArchive,
   chooseAndImportAuth,
@@ -104,6 +105,22 @@ export function useAccountManager(
           await cloudSync?.pushAccount?.(id);
         }
         notify(t("toast.compatibleImported", { count: result.ids.length }));
+      }
+    } catch (error) {
+      notify(String(error));
+    }
+  }, [cloudSync, load, notify, t]);
+
+  const importSub2apiJson = useCallback(async () => {
+    notify(isDesktopApp ? t("toast.sub2apiImportPrompt") : t("toast.previewNoFile"));
+    try {
+      const result = await chooseAndImportSub2apiJson();
+      if (result.status === "imported") {
+        await load();
+        for (const id of result.ids) {
+          await cloudSync?.pushAccount?.(id);
+        }
+        notify(t("toast.sub2apiImported", { count: result.ids.length }));
       }
     } catch (error) {
       notify(String(error));
@@ -253,6 +270,7 @@ export function useAccountManager(
     startLogin,
     importAuth,
     importCompatibleJson,
+    importSub2apiJson,
     exportAccountArchive,
     importAccountArchive,
     switchAccount,

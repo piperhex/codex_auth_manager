@@ -60,6 +60,70 @@ export function normalizeCompatibleAuth(value: unknown): JsonObject {
   return { tokens: normalizedTokens };
 }
 
+export function parseSub2apiJsonAccounts(content: string): unknown[] {
+  const normalized = content.replace(/^\uFEFF/, '').trim();
+  if (!normalized) throw new BadRequestException('Import file is empty');
+  let value: unknown;
+  try {
+    value = JSON.parse(normalized) as unknown;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'invalid JSON';
+    throw new BadRequestException(`Invalid sub2api JSON: ${detail}`);
+  }
+  if (!isObject(value)) {
+    throw new BadRequestException('sub2api export must contain a JSON object at the top level');
+  }
+  if (value.type !== 'sub2api-data') {
+    throw new BadRequestException('The selected file is not a sub2api-data export');
+  }
+  if (value.version !== 1) {
+    throw new BadRequestException('Only version 1 sub2api exports are supported');
+  }
+  if (!Array.isArray(value.accounts) || !value.accounts.length) {
+    throw new BadRequestException('The sub2api export does not contain any accounts');
+  }
+  if (value.accounts.length > MAX_IMPORT_ACCOUNTS) {
+    throw new BadRequestException(`A single import supports at most ${MAX_IMPORT_ACCOUNTS} accounts`);
+  }
+  return value.accounts;
+}
+
+export function normalizeSub2apiAuth(value: unknown): JsonObject {
+  if (!isObject(value)) throw new BadRequestException('sub2api account must be a JSON object');
+  if (value.platform !== 'openai' || value.type !== 'oauth') {
+    throw new BadRequestException('Only platform=openai and type=oauth accounts are supported');
+  }
+  const credentials = isObject(value.credentials) ? value.credentials : undefined;
+  if (!credentials) throw new BadRequestException('sub2api account is missing credentials');
+  const authMode = firstString(credentials, [['auth_mode']]);
+  if (authMode?.toLowerCase() !== 'agentidentity') {
+    throw new BadRequestException('Only auth_mode=agentIdentity sub2api accounts are supported');
+  }
+
+  const identity: JsonObject = {};
+  for (const key of ['agent_runtime_id', 'agent_private_key', 'account_id', 'chatgpt_user_id']) {
+    const field = firstString(credentials, [[key]]);
+    if (!field) throw new BadRequestException(`sub2api credentials is missing ${key}`);
+    identity[key] = field;
+  }
+  const privateKey = identity.agent_private_key as string;
+  const normalizedKey = privateKey.replace(/\s+/g, '').replace(/=+$/, '');
+  const decodedKey = Buffer.from(privateKey, 'base64');
+  if (decodedKey.length < 32 || decodedKey.toString('base64').replace(/=+$/, '') !== normalizedKey) {
+    throw new BadRequestException('sub2api agent_private_key is not valid Base64');
+  }
+  for (const key of ['task_id', 'email', 'plan_type']) {
+    const field = firstString(credentials, [[key]]);
+    if (field) identity[key] = field;
+  }
+  identity.chatgpt_account_is_fedramp = credentials.chatgpt_account_is_fedramp === true;
+
+  return {
+    auth_mode: 'agentIdentity',
+    agent_identity: identity,
+  };
+}
+
 function unpackTopLevel(value: unknown): unknown[] {
   if (Array.isArray(value)) {
     if (!value.length) throw new BadRequestException('Import file does not contain any accounts');
@@ -186,6 +250,25 @@ export class OfficialAccountImportService {
       try {
         let auth = normalizeCompatibleAuth(value);
         if (!this.token(auth, 'access_token')) auth = await this.refresh(auth);
+        accounts.push(await this.admin.createSystemAccount(actor, {
+          auth,
+          note: dto.note,
+          expiresAt: dto.expiresAt,
+        }));
+      } catch (error) {
+        const detail = error instanceof HttpException ? error.message : 'Unable to import account';
+        throw new BadRequestException(`Account ${index + 1} could not be imported: ${detail}`);
+      }
+    }
+    return { accounts, importedCount: accounts.length };
+  }
+
+  async importSub2api(actor: AuthUser, dto: ImportSystemAccountsDto) {
+    const values = parseSub2apiJsonAccounts(dto.content);
+    const accounts = [];
+    for (const [index, value] of values.entries()) {
+      try {
+        const auth = normalizeSub2apiAuth(value);
         accounts.push(await this.admin.createSystemAccount(actor, {
           auth,
           note: dto.note,
