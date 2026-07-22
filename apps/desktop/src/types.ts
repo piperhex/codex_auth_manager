@@ -22,6 +22,7 @@ export interface Account {
   active: boolean;
   autoSwitchEnabled: boolean;
   localProxyCompatible: boolean;
+  directSwitchCompatible: boolean;
   usage: UsageSummary;
 }
 

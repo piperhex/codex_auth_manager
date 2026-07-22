@@ -420,13 +420,18 @@ export function AccountTable({
       render: (_, account) => {
         const waiting = busyAccountId === account.id;
         const resetWaiting = resetCreditBusyAccountId === account.id;
-        const proxySwitchBlocked = hotSwitchEnabled && !account.localProxyCompatible;
+        const switchBlocked = hotSwitchEnabled
+          ? !account.localProxyCompatible
+          : !account.directSwitchCompatible;
+        const switchBlockedReason = hotSwitchEnabled
+          ? t("providers.proxy.agentIdentityUnsupported")
+          : t("providers.proxy.agentIdentityProxyOnly");
         return (
           <Space size={4} className="table-actions">
-            <Tooltip title={proxySwitchBlocked ? t("providers.proxy.agentIdentityUnsupported") : undefined}>
+            <Tooltip title={switchBlocked ? switchBlockedReason : undefined}>
               <span>
                 <Button size="small" type={account.active ? "default" : "primary"}
-                  disabled={account.active || proxySwitchBlocked}
+                  disabled={account.active || switchBlocked}
                   loading={waiting} icon={account.active ? <Check size={14} /> : <RotateCcw size={14} />}
                   onClick={() => onSwitch(account.id)}>
                   {account.active ? t("table.inUse") : hotSwitchEnabled ? t("table.hotSwitch") : t("table.switch")}
@@ -480,15 +485,20 @@ export function AccountTable({
         const waiting = busyAccountId === account.id;
         const resetWaiting = resetCreditBusyAccountId === account.id;
         const isDisabled = isAccountDisabled(account, hotSwitchEnabled);
-        const proxySwitchBlocked = hotSwitchEnabled && !account.localProxyCompatible;
+        const switchBlocked = hotSwitchEnabled
+          ? !account.localProxyCompatible
+          : !account.directSwitchCompatible;
+        const switchBlockedReason = hotSwitchEnabled
+          ? t("providers.proxy.agentIdentityUnsupported")
+          : t("providers.proxy.agentIdentityProxyOnly");
         return (
           <article key={account.id} className={`account-card${account.active ? " active" : ""}${isDisabled ? " account-alert-card" : ""}`}
-            title={proxySwitchBlocked ? t("providers.proxy.agentIdentityUnsupported") : undefined}
-            aria-disabled={proxySwitchBlocked}
+            title={switchBlocked ? switchBlockedReason : undefined}
+            aria-disabled={switchBlocked}
             onClick={(event) => {
               if ((event.target as HTMLElement).closest("button, a, input, textarea, summary, details, .account-note-trigger")) return;
               setContextMenu(null);
-              if (!account.active && !proxySwitchBlocked) onSwitch(account.id);
+              if (!account.active && !switchBlocked) onSwitch(account.id);
             }}
             onContextMenu={(event) => {
               if ((event.target as HTMLElement).closest("button, a, input, textarea, summary, details")) return;
@@ -541,8 +551,8 @@ export function AccountTable({
                     setResetCreditsAccount(account);
                     onLoadResetCredits(account.id);
                   }}><CalendarClock size={14} />{t("table.viewResetCredits")}</button>
-                  {hotSwitchEnabled && <Tooltip title={proxySwitchBlocked ? t("providers.proxy.agentIdentityUnsupported") : t("table.autoSwitchTooltip")}>
-                    <button type="button" disabled={proxySwitchBlocked || autoSwitchBusyAccountId !== null}
+                  {hotSwitchEnabled && <Tooltip title={switchBlocked ? switchBlockedReason : t("table.autoSwitchTooltip")}>
+                    <button type="button" disabled={switchBlocked || autoSwitchBusyAccountId !== null}
                       onClick={() => {
                         setContextMenu(null);
                         onAutoSwitchEnabledChange(account.id, !account.autoSwitchEnabled);

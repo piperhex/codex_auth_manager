@@ -413,7 +413,9 @@ pub(crate) fn import_value<R: Runtime>(
     if should_activate {
         let proxy_running = crate::local_proxy::is_running();
         let can_activate = if proxy_running {
-            !crate::auth::is_agent_identity_auth(&auth)
+            true
+        } else if crate::auth::is_agent_identity_auth(&auth) {
+            false
         } else {
             crate::commands::sync_current_auth_if_client_stopped(&paths, &auth)?
         };
@@ -444,7 +446,10 @@ pub(crate) fn sync_current_into_store<R: Runtime>(app: &tauri::AppHandle<R>) -> 
     // The current auth file remains on disk while a third-party Provider is active,
     // but it is not the selected runtime identity in that mode. Do not let a routine
     // sync turn that stored credential back into the active official account.
-    if state.active_provider_id.is_none() && state.active_account_id.as_deref() != Some(&id) {
+    if state.active_provider_id.is_none()
+        && state.active_account_id.as_deref() != Some(&id)
+        && (crate::local_proxy::is_running() || !crate::auth::is_agent_identity_auth(&auth))
+    {
         state.active_account_id = Some(id);
         write_state(&paths, &state)?;
     }

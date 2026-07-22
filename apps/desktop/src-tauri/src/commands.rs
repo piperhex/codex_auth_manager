@@ -138,6 +138,7 @@ pub(crate) fn list_accounts<R: Runtime>(
             write_managed_auth_if_changed(&paths, &id, &auth)?;
         }
         let local_proxy_compatible = true;
+        let direct_switch_compatible = !is_agent_identity_auth(&auth);
         let auto_switch_enabled = !state.disabled_account_ids.contains(&id);
         accounts.push(AccountSummary {
             active: active_id.as_deref() == Some(&id),
@@ -150,6 +151,7 @@ pub(crate) fn list_accounts<R: Runtime>(
             account_id,
             auto_switch_enabled,
             local_proxy_compatible,
+            direct_switch_compatible,
         });
     }
     accounts.sort_by(|left, right| left.email.cmp(&right.email));
@@ -655,7 +657,13 @@ fn switch_account_unlocked<R: Runtime>(app: &tauri::AppHandle<R>, id: &str) -> R
     Ok(())
 }
 
-fn ensure_account_switch_allowed(_auth: &Value, _proxy_running: bool) -> Result<(), String> {
+fn ensure_account_switch_allowed(auth: &Value, proxy_running: bool) -> Result<(), String> {
+    if !proxy_running && is_agent_identity_auth(auth) {
+        return Err(
+            "Agent Identity 账号只能在本地代理模式下切换。请先启动本地代理，再切换到该账号"
+                .to_string(),
+        );
+    }
     Ok(())
 }
 
@@ -2055,10 +2063,11 @@ mod compatible_json_import_tests {
     }
 
     #[test]
-    fn allows_agent_identity_switches_while_local_proxy_is_running() {
+    fn allows_agent_identity_switches_only_while_local_proxy_is_running() {
         let auth = agent_identity_auth();
-        ensure_account_switch_allowed(&auth, false).unwrap();
         ensure_account_switch_allowed(&auth, true).unwrap();
+        let error = ensure_account_switch_allowed(&auth, false).unwrap_err();
+        assert!(error.contains("本地代理模式"));
     }
 
     #[test]

@@ -551,7 +551,8 @@ pub(crate) fn stop_local_proxy<R: Runtime>(
     // Validate the selected credential before interrupting the client. The managed
     // copy is loaded again after shutdown so auth.json receives the latest tokens.
     if let Some(account_id) = selected_account_id.as_deref() {
-        crate::commands::load_validated_managed_auth(&paths, account_id)?;
+        let auth = crate::commands::load_validated_managed_auth(&paths, account_id)?;
+        ensure_proxy_can_stop_with_auth(&auth)?;
     }
 
     let client_was_running = crate::commands::chatgpt_or_codex_is_running()?;
@@ -593,6 +594,16 @@ pub(crate) fn stop_local_proxy<R: Runtime>(
         )
     })?;
     Ok(proxy_status)
+}
+
+fn ensure_proxy_can_stop_with_auth(auth: &Value) -> Result<(), String> {
+    if is_agent_identity_auth(auth) {
+        return Err(
+            "当前账号使用 Agent Identity，只能在本地代理模式下使用。请先在代理模式中切换到 OAuth Token 或其他非 Agent Identity 账号，再停止代理"
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -3972,6 +3983,7 @@ fn unix_millis() -> u128 {
 mod tests {
     use super::*;
     use crate::models::UsageWindow;
+    use serde_json::json;
     use std::io::{Cursor, Read};
     use std::sync::mpsc;
 
@@ -3979,6 +3991,18 @@ mod tests {
     fn proxy_bind_host_uses_loopback_unless_lan_listening_is_enabled() {
         assert_eq!(proxy_bind_host(false), LOCAL_PROXY_HOST);
         assert_eq!(proxy_bind_host(true), LOCAL_PROXY_LAN_HOST);
+    }
+
+    #[test]
+    fn proxy_cannot_stop_while_an_agent_identity_is_selected() {
+        let error = ensure_proxy_can_stop_with_auth(&json!({
+            "auth_mode": "agentIdentity",
+            "agent_identity": {}
+        }))
+        .unwrap_err();
+
+        assert!(error.contains("先在代理模式中切换"));
+        ensure_proxy_can_stop_with_auth(&json!({ "auth_mode": "chatgpt" })).unwrap();
     }
 
     fn account_with_usage(id: &str, primary: f64, secondary: f64) -> AccountSummary {
@@ -3992,6 +4016,7 @@ mod tests {
             active: id == "current",
             auto_switch_enabled: true,
             local_proxy_compatible: true,
+            direct_switch_compatible: true,
             usage: UsageSummary {
                 primary: Some(UsageWindow {
                     used_percent: 100.0 - primary,
