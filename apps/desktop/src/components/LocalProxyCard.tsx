@@ -1,10 +1,11 @@
-import { Button, Popconfirm, Switch, Tag, Tooltip } from "antd";
+import { Button, Popconfirm, Select, Switch, Tag, Tooltip } from "antd";
 import { History, Power, PowerOff, RadioTower } from "lucide-react";
 import type { Translate } from "../i18n";
-import type { LocalProxyStatus } from "../types";
+import type { Account, LocalProxyStatus } from "../types";
 
 interface LocalProxyCardProps {
   localProxy: LocalProxyStatus | null;
+  accounts: Account[];
   proxyBusy: boolean;
   conversationRestoreBusy: boolean;
   onStartProxy: () => void;
@@ -12,6 +13,7 @@ interface LocalProxyCardProps {
   onRestoreConversations: () => void;
   onAutoSwitchChange: (enabled: boolean) => void;
   onAutoDisableUnreachableChange: (enabled: boolean) => void;
+  onImageAccountChange: (accountId: string | null) => void;
   onListenOnAllInterfacesChange: (enabled: boolean) => void;
   startDisabledReason?: string;
   t: Translate;
@@ -19,6 +21,7 @@ interface LocalProxyCardProps {
 
 export function LocalProxyCard({
   localProxy,
+  accounts,
   proxyBusy,
   conversationRestoreBusy,
   onStartProxy,
@@ -26,11 +29,15 @@ export function LocalProxyCard({
   onRestoreConversations,
   onAutoSwitchChange,
   onAutoDisableUnreachableChange,
+  onImageAccountChange,
   onListenOnAllInterfacesChange,
   startDisabledReason,
   t,
 }: LocalProxyCardProps) {
   const proxyRunning = Boolean(localProxy?.running);
+  const activeAccount = accounts.find((account) => account.active);
+  const imageAccounts = accounts.filter((account) => !account.agentIdentity);
+  const showImageAccountSelect = proxyRunning && Boolean(activeAccount?.agentIdentity);
   const proxyBaseUrl = localProxy?.baseUrl ?? "http://127.0.0.1:15722/v1";
   const actionButton = (
     <Button size="small" type={proxyRunning ? "default" : "primary"} loading={proxyBusy}
@@ -51,6 +58,27 @@ export function LocalProxyCard({
         </div>
       </div>
       <div className="provider-official-actions">
+        {showImageAccountSelect && (
+          <Tooltip title={t("providers.proxy.imageAccountTooltip")}>
+            <Select
+              className="proxy-image-account"
+              size="small"
+              aria-label={t("providers.proxy.imageAccount")}
+              value={localProxy?.imageGenerationAccountId ?? undefined}
+              options={imageAccounts.map((account) => ({
+                label: account.email,
+                value: account.id,
+              }))}
+              placeholder={t(imageAccounts.length
+                ? "providers.proxy.imageAccountPlaceholder"
+                : "providers.proxy.imageAccountEmpty")}
+              disabled={proxyBusy || imageAccounts.length === 0}
+              showSearch
+              optionFilterProp="label"
+              onChange={(value) => onImageAccountChange(value)}
+            />
+          </Tooltip>
+        )}
         <Tag className={proxyRunning ? "current-tag" : undefined}>
           {proxyRunning ? t("providers.proxy.running") : t("providers.proxy.stopped")}
         </Tag>

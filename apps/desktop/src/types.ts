@@ -23,6 +23,7 @@ export interface Account {
   autoSwitchEnabled: boolean;
   localProxyCompatible: boolean;
   directSwitchCompatible: boolean;
+  agentIdentity: boolean;
   usage: UsageSummary;
 }
 
@@ -83,6 +84,7 @@ export interface LocalProxyStatus {
   autoSwitchOnQuotaExhaustion: boolean;
   autoDisableUnreachableAccounts: boolean;
   listenOnAllInterfaces: boolean;
+  imageGenerationAccountId?: string | null;
 }
 
 export interface DirectConversationSyncResult {

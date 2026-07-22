@@ -5,10 +5,11 @@ import { Check, Pencil, Plus, RefreshCw, RotateCcw, Save, Server, Trash2, X } fr
 import { LocalProxyCard } from "../components/LocalProxyCard";
 import type { AccountDisplayMode } from "../hooks/useAccountDisplayMode";
 import type { Translate } from "../i18n";
-import type { AppInfo, LocalProxyStatus, Provider, ProviderApiFormat, ProviderInput } from "../types";
+import type { Account, AppInfo, LocalProxyStatus, Provider, ProviderApiFormat, ProviderInput } from "../types";
 
 interface ProvidersPageProps {
   providers: Provider[];
+  accounts: Account[];
   loading: boolean;
   busyProviderId: string | null;
   saving: boolean;
@@ -26,6 +27,7 @@ interface ProvidersPageProps {
   onRestoreConversations: () => void;
   onAutoSwitchChange: (enabled: boolean) => void;
   onAutoDisableUnreachableChange: (enabled: boolean) => void;
+  onImageAccountChange: (accountId: string | null) => void;
   onListenOnAllInterfacesChange: (enabled: boolean) => void;
   displayMode: AccountDisplayMode;
   t: Translate;
@@ -198,6 +200,7 @@ function ProviderModelControlCell({
 
 export function ProvidersPage({
   providers,
+  accounts,
   loading,
   busyProviderId,
   saving,
@@ -215,6 +218,7 @@ export function ProvidersPage({
   onRestoreConversations,
   onAutoSwitchChange,
   onAutoDisableUnreachableChange,
+  onImageAccountChange,
   onListenOnAllInterfacesChange,
   displayMode,
   t,
@@ -316,12 +320,13 @@ export function ProvidersPage({
 
   return (
     <div className="provider-page">
-      <LocalProxyCard localProxy={localProxy} proxyBusy={proxyBusy}
+      <LocalProxyCard localProxy={localProxy} accounts={accounts} proxyBusy={proxyBusy}
         conversationRestoreBusy={conversationRestoreBusy}
         onStartProxy={onStartProxy} onStopProxy={onStopProxy}
         onRestoreConversations={onRestoreConversations}
         onAutoSwitchChange={onAutoSwitchChange}
         onAutoDisableUnreachableChange={onAutoDisableUnreachableChange}
+        onImageAccountChange={onImageAccountChange}
         onListenOnAllInterfacesChange={onListenOnAllInterfacesChange} t={t} />
 
       <div className="provider-toolbar">

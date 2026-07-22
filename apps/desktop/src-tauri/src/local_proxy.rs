@@ -21,8 +21,8 @@ use crate::{
     auth::{account_fields, is_agent_identity_auth, token_string, validate_auth},
     codex_api::{refresh_tokens, token_expiring, ORIGINATOR},
     models::{
-        AccountSummary, DailyTokenUsage, LocalProxyStatus, ProviderApiFormat, ProviderProfile,
-        ProxyOnboardingStatus, TokenUsageEntry, UsageSummary,
+        AccountSummary, DailyTokenUsage, LocalProxyStatus, ManagerStateFile, ProviderApiFormat,
+        ProviderProfile, ProxyOnboardingStatus, TokenUsageEntry, UsageSummary,
     },
     providers::{
         self, LOCAL_PROXY_ACTOR_AUTHORIZATION_HEADER, LOCAL_PROXY_BASE_URL, LOCAL_PROXY_HOST,
@@ -346,6 +346,7 @@ fn status<R: Runtime>(app: &tauri::AppHandle<R>) -> LocalProxyStatus {
         auto_switch_on_quota_exhaustion,
         auto_disable_unreachable_accounts,
         listen_on_all_interfaces,
+        image_generation_account_id,
     ) = resolve_paths(app)
         .map(|paths| {
             let state = read_state(&paths);
@@ -353,9 +354,10 @@ fn status<R: Runtime>(app: &tauri::AppHandle<R>) -> LocalProxyStatus {
                 state.auto_switch_on_quota_exhaustion,
                 state.auto_disable_unreachable_accounts,
                 state.local_proxy_listen_on_all_interfaces,
+                state.image_generation_account_id,
             )
         })
-        .unwrap_or((false, false, false));
+        .unwrap_or((false, false, false, None));
     LocalProxyStatus {
         running: is_running(),
         address: proxy_bind_host(listen_on_all_interfaces).to_string(),
@@ -364,6 +366,7 @@ fn status<R: Runtime>(app: &tauri::AppHandle<R>) -> LocalProxyStatus {
         auto_switch_on_quota_exhaustion,
         auto_disable_unreachable_accounts,
         listen_on_all_interfaces,
+        image_generation_account_id,
     }
 }
 
@@ -645,6 +648,40 @@ pub(crate) fn set_auto_disable_unreachable_accounts<R: Runtime>(
     Ok(status(&app))
 }
 
+#[tauri::command]
+pub(crate) fn set_image_generation_account<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    account_id: Option<String>,
+) -> Result<LocalProxyStatus, String> {
+    if !is_running() {
+        return Err(
+            "Start the local proxy before selecting an image generation account".to_string(),
+        );
+    }
+
+    let paths = resolve_paths(&app)?;
+    let account_id = account_id.filter(|value| !value.trim().is_empty());
+    if let Some(account_id) = account_id.as_deref() {
+        let auth = crate::commands::load_validated_managed_auth(&paths, account_id)?;
+        if is_agent_identity_auth(&auth) || token_string(&auth, "access_token").is_none() {
+            return Err("Image generation account must use an OAuth token".to_string());
+        }
+    }
+
+    let mut state = read_state(&paths);
+    state.image_generation_account_id = account_id;
+    write_state(&paths, &state)?;
+    app.emit("providers-changed", ())
+        .map_err(|error| error.to_string())?;
+    Ok(status(&app))
+}
+
+#[derive(Clone, Copy)]
+enum OfficialCredentialPurpose {
+    Default,
+    ImageGeneration,
+}
+
 enum OfficialRequestAuthentication {
     OAuth {
         access_token: String,
@@ -903,6 +940,12 @@ where
         return Ok(response);
     }
 
+    let paths = resolve_paths(app)?;
+    let state = read_state(&paths);
+    if !credential_matches_active_account(&state, response.token_usage_account.as_ref()) {
+        return Ok(response);
+    }
+
     match auto_switch_official_account(app) {
         Ok(Some(_)) => retry(),
         Ok(None) => Ok(response),
@@ -913,6 +956,15 @@ where
             Ok(response)
         }
     }
+}
+
+fn credential_matches_active_account(
+    state: &ManagerStateFile,
+    token_usage_account: Option<&TokenUsageAccount>,
+) -> bool {
+    token_usage_account.is_none_or(|account| {
+        state.active_account_id.as_deref() == Some(account.account_id.as_str())
+    })
 }
 
 fn is_official_quota_exhaustion(payload: &UpstreamPayload) -> bool {
@@ -2125,8 +2177,13 @@ fn forward_official<R: Runtime>(
     model: &str,
 ) -> Result<UpstreamPayload, String> {
     let client = http_client()?;
-    let mut credentials = official_credentials(app, &client)?;
     let upstream_endpoint = upstream_endpoint_for_codex_request(url);
+    let credential_purpose = if is_image_generation_endpoint(request_path(&upstream_endpoint)) {
+        OfficialCredentialPurpose::ImageGeneration
+    } else {
+        OfficialCredentialPurpose::Default
+    };
+    let mut credentials = official_credentials(app, &client, credential_purpose)?;
     let upstream_url = official_url(&upstream_endpoint);
     let body = official_body_for_upstream(method, &upstream_endpoint, body, model);
     let mut payload = send_official_request(
@@ -2360,18 +2417,28 @@ fn selected_official_model(body: &Value, fallback: &str) -> String {
 fn official_credentials<R: Runtime>(
     app: &tauri::AppHandle<R>,
     client: &Client,
+    purpose: OfficialCredentialPurpose,
 ) -> Result<OfficialProxyCredentials, String> {
     let paths = resolve_paths(app)?;
-    let active_account_id = read_state(&paths)
+    let state = read_state(&paths);
+    let active_account_id = state
         .active_account_id
+        .as_deref()
         .ok_or_else(|| "Select an official account before using the local proxy".to_string())?;
-    let mut auth = read_json(&managed_auth_path(&paths, &active_account_id))?;
+    let active_auth = read_json(&managed_auth_path(&paths, active_account_id))?;
+    validate_auth(&active_auth)?;
+    let credential_account_id = credential_account_id(&state, &active_auth, purpose)?;
+    let mut auth = if credential_account_id == active_account_id {
+        active_auth
+    } else {
+        read_json(&managed_auth_path(&paths, &credential_account_id))?
+    };
     validate_auth(&auth)?;
     let (_, _, _, auth_account_id) = account_fields(&auth)?;
-    if auth_account_id != active_account_id {
+    if auth_account_id != credential_account_id {
         return Err(format!(
             "Managed proxy credential does not match the selected account: selected={}, credential={}",
-            active_account_id, auth_account_id
+            credential_account_id, auth_account_id
         ));
     }
     let (email, _, account_id, id) = account_fields(&auth)?;
@@ -2379,13 +2446,18 @@ fn official_credentials<R: Runtime>(
         account_id: id,
         account_email: email,
     };
+    if matches!(purpose, OfficialCredentialPurpose::ImageGeneration)
+        && is_agent_identity_auth(&auth)
+    {
+        return Err("Select a non-Agent Identity OAuth account for image generation".to_string());
+    }
     if is_agent_identity_auth(&auth) {
         if agent_identity::ensure_task(client, &mut auth)? {
-            write_managed_auth_if_changed(&paths, &active_account_id, &auth)?;
+            write_managed_auth_if_changed(&paths, &credential_account_id, &auth)?;
         }
         return Ok(OfficialProxyCredentials {
             authentication: OfficialRequestAuthentication::AgentIdentity {
-                active_account_id,
+                active_account_id: credential_account_id,
                 request_authentication: agent_identity::request_authentication(&auth)?,
                 auth,
             },
@@ -2396,7 +2468,7 @@ fn official_credentials<R: Runtime>(
         refresh_tokens(client, &mut auth)?;
         // An old in-flight request must not overwrite Codex's watched auth.json after a
         // hot switch.  Refresh only the managed credential for the account it started with.
-        write_managed_auth_if_changed(&paths, &active_account_id, &auth)?;
+        write_managed_auth_if_changed(&paths, &credential_account_id, &auth)?;
     }
     let access_token = token_string(&auth, "access_token")
         .ok_or_else(|| "auth.json is missing tokens.access_token".to_string())?
@@ -2408,6 +2480,26 @@ fn official_credentials<R: Runtime>(
         },
         token_usage_account,
     })
+}
+
+fn credential_account_id(
+    state: &ManagerStateFile,
+    active_auth: &Value,
+    purpose: OfficialCredentialPurpose,
+) -> Result<String, String> {
+    let active_account_id = state
+        .active_account_id
+        .as_deref()
+        .ok_or_else(|| "Select an official account before using the local proxy".to_string())?;
+    if !matches!(purpose, OfficialCredentialPurpose::ImageGeneration)
+        || !is_agent_identity_auth(active_auth)
+    {
+        return Ok(active_account_id.to_string());
+    }
+    state
+        .image_generation_account_id
+        .clone()
+        .ok_or_else(|| "Select a non-Agent Identity OAuth account for image generation".to_string())
 }
 
 fn invalid_agent_identity_task_response(
@@ -2602,6 +2694,20 @@ fn normalized_responses_endpoint(path: &str) -> Option<&'static str> {
         | "/codex/v1/responses/compact" => Some("/v1/responses/compact"),
         _ => None,
     }
+}
+
+fn is_image_generation_endpoint(path: &str) -> bool {
+    matches!(
+        path,
+        "/images/generations"
+            | "/v1/images/generations"
+            | "/v1/v1/images/generations"
+            | "/codex/v1/images/generations"
+            | "/images/edits"
+            | "/v1/images/edits"
+            | "/v1/v1/images/edits"
+            | "/codex/v1/images/edits"
+    )
 }
 
 fn status_ok(status: u16) -> bool {
@@ -4017,6 +4123,7 @@ mod tests {
             auto_switch_enabled: true,
             local_proxy_compatible: true,
             direct_switch_compatible: true,
+            agent_identity: false,
             usage: UsageSummary {
                 primary: Some(UsageWindow {
                     used_percent: 100.0 - primary,
@@ -4114,6 +4221,95 @@ mod tests {
         );
         assert!(is_responses_endpoint("/v1/v1/responses"));
         assert!(is_responses_endpoint("/codex/v1/responses/compact"));
+    }
+
+    #[test]
+    fn image_endpoints_use_the_image_generation_credential_purpose() {
+        assert!(is_image_generation_endpoint("/images/generations"));
+        assert!(is_image_generation_endpoint("/v1/images/generations"));
+        assert!(is_image_generation_endpoint("/v1/images/edits"));
+        assert!(is_image_generation_endpoint("/codex/v1/images/edits"));
+        assert!(!is_image_generation_endpoint("/v1/responses"));
+    }
+
+    #[test]
+    fn image_requests_use_the_configured_oauth_account_for_agent_identity() {
+        let mut state = ManagerStateFile {
+            active_account_id: Some("agent-identity".to_string()),
+            image_generation_account_id: Some("oauth-account".to_string()),
+            ..ManagerStateFile::default()
+        };
+        let agent_identity_auth = json!({
+            "auth_mode": "agentIdentity",
+            "agent_identity": {}
+        });
+
+        assert_eq!(
+            credential_account_id(
+                &state,
+                &agent_identity_auth,
+                OfficialCredentialPurpose::Default
+            )
+            .unwrap(),
+            "agent-identity"
+        );
+        assert_eq!(
+            credential_account_id(
+                &state,
+                &agent_identity_auth,
+                OfficialCredentialPurpose::ImageGeneration
+            )
+            .unwrap(),
+            "oauth-account"
+        );
+
+        state.image_generation_account_id = None;
+        assert!(credential_account_id(
+            &state,
+            &agent_identity_auth,
+            OfficialCredentialPurpose::ImageGeneration
+        )
+        .unwrap_err()
+        .contains("non-Agent Identity OAuth account"));
+    }
+
+    #[test]
+    fn image_requests_keep_using_an_active_oauth_account() {
+        let state = ManagerStateFile {
+            active_account_id: Some("active-oauth".to_string()),
+            image_generation_account_id: Some("备用-oauth".to_string()),
+            ..ManagerStateFile::default()
+        };
+
+        assert_eq!(
+            credential_account_id(
+                &state,
+                &json!({ "auth_mode": "chatgpt" }),
+                OfficialCredentialPurpose::ImageGeneration
+            )
+            .unwrap(),
+            "active-oauth"
+        );
+    }
+
+    #[test]
+    fn fallback_image_credentials_cannot_trigger_a_main_account_switch() {
+        let state = ManagerStateFile {
+            active_account_id: Some("agent-identity".to_string()),
+            image_generation_account_id: Some("oauth-account".to_string()),
+            ..ManagerStateFile::default()
+        };
+        let active = TokenUsageAccount {
+            account_id: "agent-identity".to_string(),
+            account_email: "agent@example.com".to_string(),
+        };
+        let fallback = TokenUsageAccount {
+            account_id: "oauth-account".to_string(),
+            account_email: "oauth@example.com".to_string(),
+        };
+
+        assert!(credential_matches_active_account(&state, Some(&active)));
+        assert!(!credential_matches_active_account(&state, Some(&fallback)));
     }
 
     #[test]

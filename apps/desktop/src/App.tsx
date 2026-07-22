@@ -765,7 +765,8 @@ function DashboardApp() {
               onLanguageChange={setLanguage} t={t} />
           </section>
           <section className="page-panel" hidden={page !== "providers"}>
-            <MemoProvidersPage providers={providerManager.providers} loading={providerManager.loading}
+            <MemoProvidersPage providers={providerManager.providers} accounts={manager.accounts}
+              loading={providerManager.loading}
               busyProviderId={providerManager.busyProviderId} saving={providerManager.saving}
               localProxy={providerManager.localProxy} proxyBusy={providerManager.proxyBusy}
               conversationRestoreBusy={providerManager.conversationRestoreBusy}
@@ -776,6 +777,7 @@ function DashboardApp() {
               onRestoreConversations={providerManager.restoreConversations}
               onAutoSwitchChange={providerManager.setProxyAutoSwitch}
               onAutoDisableUnreachableChange={providerManager.setProxyAutoDisableUnreachable}
+              onImageAccountChange={providerManager.setProxyImageAccount}
               onListenOnAllInterfacesChange={providerManager.setProxyListenOnAllInterfaces}
               displayMode={accountDisplayMode.displayMode} t={t} />
           </section>
@@ -805,6 +807,7 @@ function DashboardApp() {
               onRestoreConversations={providerManager.restoreConversations}
               onAutoSwitchChange={providerManager.setProxyAutoSwitch}
               onAutoDisableUnreachableChange={providerManager.setProxyAutoDisableUnreachable}
+              onImageAccountChange={providerManager.setProxyImageAccount}
               onListenOnAllInterfacesChange={providerManager.setProxyListenOnAllInterfaces}
               privacyMode={privacyMode.enabled}
               displayMode={accountDisplayMode.displayMode}

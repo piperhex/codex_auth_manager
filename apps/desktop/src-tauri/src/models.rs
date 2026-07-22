@@ -15,6 +15,7 @@ pub(crate) struct AccountSummary {
     pub(crate) auto_switch_enabled: bool,
     pub(crate) local_proxy_compatible: bool,
     pub(crate) direct_switch_compatible: bool,
+    pub(crate) agent_identity: bool,
     pub(crate) usage: UsageSummary,
 }
 
@@ -65,6 +66,8 @@ pub(crate) struct ManagerStateFile {
     pub(crate) auto_disable_unreachable_accounts: bool,
     #[serde(default)]
     pub(crate) local_proxy_listen_on_all_interfaces: bool,
+    #[serde(default)]
+    pub(crate) image_generation_account_id: Option<String>,
     #[serde(default)]
     pub(crate) disabled_account_ids: Vec<String>,
 }
@@ -127,6 +130,7 @@ pub(crate) struct LocalProxyStatus {
     pub(crate) auto_switch_on_quota_exhaustion: bool,
     pub(crate) auto_disable_unreachable_accounts: bool,
     pub(crate) listen_on_all_interfaces: bool,
+    pub(crate) image_generation_account_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -356,6 +360,7 @@ mod tests {
         assert!(!state.auto_switch_on_quota_exhaustion);
         assert!(!state.auto_disable_unreachable_accounts);
         assert!(!state.local_proxy_listen_on_all_interfaces);
+        assert!(state.image_generation_account_id.is_none());
         assert!(state.disabled_account_ids.is_empty());
     }
 

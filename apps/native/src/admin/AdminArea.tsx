@@ -11,8 +11,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Toast } from '@ant-design/react-native';
 import { adminRequest } from '../api/client';
+import { Toast } from '../components/AppToast';
 import { BottomSheet } from '../components/BottomSheet';
 import type {
   AdminDashboardOverview,
@@ -22,6 +22,7 @@ import type {
   AdminRole,
   AdminUser,
   AuthSession,
+  InvitationRegisteredUser,
   PageResult,
   UserProfile,
 } from '../types';
@@ -640,11 +641,17 @@ function InvitationsPage({ session, profile, onBack }: AdminAreaProps & { onBack
   const [hours, setHours] = useState('72');
   const [neverExpires, setNeverExpires] = useState(false);
   const [usersInvite, setUsersInvite] = useState<AdminInvitation | null>(null);
-  const [registeredUsers, setRegisteredUsers] = useState<Array<{ id: string; email: string; role: string; giftedAccountCount: number; registeredAt: string }>>([]);
+  const [registeredUsers, setRegisteredUsers] = useState<InvitationRegisteredUser[]>([]);
   const [registeredLoading, setRegisteredLoading] = useState(false);
+  const [giftUser, setGiftUser] = useState<InvitationRegisteredUser | null>(null);
+  const [giftAccounts, setGiftAccounts] = useState<PageResult<AdminOfficialAccount>>(EMPTY_PAGE);
+  const [giftSelectedIds, setGiftSelectedIds] = useState<string[]>([]);
+  const [giftLoading, setGiftLoading] = useState(false);
+  const [giftSaving, setGiftSaving] = useState(false);
   const [revoking, setRevoking] = useState<AdminInvitation | null>(null);
   const [revokingBusy, setRevokingBusy] = useState(false);
   const canManage = has(profile, 'admin.invitations.manage');
+  const canGiftAccounts = has(profile, 'admin.official-accounts.manage');
 
   const load = useCallback(async (page = data.page) => {
     setLoading(true);
@@ -695,10 +702,55 @@ function InvitationsPage({ session, profile, onBack }: AdminAreaProps & { onBack
     setRegisteredUsers([]);
     setRegisteredLoading(true);
     try {
-      const result = await adminRequest<PageResult<{ id: string; email: string; role: string; giftedAccountCount: number; registeredAt: string }>>(session, `/admin/api/invitations/${item.id}/users?page=1&pageSize=100`);
+      const result = await adminRequest<PageResult<InvitationRegisteredUser>>(session, `/admin/api/invitations/${item.id}/users?page=1&pageSize=100`);
       setRegisteredUsers(result.items);
     } catch (error) { setUsersInvite(null); Toast.fail(messageOf(error)); }
     finally { setRegisteredLoading(false); }
+  }
+
+  async function loadGiftAccounts(page = 1) {
+    setGiftLoading(true);
+    try {
+      const query = new URLSearchParams({
+        page: String(page),
+        pageSize: String(giftAccounts.pageSize),
+        sortBy: 'boundUserCount',
+        sortOrder: 'asc',
+      });
+      setGiftAccounts(await adminRequest<PageResult<AdminOfficialAccount>>(session, `/admin/api/official-accounts?${query}`));
+    } catch (error) { Toast.fail(messageOf(error)); }
+    finally { setGiftLoading(false); }
+  }
+
+  function openGift(user: InvitationRegisteredUser) {
+    if (!user.userId) {
+      Toast.fail('该注册记录未关联有效用户');
+      return;
+    }
+    setGiftUser(user);
+    setGiftAccounts(EMPTY_PAGE);
+    setGiftSelectedIds([]);
+    void loadGiftAccounts(1);
+  }
+
+  async function confirmGift() {
+    if (!giftUser?.userId || !giftSelectedIds.length) {
+      Toast.fail('请至少选择一个官方账号');
+      return;
+    }
+    setGiftSaving(true);
+    try {
+      const result = await adminRequest<{ count: number }>(session, '/admin/api/official-accounts/bind', {
+        method: 'POST',
+        body: JSON.stringify({ systemAccountIds: giftSelectedIds, userIds: [giftUser.userId] }),
+      });
+      Toast.success(result.count
+        ? `已向 ${giftUser.email} 赠送 ${result.count} 个账号`
+        : '所选账号均已赠送，无需重复操作');
+      setGiftUser(null);
+      if (usersInvite) await openRegisteredUsers(usersInvite);
+    } catch (error) { Toast.fail(messageOf(error)); }
+    finally { setGiftSaving(false); }
   }
 
   async function confirmRevoke() {
@@ -779,7 +831,7 @@ function InvitationsPage({ session, profile, onBack }: AdminAreaProps & { onBack
     </BottomSheet>
 
     <BottomSheet
-      visible={Boolean(usersInvite)}
+      visible={Boolean(usersInvite) && !giftUser}
       title="已注册用户"
       subtitle={usersInvite?.email || '任意邮箱邀请'}
       onClose={() => setUsersInvite(null)}
@@ -792,8 +844,45 @@ function InvitationsPage({ session, profile, onBack }: AdminAreaProps & { onBack
         {registeredUsers.map((user) => <View key={user.id} style={styles.personRow}>
           <View style={[styles.miniAvatar, { backgroundColor: COLORS.blueSoft }]}><Text style={[styles.miniAvatarText, { color: COLORS.blue }]}>{user.email.slice(0, 2).toUpperCase()}</Text></View>
           <View style={styles.personCopy}><Text style={styles.personName} numberOfLines={1}>{user.email}</Text><Text style={styles.personMeta}>{user.role} · {formatDate(user.registeredAt)}</Text></View>
-          <Pill tone="purple">{user.giftedAccountCount} 个账号</Pill>
+          <View style={styles.personActions}>
+            <Pill tone="purple">{user.giftedAccountCount} 个账号</Pill>
+            {canGiftAccounts && user.userId ? <AdminButton label="赠送" tone="primary" compact onPress={() => openGift(user)} /> : null}
+          </View>
         </View>)}
+      </ScrollView>
+    </BottomSheet>
+
+    <BottomSheet
+      visible={Boolean(giftUser)}
+      title="赠送官方账号"
+      subtitle={giftUser?.email}
+      onClose={() => setGiftUser(null)}
+      dismissible={!giftSaving}
+      tall
+      actions={[
+        { label: '取消', onPress: () => setGiftUser(null), disabled: giftSaving },
+        { label: `赠送 ${giftSelectedIds.length} 个`, tone: 'primary', onPress: confirmGift, loading: giftSaving, disabled: giftLoading || !giftSelectedIds.length },
+      ]}
+    >
+      <Text style={styles.giftHint}>可选择一个或多个账号，已绑定用户较少的账号优先显示。</Text>
+      <ScrollView style={styles.bindingList}>
+        {giftLoading ? <View style={styles.sheetLoading}><ActivityIndicator color={COLORS.primary} /><Text style={styles.stateDescription}>正在读取官方账号池…</Text></View> : null}
+        {!giftLoading && !giftAccounts.items.length ? <Text style={styles.inlineEmpty}>官方账号池暂无可赠送账号</Text> : null}
+        {giftAccounts.items.map((account) => {
+          const checked = giftSelectedIds.includes(account.id);
+          return <Pressable
+            key={account.id}
+            onPress={() => setGiftSelectedIds((ids) => checked ? ids.filter((id) => id !== account.id) : [...ids, account.id])}
+            style={({ pressed }) => [styles.checkRow, checked && styles.checkRowActive, pressed && styles.pressed]}
+          >
+            <View style={[styles.checkbox, checked && styles.checkboxChecked]}><Text style={styles.checkboxText}>{checked ? '✓' : ''}</Text></View>
+            <View style={styles.checkCopy}>
+              <Text style={styles.checkLabel} numberOfLines={1}>{account.email}</Text>
+              <Text style={styles.checkMeta} numberOfLines={1}>{account.plan || 'ChatGPT'} · 已绑定 {account.boundUserCount} 人{account.note ? ` · ${account.note}` : ''}</Text>
+            </View>
+          </Pressable>;
+        })}
+        <Pager value={giftAccounts} onChange={(page) => void loadGiftAccounts(page)} />
       </ScrollView>
     </BottomSheet>
 
@@ -1205,6 +1294,8 @@ const styles = StyleSheet.create({
   personCopy: { flex: 1, minWidth: 0, marginLeft: 10, marginRight: 7 },
   personName: { color: COLORS.ink, fontSize: 12, fontWeight: '800' },
   personMeta: { color: COLORS.faint, fontSize: 10, marginTop: 3 },
+  personActions: { alignItems: 'flex-end', gap: 7 },
+  giftHint: { color: COLORS.muted, fontSize: 11, lineHeight: 17, marginBottom: 12 },
   detailContentBox: { borderRadius: 15, backgroundColor: COLORS.canvas, padding: 15, marginBottom: 18 },
   detailContent: { color: '#2d4137', fontSize: 14, lineHeight: 23 },
   sheetSectionLabel: { color: COLORS.faint, fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: 8 },

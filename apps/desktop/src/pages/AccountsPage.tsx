@@ -28,6 +28,7 @@ export function AccountsPage({
   onRestoreConversations,
   onAutoSwitchChange,
   onAutoDisableUnreachableChange,
+  onImageAccountChange,
   onListenOnAllInterfacesChange,
   privacyMode,
   displayMode,
@@ -58,6 +59,7 @@ export function AccountsPage({
   onRestoreConversations: () => void;
   onAutoSwitchChange: (enabled: boolean) => void;
   onAutoDisableUnreachableChange: (enabled: boolean) => void;
+  onImageAccountChange: (accountId: string | null) => void;
   onListenOnAllInterfacesChange: (enabled: boolean) => void;
   privacyMode: boolean;
   displayMode: AccountDisplayMode;
@@ -73,13 +75,14 @@ export function AccountsPage({
     : undefined;
   const proxyCard = (
     <div className="home-proxy-wrap">
-      <LocalProxyCard localProxy={localProxy} proxyBusy={proxyBusy}
+      <LocalProxyCard localProxy={localProxy} accounts={accounts} proxyBusy={proxyBusy}
         conversationRestoreBusy={conversationRestoreBusy}
         startDisabledReason={proxyStartDisabledReason}
         onStartProxy={onStartProxy} onStopProxy={onStopProxy}
         onRestoreConversations={onRestoreConversations}
         onAutoSwitchChange={onAutoSwitchChange}
         onAutoDisableUnreachableChange={onAutoDisableUnreachableChange}
+        onImageAccountChange={onImageAccountChange}
         onListenOnAllInterfacesChange={onListenOnAllInterfacesChange} t={t} />
     </div>
   );

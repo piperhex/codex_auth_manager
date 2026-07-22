@@ -134,6 +134,7 @@ pub fn run() {
             local_proxy::stop_local_proxy,
             local_proxy::set_auto_switch_on_quota_exhaustion,
             local_proxy::set_auto_disable_unreachable_accounts,
+            local_proxy::set_image_generation_account,
             local_proxy::set_local_proxy_listen_on_all_interfaces,
             floating_bubble::get_app_settings,
             floating_bubble::set_proxy_onboarding_choice,

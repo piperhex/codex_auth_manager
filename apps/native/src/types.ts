@@ -102,6 +102,15 @@ export interface AdminInvitation {
   createdAt: string;
 }
 
+export interface InvitationRegisteredUser {
+  id: string;
+  userId?: string | null;
+  email: string;
+  role: string;
+  giftedAccountCount: number;
+  registeredAt: string;
+}
+
 export interface AdminFeedback {
   id: string;
   content: string;

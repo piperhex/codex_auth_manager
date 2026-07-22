@@ -7,6 +7,7 @@ import {
   restoreNonProxyConversations,
   saveProviderProfile,
   setLocalProxyAutoDisableUnreachable,
+  setLocalProxyImageAccount,
   setLocalProxyListenOnAllInterfaces,
   setLocalProxyAutoSwitch,
   setProviderModelControl,
@@ -42,6 +43,12 @@ function providerErrorMessage(error: unknown, t: Translate) {
   }
   if (message.includes("Official Codex local proxy requires")) return t("providers.error.officialProxyAuthRequired");
   if (message.includes("Provider id is invalid")) return t("providers.error.providerIdInvalid");
+  if (message.includes("Image generation account must use an OAuth token")) {
+    return t("providers.error.imageAccountOAuthRequired");
+  }
+  if (message.includes("Start the local proxy before selecting an image generation account")) {
+    return t("providers.error.imageAccountProxyRequired");
+  }
   if (message.startsWith("Base URL is invalid:")) {
     return t("providers.error.baseUrlInvalid", { error: message.slice("Base URL is invalid:".length).trim() });
   }
@@ -222,6 +229,19 @@ export function useProviderManager(
     }
   }, [load, notify, t]);
 
+  const setProxyImageAccount = useCallback(async (accountId: string | null) => {
+    setProxyBusy(true);
+    try {
+      setLocalProxy(await setLocalProxyImageAccount(accountId));
+      notify(t("toast.proxyImageAccountSaved"));
+      await load();
+    } catch (error) {
+      notify(providerErrorMessage(error, t));
+    } finally {
+      setProxyBusy(false);
+    }
+  }, [load, notify, t]);
+
   const setProxyListenOnAllInterfaces = useCallback(async (enabled: boolean) => {
     setProxyBusy(true);
     try {
@@ -255,6 +275,7 @@ export function useProviderManager(
     restoreConversations,
     setProxyAutoSwitch,
     setProxyAutoDisableUnreachable,
+    setProxyImageAccount,
     setProxyListenOnAllInterfaces,
     reload: load,
   };

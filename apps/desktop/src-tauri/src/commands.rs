@@ -138,7 +138,8 @@ pub(crate) fn list_accounts<R: Runtime>(
             write_managed_auth_if_changed(&paths, &id, &auth)?;
         }
         let local_proxy_compatible = true;
-        let direct_switch_compatible = !is_agent_identity_auth(&auth);
+        let agent_identity = is_agent_identity_auth(&auth);
+        let direct_switch_compatible = !agent_identity;
         let auto_switch_enabled = !state.disabled_account_ids.contains(&id);
         accounts.push(AccountSummary {
             active: active_id.as_deref() == Some(&id),
@@ -152,6 +153,7 @@ pub(crate) fn list_accounts<R: Runtime>(
             auto_switch_enabled,
             local_proxy_compatible,
             direct_switch_compatible,
+            agent_identity,
         });
     }
     accounts.sort_by(|left, right| left.email.cmp(&right.email));
@@ -744,8 +746,19 @@ pub(crate) fn delete_account<R: Runtime>(
         fs::remove_dir_all(&target).map_err(|error| format!("删除账户失败：{error}"))?;
     }
     set_account_auto_switch_enabled_for_paths(&paths, &id, true)?;
+    let mut state = read_state(&paths);
+    let cleared_image_generation_account =
+        state.image_generation_account_id.as_deref() == Some(&id);
+    if cleared_image_generation_account {
+        state.image_generation_account_id = None;
+        write_state(&paths, &state)?;
+    }
     app.emit("accounts-changed", ())
         .map_err(|error| error.to_string())?;
+    if cleared_image_generation_account {
+        app.emit("providers-changed", ())
+            .map_err(|error| error.to_string())?;
+    }
     crate::system_tray::refresh_menu(&app);
     Ok(())
 }

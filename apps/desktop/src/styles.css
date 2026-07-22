@@ -469,6 +469,7 @@ main.accounts-main .accounts-page .account-card-grid { flex: 1; min-height: 0; }
 .provider-proxy-copy small { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .provider-official-main > div.provider-proxy-copy > small.proxy-restart-notice { color: #d92d20; font-weight: 600; }
 .proxy-auto-switch { display: inline-flex; align-items: center; gap: 5px; color: #5d6a62; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.proxy-image-account { width: 210px; }
 .proxy-start-confirm-description,
 .sync-direct-confirm-description { display: block; max-width: 320px; line-height: 1.6; white-space: normal; overflow-wrap: anywhere; }
 .provider-avatar { width: 30px; height: 30px; flex: 0 0 auto; border-radius: 8px; display: grid; place-items: center; color: var(--green-dark); background: var(--green-soft); }

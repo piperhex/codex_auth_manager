@@ -1,6 +1,5 @@
 import 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
-import { Provider as AntMobileProvider, Toast } from '@ant-design/react-native';
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import {
   ActivityIndicator,
@@ -18,13 +17,13 @@ import {
 } from 'react-native';
 import { initialWindowMetrics, SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import {
-  ApiError,
   changePassword,
   clearSession,
   DEFAULT_GLOBAL_REFRESH_MINUTES,
   DEFAULT_CLOUD_BASE_URL,
   fetchAccountSummary,
   fetchUserProfile,
+  isSessionExpiredError,
   loadGlobalRefreshMinutes,
   loadSession,
   login,
@@ -33,6 +32,7 @@ import {
 import type { AccountSummary, AuthSession, UsageWindow, UserProfile } from './src/types';
 import { reportMobileInstallation } from './src/telemetry';
 import { AdminArea } from './src/admin/AdminArea';
+import { AppToastHost, Toast } from './src/components/AppToast';
 import { BottomSheet } from './src/components/BottomSheet';
 
 const COLORS = {
@@ -513,7 +513,12 @@ function AppContent() {
       setAccounts(await fetchAccountSummary(activeSession));
       lastRefreshAtRef.current = Date.now();
     } catch (error) {
-      if (error instanceof ApiError && error.message.includes('登录已过期')) setSession(null);
+      if (isSessionExpiredError(error)) {
+        setSession(null);
+        setProfile(null);
+        setAccounts([]);
+        setActivePage('accounts');
+      }
       if (!quiet) Toast.fail(errorMessage(error));
     } finally {
       refreshingRef.current = false;
@@ -536,17 +541,36 @@ function AppContent() {
         if (stored) {
           setProfile(stored.profile ?? null);
           setLoading(true);
-          const nextAccounts = await fetchAccountSummary(stored);
-          if (mounted) {
-            setAccounts(nextAccounts);
-            lastRefreshAtRef.current = Date.now();
+          const [accountsResult, profileResult] = await Promise.allSettled([
+            fetchAccountSummary(stored),
+            fetchUserProfile(stored),
+          ]);
+          if (!mounted) return;
+
+          const sessionError = [accountsResult, profileResult]
+            .find((result) => result.status === 'rejected' && isSessionExpiredError(result.reason));
+          if (sessionError) {
+            setSession(null);
+            setProfile(null);
+            setAccounts([]);
+          } else {
+            if (accountsResult.status === 'fulfilled') {
+              setAccounts(accountsResult.value);
+              lastRefreshAtRef.current = Date.now();
+            }
+            if (profileResult.status === 'fulfilled') setProfile(profileResult.value);
+            if (accountsResult.status === 'rejected' || profileResult.status === 'rejected') {
+              Toast.fail('暂时无法同步云端数据，登录状态已保留');
+            }
           }
-          const nextProfile = await fetchUserProfile(stored);
-          if (mounted) setProfile(nextProfile);
         }
       } catch (error) {
-        if (error instanceof ApiError && error.message.includes('登录已过期')) await clearSession();
-        if (mounted) setSession(null);
+        if (isSessionExpiredError(error)) {
+          await clearSession();
+          if (mounted) setSession(null);
+        } else if (mounted) {
+          Toast.fail('读取本地登录信息失败，请重新打开应用');
+        }
       } finally {
         if (mounted) {
           setLoading(false);
@@ -624,7 +648,8 @@ function AppContent() {
 
 export default function App() {
   return <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-    <AntMobileProvider><StartupErrorBoundary><AppContent /></StartupErrorBoundary></AntMobileProvider>
+    <StartupErrorBoundary><AppContent /></StartupErrorBoundary>
+    <AppToastHost />
   </SafeAreaProvider>;
 }
 

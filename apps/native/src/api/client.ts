@@ -13,6 +13,17 @@ export class ApiError extends Error {
   }
 }
 
+export class SessionExpiredError extends ApiError {
+  constructor(status = 401) {
+    super('登录已过期，请重新登录', status);
+    this.name = 'SessionExpiredError';
+  }
+}
+
+export function isSessionExpiredError(error: unknown): error is SessionExpiredError {
+  return error instanceof SessionExpiredError;
+}
+
 function normalizeBaseUrl(value: string) {
   const baseUrl = value.trim().replace(/\/+$/, '');
   let url: URL;
@@ -90,7 +101,9 @@ export async function login(baseUrlInput: string, email: string, password: strin
   return session;
 }
 
-async function refreshSession(session: AuthSession): Promise<AuthSession> {
+const refreshRequests = new WeakMap<AuthSession, Promise<AuthSession>>();
+
+async function performSessionRefresh(session: AuthSession): Promise<AuthSession> {
   let response: Response;
   try {
     response = await fetch(`${session.baseUrl}/auth/refresh`, {
@@ -101,9 +114,12 @@ async function refreshSession(session: AuthSession): Promise<AuthSession> {
   } catch {
     throw new ApiError('无法连接服务器，请检查网络');
   }
-  if (!response.ok) throw new ApiError('登录已过期，请重新登录', response.status);
+  if (response.status === 401 || response.status === 403) {
+    throw new SessionExpiredError(response.status);
+  }
+  if (!response.ok) throw new ApiError(await parseError(response), response.status);
   const payload = await response.json() as AuthResponse;
-  if (!payload.accessToken || !payload.refreshToken) throw new ApiError('登录已过期，请重新登录');
+  if (!payload.accessToken || !payload.refreshToken) throw new ApiError('服务器返回的登录信息无效');
   const next = { ...session, accessToken: payload.accessToken, refreshToken: payload.refreshToken };
   await persistSession(next);
   // Refresh tokens are rotated by the backend. Keep the in-memory session in
@@ -112,29 +128,39 @@ async function refreshSession(session: AuthSession): Promise<AuthSession> {
   return session;
 }
 
+function refreshSession(session: AuthSession): Promise<AuthSession> {
+  const existing = refreshRequests.get(session);
+  if (existing) return existing;
+
+  const pending = performSessionRefresh(session).finally(() => {
+    refreshRequests.delete(session);
+  });
+  refreshRequests.set(session, pending);
+  return pending;
+}
+
 async function authorizedRequest(session: AuthSession, path: string, init: RequestInit = {}): Promise<Response> {
-  const request = (accessToken: string) => {
+  const request = async (accessToken: string) => {
     const headers = new Headers(init.headers);
     headers.set('Authorization', `Bearer ${accessToken}`);
-    return fetch(`${session.baseUrl}${path}`, { ...init, headers });
+    try {
+      return await fetch(`${session.baseUrl}${path}`, { ...init, headers });
+    } catch {
+      throw new ApiError('无法连接服务器，请检查网络');
+    }
   };
-  let response: Response;
-  try {
-    response = await request(session.accessToken);
-  } catch {
-    throw new ApiError('无法连接服务器，请检查网络');
-  }
+  const response = await request(session.accessToken);
   if (response.status !== 401) return response;
   try {
     const refreshed = await refreshSession(session);
     const retry = await request(refreshed.accessToken);
     if (retry.status === 401) {
       await clearSession();
-      throw new ApiError('登录已过期，请重新登录', retry.status);
+      throw new SessionExpiredError(retry.status);
     }
     return retry;
   } catch (error) {
-    if (error instanceof ApiError && error.message.includes('登录已过期')) await clearSession();
+    if (isSessionExpiredError(error)) await clearSession();
     throw error;
   }
 }

@@ -47,6 +47,7 @@ const LOCAL_PROXY_PREVIEW_KEY = "codex-switch:local-proxy-running";
 const LOCAL_PROXY_AUTO_SWITCH_PREVIEW_KEY = "codex-switch:local-proxy-auto-switch";
 const LOCAL_PROXY_AUTO_DISABLE_UNREACHABLE_PREVIEW_KEY = "codex-switch:local-proxy-auto-disable-unreachable";
 const LOCAL_PROXY_LISTEN_ALL_INTERFACES_PREVIEW_KEY = "codex-switch:local-proxy-listen-all-interfaces";
+const LOCAL_PROXY_IMAGE_ACCOUNT_PREVIEW_KEY = "codex-switch:image-generation-account";
 const TOKEN_USAGE_WEEKS_PREVIEW_KEY = "codex-switch:token-usage-weeks";
 const TOKEN_USAGE_REFRESH_PREVIEW_KEY = "codex-switch:token-usage-refresh-seconds";
 const THEME_COLOR_EVENT = "codex-switch:theme-color-changed";
@@ -159,6 +160,7 @@ function previewLocalProxyStatus(): LocalProxyStatus {
     autoSwitchOnQuotaExhaustion: window.localStorage.getItem(LOCAL_PROXY_AUTO_SWITCH_PREVIEW_KEY) === "true",
     autoDisableUnreachableAccounts: window.localStorage.getItem(LOCAL_PROXY_AUTO_DISABLE_UNREACHABLE_PREVIEW_KEY) === "true",
     listenOnAllInterfaces: window.localStorage.getItem(LOCAL_PROXY_LISTEN_ALL_INTERFACES_PREVIEW_KEY) === "true",
+    imageGenerationAccountId: window.localStorage.getItem(LOCAL_PROXY_IMAGE_ACCOUNT_PREVIEW_KEY),
   };
 }
 
@@ -413,6 +415,18 @@ export async function setLocalProxyAutoDisableUnreachable(enabled: boolean): Pro
     return previewLocalProxyStatus();
   }
   return invoke<LocalProxyStatus>("set_auto_disable_unreachable_accounts", { enabled });
+}
+
+export async function setLocalProxyImageAccount(accountId: string | null): Promise<LocalProxyStatus> {
+  if (!isDesktopApp) {
+    if (!previewLocalProxyStatus().running) {
+      throw new Error("Start the local proxy before selecting an image generation account");
+    }
+    if (accountId) window.localStorage.setItem(LOCAL_PROXY_IMAGE_ACCOUNT_PREVIEW_KEY, accountId);
+    else window.localStorage.removeItem(LOCAL_PROXY_IMAGE_ACCOUNT_PREVIEW_KEY);
+    return previewLocalProxyStatus();
+  }
+  return invoke<LocalProxyStatus>("set_image_generation_account", { accountId });
 }
 
 export async function updateFloatingBubble(enabled: boolean): Promise<AppSettings> {
