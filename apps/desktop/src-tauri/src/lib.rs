@@ -1,5 +1,6 @@
 mod account_archive;
 mod agent_identity;
+mod agent_identity_plugins;
 mod auth;
 mod cloud;
 mod codex_api;
