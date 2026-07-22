@@ -1,12 +1,11 @@
-import { ChevronRight, ExternalLink, FileInput, KeyRound, LayoutGrid, ShieldCheck, X } from "lucide-react";
+import { ChevronRight, ClipboardPaste, ExternalLink, FileInput, KeyRound, LayoutGrid, ShieldCheck, X } from "lucide-react";
 import type { Translate } from "../../i18n";
 
-export function LoginModal({ onClose, onStart, onImport, onImportCompatibleJson, onImportSub2apiJson, t }: {
+export function LoginModal({ onClose, onStart, onImport, onImportClipboard, t }: {
   onClose: () => void;
   onStart: (embedded: boolean) => void;
   onImport: () => void;
-  onImportCompatibleJson: () => void;
-  onImportSub2apiJson: () => void;
+  onImportClipboard: () => void;
   t: Translate;
 }) {
   return (
@@ -25,9 +24,8 @@ export function LoginModal({ onClose, onStart, onImport, onImportCompatibleJson,
           <span><b>{t("login.browser.title")}</b><small>{t("login.browser.description")}</small></span><ChevronRight size={19} />
         </button>
         <div className="modal-divider"><span>{t("login.or")}</span></div>
-        <button type="button" className="import-choice" onClick={onImport}><FileInput size={17} />{t("login.import")}</button>
-        <button type="button" className="import-choice" onClick={onImportCompatibleJson}><FileInput size={17} />{t("login.importCompatible")}</button>
-        <button type="button" className="import-choice" onClick={onImportSub2apiJson}><FileInput size={17} />{t("login.importSub2api")}</button>
+        <button type="button" className="import-choice" onClick={onImport}><FileInput size={17} />{t("login.importMultiple")}</button>
+        <button type="button" className="import-choice" onClick={onImportClipboard}><ClipboardPaste size={17} />{t("login.importClipboard")}</button>
         <div className="safety-note"><ShieldCheck size={16} />{t("login.safety")}</div>
       </section>
     </div>

@@ -170,6 +170,63 @@ pub(crate) fn import_auth_file<R: Runtime>(
     Ok(id)
 }
 
+/// Imports a supported account JSON file by detecting standard auth.json,
+/// sub2api-data exports, and compatible JSON/JSONL token layouts.
+#[tauri::command]
+pub(crate) fn import_account_json_file<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    path: String,
+) -> Result<CompatibleJsonImportResult, String> {
+    let content =
+        fs::read_to_string(&path).map_err(|error| format!("读取 {} 失败：{error}", path))?;
+    import_account_json_text(app, content)
+}
+
+#[tauri::command]
+pub(crate) fn import_account_json_text<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    content: String,
+) -> Result<CompatibleJsonImportResult, String> {
+    let content = content.trim_start_matches('\u{feff}').trim();
+    if content.is_empty() {
+        return Err("导入内容为空".to_string());
+    }
+    let value = serde_json::from_str::<Value>(content).ok();
+
+    if value.as_ref().is_some_and(is_sub2api_export) {
+        let auth_values = parse_sub2api_auth_values(content)?;
+        return import_normalized_json_auth_values(&app, &auth_values, normalize_sub2api_auth);
+    }
+
+    if value.as_ref().is_some_and(is_valid_auth_json) {
+        let id = import_value(&app, value.expect("checked above"), false)?;
+        app.emit("accounts-changed", ())
+            .map_err(|error| error.to_string())?;
+        crate::system_tray::refresh_menu(&app);
+        return Ok(CompatibleJsonImportResult {
+            imported_ids: vec![id],
+        });
+    }
+
+    let auth_values = parse_compatible_json_auth_values(content)?;
+    import_normalized_json_auth_values(&app, &auth_values, normalize_compatible_json_auth)
+}
+
+fn is_sub2api_export(value: &Value) -> bool {
+    value
+        .as_object()
+        .and_then(|object| object.get("type"))
+        .and_then(Value::as_str)
+        == Some("sub2api-data")
+}
+
+fn is_valid_auth_json(value: &Value) -> bool {
+    let mut auth = value.clone();
+    canonicalize_chatgpt_auth(&mut auth)
+        .and_then(|_| validate_auth(&auth))
+        .is_ok()
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CompatibleJsonImportResult {
@@ -199,12 +256,20 @@ pub(crate) fn import_compatible_json_file<R: Runtime>(
     let content =
         fs::read_to_string(&path).map_err(|error| format!("读取 {} 失败：{error}", path))?;
     let auth_values = parse_compatible_json_auth_values(&content)?;
+    import_normalized_json_auth_values(&app, &auth_values, normalize_compatible_json_auth)
+}
+
+fn import_normalized_json_auth_values<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    auth_values: &[Value],
+    normalize: fn(&Value) -> Result<Value, String>,
+) -> Result<CompatibleJsonImportResult, String> {
     let mut imported_ids = Vec::new();
 
     for (index, value) in auth_values.iter().enumerate() {
-        let auth = normalize_compatible_json_auth(value)
+        let auth = normalize(value)
             .map_err(|error| format!("第 {} 个账号无法导入：{error}", index + 1))?;
-        let id = import_value(&app, auth, false)?;
+        let id = import_value(app, auth, false)?;
         if !imported_ids.contains(&id) {
             imported_ids.push(id);
         }
@@ -212,7 +277,7 @@ pub(crate) fn import_compatible_json_file<R: Runtime>(
 
     app.emit("accounts-changed", ())
         .map_err(|error| error.to_string())?;
-    crate::system_tray::refresh_menu(&app);
+    crate::system_tray::refresh_menu(app);
     Ok(CompatibleJsonImportResult { imported_ids })
 }
 
@@ -226,21 +291,7 @@ pub(crate) fn import_sub2api_json_file<R: Runtime>(
     let content =
         fs::read_to_string(&path).map_err(|error| format!("读取 {} 失败：{error}", path))?;
     let auth_values = parse_sub2api_auth_values(&content)?;
-    let mut imported_ids = Vec::new();
-
-    for (index, value) in auth_values.iter().enumerate() {
-        let auth = normalize_sub2api_auth(value)
-            .map_err(|error| format!("第 {} 个账号无法导入：{error}", index + 1))?;
-        let id = import_value(&app, auth, false)?;
-        if !imported_ids.contains(&id) {
-            imported_ids.push(id);
-        }
-    }
-
-    app.emit("accounts-changed", ())
-        .map_err(|error| error.to_string())?;
-    crate::system_tray::refresh_menu(&app);
-    Ok(CompatibleJsonImportResult { imported_ids })
+    import_normalized_json_auth_values(&app, &auth_values, normalize_sub2api_auth)
 }
 
 fn parse_sub2api_auth_values(content: &str) -> Result<Vec<Value>, String> {
@@ -713,6 +764,25 @@ pub(crate) fn restart_chatgpt<R: Runtime>(app: tauri::AppHandle<R>) -> Result<()
         Ok(())
     } else {
         start_chatgpt(launch_target.as_ref())
+    }
+}
+
+#[tauri::command]
+pub(crate) fn launch_chatgpt<R: Runtime>(app: tauri::AppHandle<R>) -> Result<bool, String> {
+    let _switch_guard = account_switch_lock()
+        .lock()
+        .map_err(|_| "Account switch lock is poisoned".to_string())?;
+    if chatgpt_or_codex_is_running()? {
+        return Ok(false);
+    }
+
+    let launch_target = refresh_and_get_chatgpt_launch_target(&app);
+    sync_active_proxy_auth_for_restart(&app)?;
+    if crate::dream_skin::restart_active_session()? {
+        Ok(true)
+    } else {
+        start_chatgpt(launch_target.as_ref())?;
+        Ok(true)
     }
 }
 

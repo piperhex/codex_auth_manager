@@ -1,10 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ConfigProvider, Dropdown, Popconfirm, Tooltip, theme as antdTheme } from "antd";
+import { ConfigProvider, Dropdown, Modal, Tooltip, theme as antdTheme } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
-import { BarChart3, CalendarClock, Check, CircleHelp, Cloud, Download, Github, LogIn, LogOut, Megaphone, Palette, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Upload, UploadCloud, UserRound } from "lucide-react";
+import { Archive, BarChart3, CalendarClock, Check, CircleHelp, Cloud, Download, Github, LogIn, LogOut, Megaphone, MessageSquareText, Palette, Play, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Upload, UploadCloud, UserRound } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { checkForUpdate, chooseAndExportDiagnosticLogs, consumeResetCredit, DEFAULT_CLOUD_BASE_URL, fetchCloudAnnouncement, installAvailableUpdate, isDesktopApp, loadAppSettings, openManagedFolder, reportAnnouncementClick, reportBaseUrlChange, reportFirstInstallation, restartChatGpt, setProxyOnboardingChoice, showTokenUsageWindow, submitFeedback } from "./api/backend";
+import { checkForUpdate, chooseAndExportDiagnosticLogs, consumeResetCredit, DEFAULT_CLOUD_BASE_URL, fetchCloudAnnouncement, installAvailableUpdate, isDesktopApp, launchChatGpt, loadAppSettings, openManagedFolder, reportAnnouncementClick, reportBaseUrlChange, reportFirstInstallation, restartChatGpt, setProxyOnboardingChoice, showTokenUsageWindow, submitFeedback } from "./api/backend";
 import { HelpModal, type HelpVersionState } from "./components/modals/HelpModal";
 import { FeedbackModal } from "./components/modals/FeedbackModal";
 import { FloatingUsageBubble } from "./components/FloatingUsageBubble";
@@ -76,11 +76,12 @@ function DashboardApp() {
   const [proxyOnboardingBusy, setProxyOnboardingBusy] = useState(false);
   const [helpVersionState, setHelpVersionState] = useState<HelpVersionState>({ status: "checking" });
   const [availableUpdate, setAvailableUpdate] = useState<UpdateInfo | null>(null);
+  const [checkingForUpdate, setCheckingForUpdate] = useState(false);
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
   const [updateInstallError, setUpdateInstallError] = useState<string | null>(null);
   const [lastRefreshAllAt, setLastRefreshAllAt] = useState<string | null>(storedRefreshAllTime);
-  const [restartingChatGpt, setRestartingChatGpt] = useState(false);
+  const [chatGptOperation, setChatGptOperation] = useState<"start" | "restart" | null>(null);
   const [exportingLogs, setExportingLogs] = useState(false);
   const [resetCreditBusyAccountId, setResetCreditBusyAccountId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState<CloudAnnouncement | null>(null);
@@ -290,8 +291,8 @@ function DashboardApp() {
       .catch(() => undefined);
     return () => { cancelled = true; };
   }, []);
-  const sendFeedback = useCallback(async (content: string, images: File[]) => {
-    await submitFeedback(content, manager.info?.version ?? "0.1.0", images);
+  const sendFeedback = useCallback(async (content: string, contactEmail: string | null, images: File[]) => {
+    await submitFeedback(content, manager.info?.version ?? "0.1.0", contactEmail, images);
     notify(t("feedback.success"));
   }, [manager.info?.version, notify, t]);
 
@@ -347,17 +348,13 @@ function DashboardApp() {
     setShowLogin(false);
     void manager.startLogin(embedded);
   };
-  const importAuth = () => {
+  const importAccountJson = () => {
     setShowLogin(false);
-    void manager.importAuth();
+    void manager.importAccountJson();
   };
-  const importCompatibleJson = () => {
+  const importAccountJsonFromClipboard = () => {
     setShowLogin(false);
-    void manager.importCompatibleJson();
-  };
-  const importSub2apiJson = () => {
-    setShowLogin(false);
-    void manager.importSub2apiJson();
+    void manager.importAccountJsonFromClipboard();
   };
   const refreshAll = () => {
     markRefreshAll();
@@ -365,16 +362,39 @@ function DashboardApp() {
     void loadAnnouncement();
   };
   const restartChatGptProcess = useCallback(async () => {
-    setRestartingChatGpt(true);
+    setChatGptOperation("restart");
     try {
       await restartChatGpt();
       notify(isDesktopApp ? t("toast.chatGptRestarted") : t("toast.previewRestartChatGpt"));
     } catch (error) {
       notify(String(error));
     } finally {
-      setRestartingChatGpt(false);
+      setChatGptOperation(null);
     }
   }, [notify, t]);
+  const launchChatGptProcess = useCallback(async () => {
+    setChatGptOperation("start");
+    try {
+      const started = await launchChatGpt();
+      notify(isDesktopApp
+        ? t(started ? "toast.chatGptStarted" : "toast.chatGptAlreadyRunning")
+        : t("toast.previewStartChatGpt"));
+    } catch (error) {
+      notify(String(error));
+    } finally {
+      setChatGptOperation(null);
+    }
+  }, [notify, t]);
+  const confirmRestartChatGpt = useCallback(() => {
+    Modal.confirm({
+      title: t("actions.restartChatGptConfirmTitle"),
+      content: t("actions.restartChatGptConfirmDescription"),
+      okText: t("actions.restartChatGpt"),
+      cancelText: t("table.cancel"),
+      okButtonProps: { danger: true },
+      onOk: restartChatGptProcess,
+    });
+  }, [restartChatGptProcess, t]);
   const openTokenUsage = useCallback(async () => {
     try {
       await showTokenUsageWindow();
@@ -396,6 +416,23 @@ function DashboardApp() {
     }
     window.open(releaseUrl, "_blank", "noopener,noreferrer");
   };
+  const checkForUpdates = useCallback(async () => {
+    setCheckingForUpdate(true);
+    setUpdateProgress(null);
+    setUpdateInstallError(null);
+    try {
+      const update = await checkForUpdate({ force: true });
+      if (update) {
+        setAvailableUpdate(update);
+      } else {
+        notify(t("update.latest"));
+      }
+    } catch (error) {
+      notify(t("update.checkError", { error: String(error) }));
+    } finally {
+      setCheckingForUpdate(false);
+    }
+  }, [notify, t]);
   const ignoreUpdate = useCallback(() => {
     if (!availableUpdate) return;
     window.localStorage.setItem(IGNORED_UPDATE_VERSION_KEY, availableUpdate.latestVersion);
@@ -447,6 +484,100 @@ function DashboardApp() {
     }
     window.open(announcementLink, "_blank", "noopener,noreferrer");
   };
+  const chatGptActionMenu = (
+    <Dropdown
+      trigger={["hover"]}
+      menu={{
+        items: [
+          {
+            key: "start",
+            icon: <Play className={chatGptOperation === "start" ? "spin" : undefined} size={15} />,
+            label: t("actions.startChatGpt"),
+            disabled: chatGptOperation !== null,
+          },
+          {
+            key: "restart",
+            icon: <RotateCcw className={chatGptOperation === "restart" ? "spin" : undefined} size={15} />,
+            label: t("actions.restartChatGpt"),
+            disabled: chatGptOperation !== null,
+          },
+        ],
+        onClick: ({ key }) => {
+          if (key === "start") void launchChatGptProcess();
+          if (key === "restart") confirmRestartChatGpt();
+        },
+      }}
+    >
+      <button type="button" className="refresh-all chatgpt-menu-button" disabled={chatGptOperation !== null}>
+        <Play size={17} />{t("actions.chatGpt")}
+      </button>
+    </Dropdown>
+  );
+  const backupActionMenu = (
+    <Dropdown
+      trigger={["hover"]}
+      menu={{
+        items: [
+          {
+            key: "import",
+            icon: <Upload className={manager.archiveOperation === "import" ? "spin" : undefined} size={15} />,
+            label: t("actions.importArchive"),
+            disabled: manager.archiveOperation !== null,
+          },
+          {
+            key: "export",
+            icon: <Download className={manager.archiveOperation === "export" ? "spin" : undefined} size={15} />,
+            label: t("actions.exportArchive"),
+            disabled: manager.archiveOperation !== null
+              || (!manager.accounts.length && !providerManager.providers.length),
+          },
+        ],
+        onClick: ({ key }) => {
+          if (key === "import") void manager.importAccountArchive();
+          if (key === "export") void manager.exportAccountArchive();
+        },
+      }}
+    >
+      <button type="button" className="topbar-icon-button" aria-label={t("actions.backup")}
+        disabled={manager.archiveOperation !== null}>
+        <Archive className={manager.archiveOperation ? "spin" : undefined} size={17} />
+        <span>{t("actions.backup")}</span>
+      </button>
+    </Dropdown>
+  );
+  const refreshActionMenu = (
+    <div className="refresh-all-wrap">
+      <Dropdown
+        trigger={["hover"]}
+        menu={{
+          items: [
+            {
+              key: "usage",
+              icon: <RefreshCw className={manager.refreshingAll ? "spin" : undefined} size={15} />,
+              label: t("actions.refreshAll"),
+              disabled: manager.refreshingAll || !manager.accounts.length,
+            },
+            {
+              key: "resetCredits",
+              icon: <CalendarClock className={resetCredits.refreshingAll ? "spin" : undefined} size={15} />,
+              label: t("actions.refreshResetCredits"),
+              disabled: resetCredits.refreshingAll || !manager.accounts.length,
+            },
+          ],
+          onClick: ({ key }) => {
+            if (key === "usage") refreshAll();
+            if (key === "resetCredits") void resetCredits.refreshAll();
+          },
+        }}
+      >
+        <button type="button" className="refresh-all" disabled={!manager.accounts.length}>
+          <RefreshCw className={manager.refreshingAll || resetCredits.refreshingAll ? "spin" : undefined} size={17} />
+          {t("actions.refresh")}
+        </button>
+      </Dropdown>
+      <small className="last-auto-refresh">{t("actions.lastUpdated", { time: formatRefreshTime(lastRefreshAllAt, language) })}</small>
+    </div>
+  );
 
   return (
     <ConfigProvider locale={language === "zh" ? zhCN : enUS} theme={{
@@ -502,12 +633,16 @@ function DashboardApp() {
                       { type: "divider" },
                       { key: "logout", icon: <LogOut size={15} />, label: t("cloud.logout"), disabled: cloud.loading },
                       { type: "divider" },
+                      { key: "checkUpdate", icon: <RefreshCw size={15} />, label: t("update.check"), disabled: checkingForUpdate },
+                      { key: "feedback", icon: <MessageSquareText size={15} />, label: t("feedback.title") },
                       { key: "help", icon: <CircleHelp size={15} />, label: t("help.open") },
                       { key: "repository", icon: <Github size={15} />, label: t("help.github") },
                     ]
                     : [
                       { key: "login", icon: <LogIn size={15} />, label: t("cloud.login"), disabled: cloud.loading },
                       { type: "divider" },
+                      { key: "checkUpdate", icon: <RefreshCw size={15} />, label: t("update.check"), disabled: checkingForUpdate },
+                      { key: "feedback", icon: <MessageSquareText size={15} />, label: t("feedback.title") },
                       { key: "help", icon: <CircleHelp size={15} />, label: t("help.open") },
                       { key: "repository", icon: <Github size={15} />, label: t("help.github") },
                     ],
@@ -515,6 +650,8 @@ function DashboardApp() {
                     if (key === "account") openCloudAccount();
                     if (key === "logout") void cloud.logout();
                     if (key === "login") openCloudLogin();
+                    if (key === "checkUpdate") void checkForUpdates();
+                    if (key === "feedback") setShowFeedback(true);
                     if (key === "help") openHelp();
                     if (key === "repository") openRepository();
                   },
@@ -552,45 +689,9 @@ function DashboardApp() {
             {page === "accounts" && (
               <div className="topbar-actions">
                 <button className="primary-button" onClick={openLogin}><Plus size={18} />{t("actions.addAccount")}</button>
-                <Tooltip title={t("actions.importArchive")}>
-                  <button type="button" className="topbar-icon-button" aria-label={t("actions.importArchive")}
-                    disabled={manager.archiveOperation !== null}
-                    onClick={() => void manager.importAccountArchive()}>
-                    <Upload className={manager.archiveOperation === "import" ? "spin" : ""} size={17} />
-                    <span>{t("actions.importArchiveLabel")}</span>
-                  </button>
-                </Tooltip>
-                <Tooltip title={t("actions.exportArchive")}>
-                  <button type="button" className="topbar-icon-button" aria-label={t("actions.exportArchive")}
-                    disabled={manager.archiveOperation !== null
-                      || (!manager.accounts.length && !providerManager.providers.length)}
-                    onClick={() => void manager.exportAccountArchive()}>
-                    <Download className={manager.archiveOperation === "export" ? "spin" : ""} size={17} />
-                    <span>{t("actions.exportArchiveLabel")}</span>
-                  </button>
-                </Tooltip>
-                <div className="refresh-all-wrap">
-                  <button className="refresh-all" onClick={refreshAll}
-                    disabled={manager.refreshingAll || !manager.accounts.length}>
-                    <RefreshCw className={manager.refreshingAll ? "spin" : ""} size={17} />{t("actions.refreshAll")}
-                  </button>
-                  <small className="last-auto-refresh">{t("actions.lastUpdated", { time: formatRefreshTime(lastRefreshAllAt, language) })}</small>
-                </div>
-                <button className="refresh-all" onClick={() => void resetCredits.refreshAll()}
-                  disabled={resetCredits.refreshingAll || !manager.accounts.length}>
-                  <CalendarClock className={resetCredits.refreshingAll ? "spin" : ""} size={17} />{t("actions.refreshResetCredits")}
-                </button>
-                <Popconfirm title={t("actions.restartChatGptConfirmTitle")}
-                  description={t("actions.restartChatGptConfirmDescription")}
-                  okText={t("actions.restartChatGpt")} cancelText={t("table.cancel")}
-                  okButtonProps={{ danger: true }} disabled={restartingChatGpt}
-                  onConfirm={() => void restartChatGptProcess()}>
-                  <Tooltip title={t("actions.restartChatGptHint")}>
-                    <button className="refresh-all restart-chatgpt-button" disabled={restartingChatGpt}>
-                      <RotateCcw className={restartingChatGpt ? "spin" : ""} size={17} />{t("actions.restartChatGpt")}
-                    </button>
-                  </Tooltip>
-                </Popconfirm>
+                {backupActionMenu}
+                {refreshActionMenu}
+                {chatGptActionMenu}
                 {cloud.state.authenticated && (
                   <Tooltip title={t("cloud.syncDescription")}>
                     <button type="button" className="refresh-all cloud-sync-action" disabled={cloud.syncing}
@@ -608,17 +709,7 @@ function DashboardApp() {
                     <BarChart3 size={17} />Token 汇总
                   </button>
                 </Tooltip>
-                <Popconfirm title={t("actions.restartChatGptConfirmTitle")}
-                  description={t("actions.restartChatGptConfirmDescription")}
-                  okText={t("actions.restartChatGpt")} cancelText={t("table.cancel")}
-                  okButtonProps={{ danger: true }} disabled={restartingChatGpt}
-                  onConfirm={() => void restartChatGptProcess()}>
-                  <Tooltip title={t("actions.restartChatGptHint")}>
-                    <button className="refresh-all restart-chatgpt-button" disabled={restartingChatGpt}>
-                      <RotateCcw className={restartingChatGpt ? "spin" : ""} size={17} />{t("actions.restartChatGpt")}
-                    </button>
-                  </Tooltip>
-                </Popconfirm>
+                {chatGptActionMenu}
                 {cloud.state.authenticated && (
                   <Tooltip title={t("cloud.syncDescription")}>
                     <button type="button" className="refresh-all cloud-sync-action" disabled={cloud.syncing}
@@ -723,7 +814,8 @@ function DashboardApp() {
           </section>
         </main>
 
-        {showLogin && <LoginModal onClose={() => setShowLogin(false)} onStart={startLogin} onImport={importAuth} onImportCompatibleJson={importCompatibleJson} onImportSub2apiJson={importSub2apiJson} t={t} />}
+        {showLogin && <LoginModal onClose={() => setShowLogin(false)} onStart={startLogin}
+          onImport={importAccountJson} onImportClipboard={importAccountJsonFromClipboard} t={t} />}
         {showCloudLogin && <CloudLoginModal loading={cloud.loading} onClose={() => setShowCloudLogin(false)}
           sendingRegistrationCode={cloud.sendingRegistrationCode} onLogin={loginCloudAccount}
           onForgotPassword={openCloudPasswordReset} onRegister={registerCloudAccount}
@@ -738,7 +830,7 @@ function DashboardApp() {
         {showHelp && <HelpModal onClose={() => setShowHelp(false)} onDownload={openRelease}
           onFeedback={() => setShowFeedback(true)} version={manager.info?.version ?? "0.1.0"}
           versionState={helpVersionState} t={t} />}
-        {showFeedback && <FeedbackModal email={cloud.state.authenticated ? cloud.state.userEmail : null}
+        {showFeedback && <FeedbackModal signedInEmail={cloud.state.authenticated ? cloud.state.userEmail : null}
           onClose={() => setShowFeedback(false)} onSubmit={sendFeedback} t={t} />}
         {availableUpdate && <UpdateModal update={availableUpdate} onClose={() => setAvailableUpdate(null)}
           onIgnore={ignoreUpdate} onDownload={() => void installUpdate()} installing={installingUpdate}

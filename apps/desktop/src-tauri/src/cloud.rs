@@ -815,12 +815,16 @@ fn feedback_form(
     content: &str,
     version: &str,
     platform: &str,
+    contact_email: Option<&str>,
     images: &[FeedbackImage],
 ) -> Result<multipart::Form, String> {
     let mut form = multipart::Form::new()
         .text("content", content.to_string())
         .text("version", version.to_string())
         .text("platform", platform.to_string());
+    if let Some(contact_email) = contact_email {
+        form = form.text("email", contact_email.to_string());
+    }
     for image in images {
         let part = multipart::Part::bytes(image.data.clone())
             .file_name(image.file_name.clone())
@@ -835,6 +839,7 @@ fn validate_feedback(
     content: &str,
     version: &str,
     platform: &str,
+    contact_email: Option<&str>,
     images: &[FeedbackImage],
 ) -> Result<(), String> {
     if content.trim().is_empty() || content.chars().count() > 5_000 {
@@ -845,6 +850,11 @@ fn validate_feedback(
     }
     if platform.trim().is_empty() || platform.chars().count() > 500 {
         return Err("Feedback platform information is invalid".to_string());
+    }
+    if let Some(contact_email) = contact_email {
+        if contact_email.len() > 160 || !contact_email.contains('@') {
+            return Err("Feedback contact email is invalid".to_string());
+        }
     }
     if images.len() > MAX_FEEDBACK_IMAGES {
         return Err(format!(
@@ -1002,11 +1012,16 @@ pub(crate) async fn submit_feedback<R: Runtime>(
     content: String,
     version: String,
     platform: String,
+    contact_email: Option<String>,
     images: Vec<FeedbackImageInput>,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let images = decode_feedback_images(images)?;
-        validate_feedback(&content, &version, &platform, &images)?;
+        let contact_email = contact_email
+            .as_deref()
+            .map(str::trim)
+            .filter(|email| !email.is_empty());
+        validate_feedback(&content, &version, &platform, contact_email, &images)?;
         let client = feedback_client()?;
         let mut settings = read_app_settings(&app)?;
         let mut credentials = read_cloud_credentials(&app);
@@ -1023,7 +1038,13 @@ pub(crate) async fn submit_feedback<R: Runtime>(
             let mut request = client
                 .post(endpoint(&settings, path)?)
                 .header("Accept", "application/json")
-                .multipart(feedback_form(&content, &version, &platform, &images)?);
+                .multipart(feedback_form(
+                    &content,
+                    &version,
+                    &platform,
+                    contact_email,
+                    &images,
+                )?);
             if let Some(access_token) = credentials.access_token.as_ref().filter(|_| authenticated)
             {
                 request = request.bearer_auth(access_token);

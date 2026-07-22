@@ -15,9 +15,9 @@ interface PreparedImage {
 }
 
 interface FeedbackModalProps {
-  email?: string | null;
+  signedInEmail?: string | null;
   onClose: () => void;
-  onSubmit: (content: string, images: File[]) => Promise<void>;
+  onSubmit: (content: string, contactEmail: string | null, images: File[]) => Promise<void>;
   t: Translate;
 }
 
@@ -27,8 +27,9 @@ function fileId() {
     : `${Date.now()}-${Math.random()}`;
 }
 
-export function FeedbackModal({ email, onClose, onSubmit, t }: FeedbackModalProps) {
+export function FeedbackModal({ signedInEmail, onClose, onSubmit, t }: FeedbackModalProps) {
   const [content, setContent] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
   const [images, setImages] = useState<PreparedImage[]>([]);
   const [preparing, setPreparing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -85,7 +86,11 @@ export function FeedbackModal({ email, onClose, onSubmit, t }: FeedbackModalProp
     setSubmitting(true);
     setError(null);
     try {
-      await onSubmit(content.trim(), images.map((image) => image.file));
+      await onSubmit(
+        content.trim(),
+        signedInEmail ? null : contactEmail.trim() || null,
+        images.map((image) => image.file),
+      );
       onClose();
     } catch (caught) {
       setError(String(caught instanceof Error ? caught.message : caught));
@@ -111,8 +116,18 @@ export function FeedbackModal({ email, onClose, onSubmit, t }: FeedbackModalProp
           disabled={submitting} onChange={(event) => setContent(event.target.value)} />
         <div className="feedback-meta-row">
           <span>{content.length}/5000</span>
-          <span>{email ? t("feedback.signedInEmail", { email }) : t("feedback.anonymous")}</span>
+          {signedInEmail && <span>{t("feedback.signedInEmail", { email: signedInEmail })}</span>}
         </div>
+
+        {!signedInEmail && (
+          <div className="feedback-contact-field">
+            <label className="feedback-label" htmlFor="feedback-email">{t("feedback.contactEmail")}</label>
+            <input id="feedback-email" type="email" autoComplete="email" inputMode="email" maxLength={160}
+              value={contactEmail} placeholder={t("feedback.contactEmailPlaceholder")} disabled={submitting}
+              onChange={(event) => setContactEmail(event.target.value)} />
+            <small>{t("feedback.contactEmailHint")}</small>
+          </div>
+        )}
 
         <div className="feedback-upload-heading">
           <span><b>{t("feedback.images")}</b><small>{t("feedback.imageHint")}</small></span>

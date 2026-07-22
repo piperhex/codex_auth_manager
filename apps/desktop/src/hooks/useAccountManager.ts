@@ -2,11 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   activateAccount,
   beginLogin,
-  chooseAndImportCompatibleJson,
-  chooseAndImportSub2apiJson,
+  chooseAndImportAccountJson,
+  importAccountJsonFromClipboard as importAccountJsonClipboard,
   chooseAndExportAccountArchive,
   chooseAndImportAccountArchive,
-  chooseAndImportAuth,
   isDesktopApp,
   loadDashboard,
   refreshAccountUsage,
@@ -81,46 +80,32 @@ export function useAccountManager(
     }
   }, [notify, t]);
 
-  const importAuth = useCallback(async () => {
-    notify(isDesktopApp ? t("toast.importPrompt") : t("toast.previewNoFile"));
+  const importAccountJson = useCallback(async () => {
+    notify(isDesktopApp ? t("toast.accountJsonImportPrompt") : t("toast.previewNoFile"));
     try {
-      const result = await chooseAndImportAuth();
+      const result = await chooseAndImportAccountJson();
       if (result.status === "imported") {
-        notify(t("toast.imported"));
         await load();
-        await cloudSync?.pushAccount?.(result.id);
+        for (const id of result.ids) {
+          await cloudSync?.pushAccount?.(id);
+        }
+        notify(t("toast.accountJsonImported", { count: result.ids.length }));
       }
     } catch (error) {
       notify(String(error));
     }
   }, [cloudSync, load, notify, t]);
 
-  const importCompatibleJson = useCallback(async () => {
-    notify(isDesktopApp ? t("toast.compatibleImportPrompt") : t("toast.previewNoFile"));
+  const importAccountJsonFromClipboard = useCallback(async () => {
+    notify(isDesktopApp ? t("toast.clipboardImportPrompt") : t("toast.previewNoFile"));
     try {
-      const result = await chooseAndImportCompatibleJson();
+      const result = await importAccountJsonClipboard();
       if (result.status === "imported") {
         await load();
         for (const id of result.ids) {
           await cloudSync?.pushAccount?.(id);
         }
-        notify(t("toast.compatibleImported", { count: result.ids.length }));
-      }
-    } catch (error) {
-      notify(String(error));
-    }
-  }, [cloudSync, load, notify, t]);
-
-  const importSub2apiJson = useCallback(async () => {
-    notify(isDesktopApp ? t("toast.sub2apiImportPrompt") : t("toast.previewNoFile"));
-    try {
-      const result = await chooseAndImportSub2apiJson();
-      if (result.status === "imported") {
-        await load();
-        for (const id of result.ids) {
-          await cloudSync?.pushAccount?.(id);
-        }
-        notify(t("toast.sub2apiImported", { count: result.ids.length }));
+        notify(t("toast.accountJsonImported", { count: result.ids.length }));
       }
     } catch (error) {
       notify(String(error));
@@ -268,9 +253,8 @@ export function useAccountManager(
     refreshingAll,
     archiveOperation,
     startLogin,
-    importAuth,
-    importCompatibleJson,
-    importSub2apiJson,
+    importAccountJson,
+    importAccountJsonFromClipboard,
     exportAccountArchive,
     importAccountArchive,
     switchAccount,

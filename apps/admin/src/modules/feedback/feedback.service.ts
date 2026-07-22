@@ -43,6 +43,7 @@ export class FeedbackService {
     const content = dto.content.trim();
     const version = dto.version.trim();
     const platform = dto.platform.trim();
+    const contactEmail = dto.email?.trim() || null;
     if (!content) throw new BadRequestException('Feedback content is required');
     if (!version) throw new BadRequestException('Feedback version is required');
     if (!platform) throw new BadRequestException('Feedback platform is required');
@@ -53,7 +54,7 @@ export class FeedbackService {
       version,
       platform,
       userId: user?.id ?? null,
-      email: user?.email ?? null,
+      email: user?.email ?? contactEmail,
       attachments: images.map((image) => this.attachments.create({
         fileName: image.originalname.slice(0, 255) || 'feedback-image',
         mimeType: image.mimetype,

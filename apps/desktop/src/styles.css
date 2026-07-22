@@ -113,8 +113,6 @@ h1 { margin: 5px 0 0; font: 700 26px/1.1 Manrope, sans-serif; letter-spacing: -.
 .refresh-all { border: 1px solid #d8e0d9; border-radius: 9px; background: white; color: #3d4b42; padding: 9px 13px; display: flex; align-items: center; gap: 7px; white-space: nowrap; cursor: pointer; font-size: 12px; }
 .refresh-all:hover:not(:disabled) { border-color: #9db9a7; color: var(--green); }
 .refresh-all:disabled { opacity: .55; cursor: default; }
-.restart-chatgpt-button { border-color: #f0c8c5; color: #b42318; background: #fff8f7; }
-.restart-chatgpt-button:hover:not(:disabled) { border-color: #d92d20; color: #b42318; background: #fff1f0; }
 .topbar-icon-button { min-width: 38px; height: 38px; padding: 0 12px; border: 1px solid #d8e0d9; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; color: #3d4b42; background: white; cursor: pointer; font-size: 12px; white-space: nowrap; }
 .topbar-icon-button:hover:not(:disabled) { border-color: #9db9a7; color: var(--green); }
 .topbar-icon-button:disabled { opacity: .55; cursor: default; }
@@ -395,6 +393,11 @@ main.accounts-main .accounts-page .account-card-grid { flex: 1; min-height: 0; }
 .feedback-textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(var(--green-rgb), .12); }
 .feedback-meta-row { display: flex; justify-content: space-between; gap: 12px; margin: 5px 0 15px; color: #87938b; font-size: 9px; }
 .feedback-meta-row span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feedback-contact-field { margin: -3px 0 16px; }
+.feedback-contact-field input { width: 100%; padding: 10px 12px; border: 1px solid #d4ddd5; border-radius: 9px; outline: none; color: var(--ink); background: white; font: 13px "DM Sans", "Microsoft YaHei UI", sans-serif; }
+.feedback-contact-field input:hover { border-color: #a8bbaa; }
+.feedback-contact-field input:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(var(--green-rgb), .12); }
+.feedback-contact-field small { display: block; margin-top: 5px; color: #87938b; font-size: 9px; }
 .feedback-upload-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .feedback-upload-heading > span { min-width: 0; display: grid; gap: 3px; }
 .feedback-upload-heading b { color: #435047; font-size: 12px; }
@@ -521,7 +524,7 @@ main.accounts-main .accounts-page .account-card-grid { flex: 1; min-height: 0; }
 .empty-state > div { width: 52px; height: 52px; border-radius: 15px; display: grid; place-items: center; color: var(--green); background: var(--green-soft); }
 .empty-state h2 { margin: 6px 0 -4px; font: 700 17px Manrope, sans-serif; color: var(--ink); }
 .empty-state p { margin: 0 0 10px; }
-.toast { position: fixed; z-index: 60; right: 28px; bottom: 26px; max-width: 470px; padding: 11px 15px; display: flex; align-items: center; gap: 8px; border: 1px solid #c2d6c7; border-radius: 10px; color: #244c35; background: rgba(247,252,247,.96); box-shadow: 0 14px 35px rgba(18,41,26,.15); font-size: 11px; animation: rise .2s ease; }
+.toast { position: fixed; z-index: 60; right: 28px; bottom: 26px; max-width: 470px; padding: 11px 15px; display: flex; align-items: center; gap: 8px; border: 1px solid #c2d6c7; border-radius: 10px; color: #244c35; background: rgba(247,252,247,.96); box-shadow: 0 14px 35px rgba(18,41,26,.15); font-size: 13px; font-weight: 700; animation: rise .2s ease; }
 .spin { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fade { from { opacity: 0; } }

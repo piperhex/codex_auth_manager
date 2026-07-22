@@ -539,7 +539,12 @@ export async function reportAnnouncementClick(
   await invoke("report_announcement_click", { link, announcementUpdatedAt });
 }
 
-export async function submitFeedback(content: string, version: string, images: File[]): Promise<void> {
+export async function submitFeedback(
+  content: string,
+  version: string,
+  contactEmail: string | null,
+  images: File[],
+): Promise<void> {
   const platform = (navigator.userAgent || navigator.platform || "unknown").slice(0, 500);
   if (isDesktopApp) {
     const inputs: FeedbackImageInput[] = await Promise.all(images.map(async (file) => ({
@@ -552,7 +557,7 @@ export async function submitFeedback(content: string, version: string, images: F
         reader.readAsDataURL(file);
       }),
     })));
-    await invoke("submit_feedback", { content, version, platform, images: inputs });
+    await invoke("submit_feedback", { content, version, platform, contactEmail, images: inputs });
     return;
   }
 
@@ -562,6 +567,7 @@ export async function submitFeedback(content: string, version: string, images: F
   form.append("content", content);
   form.append("version", version);
   form.append("platform", platform);
+  if (contactEmail) form.append("email", contactEmail);
   images.forEach((image) => form.append("images", image, image.name));
   const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/feedback`, {
     method: "POST",
@@ -712,6 +718,26 @@ export async function chooseAndImportAuth(): Promise<ImportAuthResult> {
   return { status: "imported", id };
 }
 
+export async function chooseAndImportAccountJson(): Promise<CompatibleJsonImportResult> {
+  if (!isDesktopApp) return { status: "preview" };
+  const selected = await open({
+    multiple: false,
+    filters: [{ name: "Codex account JSON", extensions: ["json", "jsonl", "ndjson"] }],
+  });
+  if (!selected) return { status: "cancelled" };
+  const result = await invoke<{ importedIds: string[] }>("import_account_json_file", { path: selected });
+  return { status: "imported", ids: result.importedIds };
+}
+
+export async function importAccountJsonFromClipboard(): Promise<CompatibleJsonImportResult> {
+  if (!isDesktopApp) return { status: "preview" };
+  if (!navigator.clipboard?.readText) throw new Error("Clipboard text access is unavailable");
+  const content = await navigator.clipboard.readText();
+  if (!content.trim()) throw new Error("Clipboard does not contain account JSON");
+  const result = await invoke<{ importedIds: string[] }>("import_account_json_text", { content });
+  return { status: "imported", ids: result.importedIds };
+}
+
 export async function chooseAndImportCompatibleJson(): Promise<CompatibleJsonImportResult> {
   if (!isDesktopApp) return { status: "preview" };
   const selected = await open({
@@ -819,6 +845,11 @@ export async function consumeResetCredit(id: string): Promise<void> {
 
 export async function restartChatGpt(): Promise<void> {
   if (isDesktopApp) await invoke("restart_chatgpt");
+}
+
+export async function launchChatGpt(): Promise<boolean> {
+  if (isDesktopApp) return invoke<boolean>("launch_chatgpt");
+  return false;
 }
 
 export async function openManagedFolder(target: "codexHome" | "accountStore"): Promise<void> {

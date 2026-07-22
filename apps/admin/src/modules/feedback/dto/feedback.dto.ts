@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsInt,
+  IsEmail,
   IsOptional,
   IsString,
   Max,
@@ -25,6 +26,11 @@ export class CreateFeedbackDto {
   @MinLength(1)
   @MaxLength(500)
   platform: string;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(160)
+  email?: string;
 }
 
 export class ListFeedbackQueryDto {

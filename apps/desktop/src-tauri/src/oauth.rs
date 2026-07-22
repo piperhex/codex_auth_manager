@@ -84,7 +84,7 @@ fn exchange_code(client: &Client, port: u16, code: &str, verifier: &str) -> Resu
         let status = response.status();
         if status == reqwest::StatusCode::FORBIDDEN {
             return Err(
-                "登录请求被拒绝（HTTP 403）。请将代理切换为全局模式后重试，否则登录服务仍可能识别到当前网络来自不支持的地区。"
+                "登录请求被拒绝（HTTP 403）。请将代理切换为TUN+全局模式后重试，否则登录服务仍可能识别到当前网络来自不支持的地区。"
                     .to_string(),
             );
         }
