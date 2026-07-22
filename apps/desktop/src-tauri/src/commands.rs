@@ -641,12 +641,6 @@ fn switch_account_unlocked<R: Runtime>(app: &tauri::AppHandle<R>, id: &str) -> R
             crate::providers::restore_official_config(&paths)?;
         }
     }
-    if !proxy_running {
-        crate::agent_identity_plugins::sync_plugin_feature_for_auth(
-            &paths,
-            is_agent_identity_auth(&selected),
-        )?;
-    }
     state.active_account_id = Some(id.to_string());
     write_state(&paths, &state)?;
     touch_account_field(&paths, id, AccountSyncField::Active)?;
