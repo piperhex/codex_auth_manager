@@ -55,6 +55,9 @@ export class SyncedAccountEntity {
   @Column({ type: 'jsonb' })
   auth: Record<string, unknown>;
 
+  @Column({ type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 

@@ -12,7 +12,7 @@ import { makeAccount, makeProvider } from './fixtures';
 describe('SyncService', () => {
   let accounts: {
     find: ReturnType<typeof vi.fn>; findOne: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>;
-    save: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>; save: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn>;
   };
   let providers: {
     find: ReturnType<typeof vi.fn>; findOne: ReturnType<typeof vi.fn>;
@@ -38,6 +38,7 @@ describe('SyncService', () => {
   beforeEach(() => {
     accounts = {
       find: vi.fn(), findOne: vi.fn(), update: vi.fn(),
+      create: vi.fn((value) => value),
       save: vi.fn(async (value) => value), delete: vi.fn(),
     };
     providers = {
@@ -81,7 +82,7 @@ describe('SyncService', () => {
   it('returns a cache hit without querying PostgreSQL', async () => {
     const cached = { accounts: [makeAccount()] };
     redis.get.mockResolvedValue(JSON.stringify(cached));
-    await expect(service.list('owner-1')).resolves.toEqual(cached);
+    await expect(service.list('owner-1')).resolves.toEqual({ ...cached, deletedAccountIds: [] });
     expect(redis.get).toHaveBeenCalledWith('sync:accounts:owner-1');
     expect(accounts.find).not.toHaveBeenCalled();
   });
@@ -121,7 +122,7 @@ describe('SyncService', () => {
     const expected = { accounts: [makeAccount({
       email: 'a@example.com', note: '', expiresAt: '', accountId: null,
       active: false, usage: { used: 2 }, auth: { token: 'x' },
-    })] };
+    })], deletedAccountIds: [] };
     await expect(service.list('owner-1')).resolves.toEqual(expected);
     expect(accounts.find).toHaveBeenCalledWith({ where: { ownerId: 'owner-1' }, order: { email: 'ASC' } });
     expect(redis.set).toHaveBeenCalledWith(
@@ -133,6 +134,22 @@ describe('SyncService', () => {
     redis.get.mockResolvedValue('{not-json');
     await expect(service.list('owner-1')).rejects.toBeInstanceOf(SyntaxError);
     expect(accounts.find).not.toHaveBeenCalled();
+  });
+
+  it('returns soft-deleted account ids as tombstones without exposing their credentials', async () => {
+    redis.get.mockResolvedValue(null);
+    accounts.find.mockResolvedValue([{
+      ownerId: 'owner-1', accountId: 'deleted-account', email: 'deleted@example.com',
+      note: '', expiresAt: '', plan: 'Plus', codexAccountId: null, active: false,
+      usage: {}, auth: { token: 'must-stay-hidden' },
+      lastModifiedAt: new Date('2026-07-20T00:00:00.000Z'),
+      deletedAt: new Date('2026-07-22T00:00:00.000Z'),
+    }]);
+
+    await expect(service.list('owner-1')).resolves.toEqual({
+      accounts: [],
+      deletedAccountIds: ['deleted-account'],
+    });
   });
 
   it('merges assigned system-pool accounts into user sync and lets the pool version win collisions', async () => {
@@ -240,6 +257,18 @@ describe('SyncService', () => {
     expect(redis.del).toHaveBeenCalledWith('sync:accounts:owner-1');
   });
 
+  it('does not let another device upload resurrect a soft-deleted account', async () => {
+    const account = makeAccount({ lastModifiedAt: '2026-07-20T00:00:00.000Z' });
+    transactionRepository.findOne.mockResolvedValue({
+      id: 'database-id',
+      deletedAt: new Date('2026-07-01T00:00:00.000Z'),
+    });
+
+    await expect(service.upsert('owner-1', account.id, account)).resolves.toEqual({ id: account.id });
+
+    expect(transactionRepository.save).not.toHaveBeenCalled();
+  });
+
   it('merges a newer usage refresh without replacing a newer cloud note', async () => {
     const existing = {
       id: 'database-id',
@@ -325,9 +354,13 @@ describe('SyncService', () => {
     }));
   });
 
-  it('deletes only the owner-scoped account and invalidates that owner cache', async () => {
+  it('soft-deletes only the owner-scoped account and invalidates that owner cache', async () => {
     await expect(service.delete('owner-1', 'account-1')).resolves.toEqual({ id: 'account-1' });
-    expect(accounts.delete).toHaveBeenCalledWith({ ownerId: 'owner-1', accountId: 'account-1' });
+    expect(accounts.update).toHaveBeenCalledWith(
+      { ownerId: 'owner-1', accountId: 'account-1' },
+      { active: false, deletedAt: expect.any(Date) },
+    );
+    expect(accounts.delete).not.toHaveBeenCalled();
     expect(redis.del).toHaveBeenCalledWith('sync:accounts:owner-1');
   });
 
@@ -345,6 +378,10 @@ describe('SyncService', () => {
 
     expect(dataSource.transaction).not.toHaveBeenCalled();
     expect(accounts.delete).not.toHaveBeenCalled();
+    expect(accounts.save).toHaveBeenCalledWith(expect.objectContaining({
+      ownerId: 'owner-1', accountId: 'account-1', active: false,
+      deletedAt: expect.any(Date),
+    }));
     expect(systemBindings.delete).toHaveBeenCalledWith({
       systemAccountId: '10000000-0000-4000-8000-000000000001',
       userId: 'owner-1',
@@ -470,7 +507,7 @@ describe('SyncService', () => {
       });
 
     expect(accounts.findOne).toHaveBeenCalledWith({
-      where: { ownerId: 'owner-1', accountId: 'personal-account-1' },
+      where: expect.objectContaining({ ownerId: 'owner-1', accountId: 'personal-account-1' }),
     });
     expect(systemAccounts.create).toHaveBeenCalledWith(expect.objectContaining({
       auth,
@@ -581,7 +618,9 @@ describe('SyncService', () => {
       lastModifiedAt: expect.any(String),
     });
 
-    expect(accounts.findOne).toHaveBeenCalledWith({ where: { ownerId: 'owner-1', accountId: 'account-1' } });
+    expect(accounts.findOne).toHaveBeenCalledWith({
+      where: expect.objectContaining({ ownerId: 'owner-1', accountId: 'account-1' }),
+    });
     expect(accounts.update).toHaveBeenCalledWith({ ownerId: 'owner-1' }, { active: false });
     expect(accounts.save).toHaveBeenCalledWith(expect.objectContaining({
       email: 'new@example.com',

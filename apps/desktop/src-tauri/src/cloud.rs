@@ -45,6 +45,8 @@ struct CloudTokenResponse {
 #[serde(rename_all = "camelCase")]
 struct CloudAccountsResponse {
     accounts: Vec<CloudAccountPayload>,
+    #[serde(default)]
+    deleted_account_ids: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -565,7 +567,7 @@ fn get_remote_accounts(
     client: &Client,
     settings: &mut AppSettings,
     credentials: &mut CloudCredentials,
-) -> Result<Vec<CloudAccountPayload>, String> {
+) -> Result<CloudAccountsResponse, String> {
     let response = cloud_request(
         client,
         settings,
@@ -580,7 +582,32 @@ fn get_remote_accounts(
     let payload: CloudAccountsResponse = response
         .json()
         .map_err(|error| format!("Cloud account download response is invalid: {error}"))?;
-    Ok(payload.accounts)
+    Ok(payload)
+}
+
+fn apply_remote_account_deletion<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    account_id: &str,
+) -> Result<bool, String> {
+    let paths = resolve_paths(app)?;
+    let target = crate::storage::account_dir(&paths, account_id);
+    let existed = target.exists();
+    if existed {
+        fs::remove_dir_all(&target)
+            .map_err(|error| format!("Failed to remove cloud-deleted account: {error}"))?;
+    }
+    let mut state = read_state(&paths);
+    let was_active = state.active_account_id.as_deref() == Some(account_id);
+    let disabled_count = state.disabled_account_ids.len();
+    if was_active {
+        state.active_account_id = None;
+    }
+    state.disabled_account_ids.retain(|id| id != account_id);
+    let state_changed = was_active || state.disabled_account_ids.len() != disabled_count;
+    if state_changed {
+        write_state(&paths, &state)?;
+    }
+    Ok(existed || state_changed)
 }
 
 fn get_remote_providers(
@@ -1168,7 +1195,11 @@ async fn cloud_authenticate<R: Runtime>(
         }
         // A returning device may hold an older local copy. Merge the cloud state first so a
         // login cannot immediately publish that stale copy over newer cloud fields.
-        for account in get_remote_accounts(&client, &mut settings, &mut credentials)? {
+        let remote_accounts = get_remote_accounts(&client, &mut settings, &mut credentials)?;
+        for account_id in &remote_accounts.deleted_account_ids {
+            apply_remote_account_deletion(&app, account_id)?;
+        }
+        for account in remote_accounts.accounts {
             apply_remote_account(&app, &account)?;
         }
         for provider in get_remote_providers(&client, &mut settings, &mut credentials)? {
@@ -1348,8 +1379,14 @@ pub(crate) async fn cloud_sync_accounts<R: Runtime>(
             .into_iter()
             .map(|provider| provider.id)
             .collect::<HashSet<_>>();
+        let remote_accounts = get_remote_accounts(&client, &mut settings, &mut credentials)?;
         let mut downloaded = 0;
-        for account in get_remote_accounts(&client, &mut settings, &mut credentials)? {
+        for account_id in &remote_accounts.deleted_account_ids {
+            if apply_remote_account_deletion(&app, account_id)? {
+                downloaded += 1;
+            }
+        }
+        for account in remote_accounts.accounts {
             let is_new = !local_ids.contains(&account.id);
             let applied = apply_remote_account(&app, &account)?;
             if is_new || applied {
@@ -1386,4 +1423,18 @@ pub(crate) async fn cloud_sync_accounts<R: Runtime>(
     })
     .await
     .map_err(|error| format!("Cloud sync task failed: {error}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CloudAccountsResponse;
+
+    #[test]
+    fn cloud_account_response_accepts_soft_delete_tombstones() {
+        let response: CloudAccountsResponse =
+            serde_json::from_str(r#"{"accounts":[],"deletedAccountIds":["account-1"]}"#).unwrap();
+
+        assert!(response.accounts.is_empty());
+        assert_eq!(response.deleted_account_ids, ["account-1"]);
+    }
 }

@@ -39,7 +39,8 @@ If production uses `POSTGRES_DB_SYNCHRONIZE=false`, apply `sql/20260704-admin-ma
 `sql/20260718-announcement-localization-link.sql`,
 `sql/20260718-announcement-link-clicks.sql`,
 `sql/20260718-device-installation-app-version.sql`, `sql/20260718-user-feedback.sql`, and
-`sql/20260718-dynamic-rbac.sql`, and `sql/20260720-sync-account-field-modified-at.sql` before using
+`sql/20260718-dynamic-rbac.sql`, `sql/20260720-sync-account-field-modified-at.sql`, and
+`sql/20260722-sync-account-soft-delete.sql` before using
 the expanded admin console, provider sync,
 official account pool, reusable invitations, announcements, telemetry, and feedback management.
 The RBAC migration must be applied before starting this version because application startup
@@ -199,6 +200,11 @@ tokens remain valid when a signed link is copied for an invitation created by an
 - `PUT /sync/providers`
 - `PUT /sync/providers/:id`
 - `DELETE /sync/providers/:id`
+
+Account deletion is soft: the synchronized row is retained with `deletedAt`, omitted from active
+account views, and returned by `GET /sync/accounts` through `deletedAccountIds` so other desktop
+devices can remove their local copy.
+
 - `GET /admin`
 - `GET /admin/reset-password`
 - `GET /admin/api/users`

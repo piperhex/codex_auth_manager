@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import Redis from 'ioredis';
-import { DataSource, ILike, In, Repository } from 'typeorm';
+import { DataSource, ILike, In, IsNull, Repository } from 'typeorm';
 import { REDIS_CLIENT } from '@/modules/redis/redis.constants';
 import { PutSyncAccountsDto, SyncAccountDto } from './dto/sync-accounts.dto';
 import { PutSyncProvidersDto, SyncProviderDto } from './dto/sync-providers.dto';
@@ -84,9 +84,15 @@ export class SyncService {
   async list(ownerId: string) {
     const cacheKey = this.cacheKey(ownerId);
     const cached = await this.redis.get(cacheKey);
-    if (cached) return JSON.parse(cached) as { accounts: SyncAccountDto[] };
+    if (cached) {
+      const parsed = JSON.parse(cached) as {
+        accounts: SyncAccountDto[];
+        deletedAccountIds?: string[];
+      };
+      return { ...parsed, deletedAccountIds: parsed.deletedAccountIds ?? [] };
+    }
 
-    const payload = { accounts: await this.loadEffectiveAccounts(ownerId) };
+    const payload = await this.loadEffectiveAccountState(ownerId);
     await this.redis.set(cacheKey, JSON.stringify(payload), 'EX', 60);
     return payload;
   }
@@ -135,7 +141,9 @@ export class SyncService {
   async delete(ownerId: string, accountId: string) {
     const bindings = await this.loadSystemBindings(ownerId);
     const binding = bindings.find((item) => item.account.syncAccountId === accountId);
+    const deletedAt = new Date();
     if (binding) {
+      await this.markAccountDeleted(ownerId, accountId, deletedAt, binding.account);
       await this.systemBindings.delete({
         systemAccountId: binding.systemAccountId,
         userId: ownerId,
@@ -143,7 +151,7 @@ export class SyncService {
       await this.redis.del(this.cacheKey(ownerId));
       return { id: accountId };
     }
-    await this.accounts.delete({ ownerId, accountId });
+    await this.accounts.update({ ownerId, accountId }, { active: false, deletedAt });
     await this.redis.del(this.cacheKey(ownerId));
     return { id: accountId };
   }
@@ -164,7 +172,7 @@ export class SyncService {
 
   async listSummary(ownerId: string) {
     return {
-      accounts: (await this.loadEffectiveAccounts(ownerId)).map((row) => {
+      accounts: (await this.loadEffectiveAccountState(ownerId)).accounts.map((row) => {
         const { auth: _auth, ...account } = row;
         return account;
       }),
@@ -173,7 +181,7 @@ export class SyncService {
 
   async listForAdmin(ownerId: string): Promise<{ accounts: AdminSyncAccountDto[] }> {
     const [personalRows, bindings] = await Promise.all([
-      this.accounts.find({ where: { ownerId }, order: { email: 'ASC' } }),
+      this.accounts.find({ where: { ownerId, deletedAt: IsNull() }, order: { email: 'ASC' } }),
       this.loadSystemBindings(ownerId),
     ]);
     const effective = new Map<string, AdminSyncAccountDto>();
@@ -306,7 +314,9 @@ export class SyncService {
   }
 
   async createSystemAccountFromPersonal(ownerId: string, accountId: string) {
-    const account = await this.accounts.findOne({ where: { ownerId, accountId } });
+    const account = await this.accounts.findOne({
+      where: { ownerId, accountId, deletedAt: IsNull() },
+    });
     if (!account) throw new NotFoundException('Synced account not found');
     return this.createSystemAccount({
       auth: account.auth,
@@ -467,7 +477,9 @@ export class SyncService {
     if (await this.isSystemAccountBound(ownerId, accountId)) {
       throw new BadRequestException('System pool accounts must be edited from the official account pool');
     }
-    const account = await this.accounts.findOne({ where: { ownerId, accountId } });
+    const account = await this.accounts.findOne({
+      where: { ownerId, accountId, deletedAt: IsNull() },
+    });
     if (!account) throw new NotFoundException('Synced account not found');
     const fieldModifiedAt = this.normalizeAccountFieldModifiedAt(
       account.fieldModifiedAt,
@@ -518,6 +530,8 @@ export class SyncService {
       incoming.fieldModifiedAt,
       incoming.lastModifiedAt,
     );
+    const incomingLastModifiedAt = this.latestAccountFieldModifiedAt(incomingFieldModifiedAt);
+    if (existing?.deletedAt) return null;
     if (!existing) {
       return {
         activeApplied: true,
@@ -533,8 +547,9 @@ export class SyncService {
           active: incoming.active,
           usage: incoming.usage ?? {},
           auth: incoming.auth,
+          deletedAt: null,
           fieldModifiedAt: incomingFieldModifiedAt,
-          lastModifiedAt: this.latestAccountFieldModifiedAt(incomingFieldModifiedAt),
+          lastModifiedAt: incomingLastModifiedAt,
         },
       };
     }
@@ -559,6 +574,7 @@ export class SyncService {
       active: existing.active,
       usage: existing.usage,
       auth: existing.auth,
+      deletedAt: null,
       lastModifiedAt: existing.lastModifiedAt,
       fieldModifiedAt: { ...existingFieldModifiedAt },
     };
@@ -664,20 +680,59 @@ export class SyncService {
     };
   }
 
-  private async loadEffectiveAccounts(ownerId: string) {
+  private async loadEffectiveAccountState(ownerId: string) {
     const [personalRows, bindings] = await Promise.all([
       this.accounts.find({ where: { ownerId }, order: { email: 'ASC' } }),
       this.loadSystemBindings(ownerId),
     ]);
-    const effective = new Map(personalRows.map((row) => {
+    const deletedAccountIds = new Set(personalRows
+      .filter((row) => Boolean(row.deletedAt))
+      .map((row) => row.accountId));
+    const effective = new Map(personalRows.filter((row) => !row.deletedAt).map((row) => {
       const account = this.toDto(row);
       return [account.id, account] as const;
     }));
     for (const binding of bindings) {
       const account = this.systemAccountToSyncDto(binding.account);
       effective.set(account.id, account);
+      deletedAccountIds.delete(account.id);
     }
-    return [...effective.values()].sort((left, right) => left.email.localeCompare(right.email));
+    return {
+      accounts: [...effective.values()].sort((left, right) => left.email.localeCompare(right.email)),
+      deletedAccountIds: [...deletedAccountIds].sort(),
+    };
+  }
+
+  private async markAccountDeleted(
+    ownerId: string,
+    accountId: string,
+    deletedAt: Date,
+    systemAccount?: SystemAccountEntity,
+  ) {
+    const existing = await this.accounts.findOne({ where: { ownerId, accountId } });
+    if (existing) {
+      await this.accounts.update({ ownerId, accountId }, { active: false, deletedAt });
+      return;
+    }
+    if (!systemAccount) return;
+    const fallbackModifiedAt = this.formatLastModifiedAt(
+      systemAccount.lastModifiedAt ?? systemAccount.updatedAt,
+    );
+    await this.accounts.save(this.accounts.create({
+      ownerId,
+      accountId,
+      email: systemAccount.email,
+      note: systemAccount.note,
+      expiresAt: systemAccount.expiresAt,
+      plan: systemAccount.plan,
+      codexAccountId: systemAccount.codexAccountId ?? null,
+      active: false,
+      usage: systemAccount.usage,
+      auth: systemAccount.auth,
+      fieldModifiedAt: this.normalizeAccountFieldModifiedAt(undefined, fallbackModifiedAt),
+      lastModifiedAt: systemAccount.lastModifiedAt ?? systemAccount.updatedAt,
+      deletedAt,
+    }));
   }
 
   private loadSystemBindings(ownerId: string) {
