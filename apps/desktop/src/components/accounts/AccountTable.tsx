@@ -24,8 +24,6 @@ interface AccountTableProps {
   autoSwitchPriorityBusyAccountId: string | null;
   autoSwitchOnQuotaExhaustion: boolean;
   customAutoSwitchPriorityEnabled: boolean;
-  onCustomAutoSwitchPriorityEnabledChange: (enabled: boolean) => void;
-  customAutoSwitchPriorityBusy: boolean;
   onSaveNote: (id: string, note: string, expiresAt: string) => Promise<boolean>;
   resetCredits: Record<string, ResetCreditsLoadState>;
   onLoadResetCredits: (id: string, force?: boolean) => void;
@@ -274,8 +272,6 @@ export function AccountTable({
   autoSwitchPriorityBusyAccountId,
   autoSwitchOnQuotaExhaustion,
   customAutoSwitchPriorityEnabled,
-  onCustomAutoSwitchPriorityEnabledChange,
-  customAutoSwitchPriorityBusy,
   onSaveNote,
   resetCredits,
   onLoadResetCredits,
@@ -340,8 +336,9 @@ export function AccountTable({
     };
   }, [hotSwitchEnabled, tokenUsageRefreshSeconds]);
   const effectiveCurrentModel = currentModel.trim() || tokenUsageEntries[0]?.model || "";
-  const showCustomPriorityToggle = hotSwitchEnabled && autoSwitchOnQuotaExhaustion;
-  const customPriorityActive = showCustomPriorityToggle && customAutoSwitchPriorityEnabled;
+  const customPriorityActive = hotSwitchEnabled
+    && autoSwitchOnQuotaExhaustion
+    && customAutoSwitchPriorityEnabled;
   const tokenTotalsByAccount = useMemo(() => {
     const totals = new Map<string, TokenTypeTotals>();
     if (!effectiveCurrentModel) return totals;
@@ -467,22 +464,7 @@ export function AccountTable({
       ),
     }] : []),
     {
-      title: (
-        <div className="account-actions-column-title">
-          <span>{t("table.actions")}</span>
-          {showCustomPriorityToggle && (
-            <Tooltip title={t("table.customPriorityTooltip")}>
-              <span className="account-custom-priority-switch">
-                <Switch size="small" checked={customAutoSwitchPriorityEnabled}
-                  disabled={customAutoSwitchPriorityBusy}
-                  onChange={onCustomAutoSwitchPriorityEnabledChange} />
-                <span>{t("table.customPriorityEnabled")}</span>
-              </span>
-            </Tooltip>
-          )}
-        </div>
-      ),
-      width: 350, align: "center", fixed: "right",
+      title: t("table.actions"), width: 300, align: "center", fixed: "right",
       render: (_, account) => {
         const waiting = busyAccountId === account.id;
         const resetWaiting = resetCreditBusyAccountId === account.id;
@@ -679,8 +661,8 @@ export function AccountTable({
           onExpand: (expanded, account) => { if (expanded) onLoadResetCredits(account.id); },
         }}
         scroll={tableScrollY
-          ? { x: customPriorityActive ? 1434 : 1274, y: tableScrollY }
-          : { x: customPriorityActive ? 1434 : 1274 }} />
+          ? { x: customPriorityActive ? 1380 : 1230, y: tableScrollY }
+          : { x: customPriorityActive ? 1380 : 1230 }} />
     </div>
     {editingAccount && <AccountNoteModal key={editingAccount.id} account={editingAccount}
       onClose={() => setEditingAccount(null)}

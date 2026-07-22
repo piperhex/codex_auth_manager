@@ -26,6 +26,7 @@ interface ProvidersPageProps {
   onStopProxy: () => void;
   onRestoreConversations: () => void;
   onAutoSwitchChange: (enabled: boolean) => void;
+  onCustomAutoSwitchPriorityEnabledChange: (enabled: boolean) => void;
   onAutoDisableUnreachableChange: (enabled: boolean) => void;
   onImageAccountChange: (accountId: string | null) => void;
   onListenOnAllInterfacesChange: (enabled: boolean) => void;
@@ -217,6 +218,7 @@ export function ProvidersPage({
   onStopProxy,
   onRestoreConversations,
   onAutoSwitchChange,
+  onCustomAutoSwitchPriorityEnabledChange,
   onAutoDisableUnreachableChange,
   onImageAccountChange,
   onListenOnAllInterfacesChange,
@@ -325,6 +327,7 @@ export function ProvidersPage({
         onStartProxy={onStartProxy} onStopProxy={onStopProxy}
         onRestoreConversations={onRestoreConversations}
         onAutoSwitchChange={onAutoSwitchChange}
+        onCustomAutoSwitchPriorityEnabledChange={onCustomAutoSwitchPriorityEnabledChange}
         onAutoDisableUnreachableChange={onAutoDisableUnreachableChange}
         onImageAccountChange={onImageAccountChange}
         onListenOnAllInterfacesChange={onListenOnAllInterfacesChange} t={t} />

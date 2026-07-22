@@ -225,8 +225,6 @@ main.accounts-main .accounts-page .account-card-grid { flex: 1; min-height: 0; }
 .account-token-chart-cell .compact-model-token-chart { padding-left: 0; border-left: 0; }
 .account-token-chart-unavailable { min-width: 32px; color: #9aa69f; font-size: 11px; cursor: help; }
 .auto-switch-priority-input { width: 88px; }
-.account-actions-column-title { display: flex; align-items: center; justify-content: center; gap: 10px; }
-.account-custom-priority-switch { display: inline-flex; align-items: center; gap: 5px; color: #5d6a62; font-size: 10px; font-weight: 600; white-space: nowrap; }
 .usage-reset-credits { white-space: nowrap; color: var(--green-dark) !important; font-weight: 700; }
 .usage-recent-refresh { white-space: nowrap; color: #718078 !important; }
 .usage-reset { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; white-space: normal; }
@@ -472,6 +470,10 @@ main.accounts-main .accounts-page .account-card-grid { flex: 1; min-height: 0; }
 .provider-proxy-copy small { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .provider-official-main > div.provider-proxy-copy > small.proxy-restart-notice { color: #d92d20; font-weight: 600; }
 .proxy-auto-switch { display: inline-flex; align-items: center; gap: 5px; color: #5d6a62; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.proxy-auto-switch-entry { display: inline-flex; align-items: center; gap: 5px; padding: 3px 4px; border: 0; background: transparent; color: #5d6a62; font: 700 11px Manrope, sans-serif; white-space: nowrap; cursor: pointer; }
+.proxy-auto-switch-entry:hover, .proxy-auto-switch-entry.active { color: var(--green-dark); }
+.proxy-auto-switch-menu { min-width: 210px; display: grid; gap: 4px; }
+.proxy-auto-switch-menu-item { min-height: 30px; display: flex; align-items: center; justify-content: space-between; gap: 24px; color: #46534b; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .proxy-image-account { width: 210px; }
 .proxy-start-confirm-description,
 .sync-direct-confirm-description { display: block; max-width: 320px; line-height: 1.6; white-space: normal; overflow-wrap: anywhere; }

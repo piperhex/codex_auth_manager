@@ -87,6 +87,7 @@ export function AccountsPage({
         onStartProxy={onStartProxy} onStopProxy={onStopProxy}
         onRestoreConversations={onRestoreConversations}
         onAutoSwitchChange={onAutoSwitchChange}
+        onCustomAutoSwitchPriorityEnabledChange={onCustomAutoSwitchPriorityEnabledChange}
         onAutoDisableUnreachableChange={onAutoDisableUnreachableChange}
         onImageAccountChange={onImageAccountChange}
         onListenOnAllInterfacesChange={onListenOnAllInterfacesChange} t={t} />
@@ -122,8 +123,6 @@ export function AccountsPage({
         autoSwitchPriorityBusyAccountId={autoSwitchPriorityBusyAccountId}
         autoSwitchOnQuotaExhaustion={localProxy?.autoSwitchOnQuotaExhaustion ?? false}
         customAutoSwitchPriorityEnabled={localProxy?.customAutoSwitchPriorityEnabled ?? false}
-        onCustomAutoSwitchPriorityEnabledChange={onCustomAutoSwitchPriorityEnabledChange}
-        customAutoSwitchPriorityBusy={proxyBusy}
         onSaveNote={onSaveNote}
         resetCredits={resetCredits} onLoadResetCredits={onLoadResetCredits}
         onUseResetCredit={onUseResetCredit} resetCreditBusyAccountId={resetCreditBusyAccountId}

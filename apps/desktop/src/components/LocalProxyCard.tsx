@@ -1,5 +1,5 @@
-import { Button, Popconfirm, Select, Switch, Tag, Tooltip } from "antd";
-import { History, Power, PowerOff, RadioTower } from "lucide-react";
+import { Button, Popconfirm, Popover, Select, Switch, Tag, Tooltip } from "antd";
+import { ChevronDown, History, Power, PowerOff, RadioTower, Shuffle } from "lucide-react";
 import type { Translate } from "../i18n";
 import type { Account, LocalProxyStatus } from "../types";
 
@@ -12,6 +12,7 @@ interface LocalProxyCardProps {
   onStopProxy: () => void;
   onRestoreConversations: () => void;
   onAutoSwitchChange: (enabled: boolean) => void;
+  onCustomAutoSwitchPriorityEnabledChange: (enabled: boolean) => void;
   onAutoDisableUnreachableChange: (enabled: boolean) => void;
   onImageAccountChange: (accountId: string | null) => void;
   onListenOnAllInterfacesChange: (enabled: boolean) => void;
@@ -28,6 +29,7 @@ export function LocalProxyCard({
   onStopProxy,
   onRestoreConversations,
   onAutoSwitchChange,
+  onCustomAutoSwitchPriorityEnabledChange,
   onAutoDisableUnreachableChange,
   onImageAccountChange,
   onListenOnAllInterfacesChange,
@@ -120,13 +122,32 @@ export function LocalProxyCard({
                 </span>
               </Tooltip>
             )}
-            <Tooltip title={t("providers.proxy.autoSwitchTooltip")}>
-              <span className="proxy-auto-switch">
-                <Switch size="small" checked={localProxy?.autoSwitchOnQuotaExhaustion ?? false}
-                  disabled={proxyBusy} onChange={onAutoSwitchChange} />
+            <Popover trigger="hover" placement="bottom" mouseEnterDelay={0.08} mouseLeaveDelay={0.12}
+              content={(
+                <div className="proxy-auto-switch-menu">
+                  <div className="proxy-auto-switch-menu-item"
+                    title={t("providers.proxy.autoSwitchTooltip")}>
+                    <span>{t("providers.proxy.autoSwitch")}</span>
+                    <Switch size="small" checked={localProxy?.autoSwitchOnQuotaExhaustion ?? false}
+                      disabled={proxyBusy} onChange={onAutoSwitchChange} />
+                  </div>
+                  <div className="proxy-auto-switch-menu-item"
+                    title={t("table.customPriorityTooltip")}>
+                    <span>{t("table.customPriorityEnabled")}</span>
+                    <Switch size="small" checked={localProxy?.customAutoSwitchPriorityEnabled ?? false}
+                      disabled={proxyBusy || !localProxy?.autoSwitchOnQuotaExhaustion}
+                      onChange={onCustomAutoSwitchPriorityEnabledChange} />
+                  </div>
+                </div>
+              )}>
+              <button type="button"
+                className={`proxy-auto-switch-entry${localProxy?.autoSwitchOnQuotaExhaustion ? " active" : ""}`}
+                aria-label={t("providers.proxy.autoSwitch")}>
+                <Shuffle size={14} />
                 <span>{t("providers.proxy.autoSwitch")}</span>
-              </span>
-            </Tooltip>
+                <ChevronDown size={12} />
+              </button>
+            </Popover>
             <Tooltip title={t("providers.proxy.listenAllInterfacesTooltip")}>
               <span className="proxy-auto-switch">
                 <Switch size="small" checked={localProxy?.listenOnAllInterfaces ?? false}

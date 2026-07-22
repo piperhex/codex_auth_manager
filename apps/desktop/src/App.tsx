@@ -776,6 +776,7 @@ function DashboardApp() {
               onStartProxy={providerManager.startProxy} onStopProxy={providerManager.stopProxy}
               onRestoreConversations={providerManager.restoreConversations}
               onAutoSwitchChange={providerManager.setProxyAutoSwitch}
+              onCustomAutoSwitchPriorityEnabledChange={providerManager.setProxyCustomPriority}
               onAutoDisableUnreachableChange={providerManager.setProxyAutoDisableUnreachable}
               onImageAccountChange={providerManager.setProxyImageAccount}
               onListenOnAllInterfacesChange={providerManager.setProxyListenOnAllInterfaces}
