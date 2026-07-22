@@ -123,6 +123,21 @@ export interface AdminFeedback {
   createdAt: string;
 }
 
+export interface AdminMailService {
+  id: string | null;
+  source: 'default' | 'custom';
+  name: string;
+  host: string;
+  port: number;
+  secure: boolean;
+  username: string;
+  fromAddress: string;
+  enabled: boolean;
+  hasPassword: boolean;
+  updatedByEmail?: string | null;
+  updatedAt?: string | null;
+}
+
 export interface AdminUser {
   id: string;
   email: string;

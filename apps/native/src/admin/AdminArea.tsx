@@ -18,6 +18,7 @@ import type {
   AdminDashboardOverview,
   AdminFeedback,
   AdminInvitation,
+  AdminMailService,
   AdminOfficialAccount,
   AdminRole,
   AdminUser,
@@ -905,8 +906,11 @@ function InvitationsPage({ session, profile, onBack }: AdminAreaProps & { onBack
 function FeedbackPage({ session, profile, onBack }: AdminAreaProps & { onBack: () => void }) {
   const [data, setData] = useState<PageResult<AdminFeedback>>(EMPTY_PAGE);
   const [loading, setLoading] = useState(false);
+  const [mailServices, setMailServices] = useState<AdminMailService[]>([]);
+  const [mailServicesLoading, setMailServicesLoading] = useState(false);
   const [selected, setSelected] = useState<AdminFeedback | null>(null);
   const [replying, setReplying] = useState<AdminFeedback | null>(null);
+  const [mailServiceId, setMailServiceId] = useState<string | null>(null);
   const [subject, setSubject] = useState('Codex Switch 问题反馈回复');
   const [content, setContent] = useState('');
   const [replyingBusy, setReplyingBusy] = useState(false);
@@ -917,9 +921,30 @@ function FeedbackPage({ session, profile, onBack }: AdminAreaProps & { onBack: (
     catch (error) { Toast.fail(messageOf(error)); }
     finally { setLoading(false); }
   }, [data.page, data.pageSize, session]);
-  useEffect(() => { void load(1); }, [session]);
+  const loadMailServices = useCallback(async () => {
+    setMailServices([]);
+    setMailServicesLoading(true);
+    try { setMailServices(await adminRequest<AdminMailService[]>(session, '/admin/api/mail-services')); }
+    catch (error) { Toast.fail(`发件服务加载失败：${messageOf(error)}`); }
+    finally { setMailServicesLoading(false); }
+  }, [session]);
+  useEffect(() => {
+    void load(1);
+    void loadMailServices();
+  }, [session]);
+
+  useEffect(() => {
+    if (!replying || mailServicesLoading) return;
+    setMailServiceId((currentId) => {
+      const current = mailServices.find((service) => service.id === currentId);
+      return current?.enabled ? currentId : (mailServices.find((service) => service.enabled)?.id ?? null);
+    });
+  }, [mailServices, mailServicesLoading, replying]);
 
   function openReply(item: AdminFeedback) {
+    const initialService = mailServices.find((service) => service.source === 'default' && service.enabled)
+      ?? mailServices.find((service) => service.enabled);
+    setMailServiceId(initialService?.id ?? null);
     setSubject('Codex Switch 问题反馈回复');
     setContent('');
     setReplying(item);
@@ -927,9 +952,16 @@ function FeedbackPage({ session, profile, onBack }: AdminAreaProps & { onBack: (
 
   async function sendReply() {
     if (!replying || !subject.trim() || !content.trim()) { Toast.fail('请填写主题和回复内容'); return; }
+    if (!mailServices.find((service) => service.id === mailServiceId)?.enabled) {
+      Toast.fail('请选择可用的发件服务');
+      return;
+    }
     setReplyingBusy(true);
     try {
-      await adminRequest(session, `/admin/api/feedback/${replying.id}/email`, { method: 'POST', body: JSON.stringify({ subject, content }) });
+      await adminRequest(session, `/admin/api/feedback/${replying.id}/email`, {
+        method: 'POST',
+        body: JSON.stringify({ subject, content, mailServiceId }),
+      });
       Toast.success('回复邮件已发送');
       setReplying(null);
       setContent('');
@@ -994,10 +1026,51 @@ function FeedbackPage({ session, profile, onBack }: AdminAreaProps & { onBack: (
       tall
       actions={[
         { label: '取消', onPress: () => setReplying(null), disabled: replyingBusy },
-        { label: '发送回复', tone: 'primary', onPress: sendReply, loading: replyingBusy },
+        {
+          label: '发送回复',
+          tone: 'primary',
+          onPress: sendReply,
+          loading: replyingBusy,
+          disabled: mailServicesLoading || !mailServices.find((service) => service.id === mailServiceId)?.enabled,
+        },
       ]}
     >
       <ScrollView style={styles.sheetScroll} keyboardShouldPersistTaps="handled">
+        <Text style={styles.fieldLabel}>发件服务</Text>
+        {mailServicesLoading ? <View style={styles.mailServiceLoading}>
+          <ActivityIndicator color={COLORS.primary} size="small" />
+          <Text style={styles.mailServiceLoadingText}>正在加载发件服务</Text>
+        </View> : mailServices.length ? <View style={styles.mailServiceList}>
+          {mailServices.map((service) => {
+            const checked = service.id === mailServiceId;
+            return <Pressable
+              key={service.id ?? 'default'}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: checked, disabled: !service.enabled }}
+              disabled={!service.enabled || replyingBusy}
+              onPress={() => setMailServiceId(service.id)}
+              style={({ pressed }) => [
+                styles.mailServiceRow,
+                checked && styles.mailServiceRowActive,
+                !service.enabled && styles.disabled,
+                pressed && styles.pressed,
+              ]}
+            >
+              <View style={[styles.radio, checked && styles.radioSelected]}>
+                {checked ? <View style={styles.radioDot} /> : null}
+              </View>
+              <View style={styles.mailServiceCopy}>
+                <Text style={styles.mailServiceName} numberOfLines={1}>
+                  {service.source === 'default' ? '默认服务' : service.name}
+                </Text>
+                <Text style={styles.mailServiceMeta} numberOfLines={2}>
+                  {service.fromAddress ? `发件人：${service.fromAddress}` : '未配置发件人'}
+                  {!service.enabled ? ' · 已停用' : ''}
+                </Text>
+              </View>
+            </Pressable>;
+          })}
+        </View> : <Text style={styles.mailServiceEmpty}>暂无可用的发件服务，请刷新后重试</Text>}
         <Field label="邮件主题" value={subject} onChangeText={setSubject} />
         <Field label="回复内容" value={content} onChangeText={setContent} multiline placeholder="输入对用户问题的回复…" />
       </ScrollView>
@@ -1268,6 +1341,18 @@ const styles = StyleSheet.create({
   input: { minHeight: 48, borderWidth: 1, borderColor: '#d6e0da', borderRadius: 13, color: COLORS.ink, backgroundColor: '#f9fbfa', paddingHorizontal: 13, paddingVertical: 11, fontSize: 14 },
   textarea: { minHeight: 130, lineHeight: 21 },
   fieldHint: { color: COLORS.faint, fontSize: 10, lineHeight: 15, marginTop: 6 },
+  mailServiceLoading: { minHeight: 62, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, backgroundColor: COLORS.canvas, marginBottom: 16 },
+  mailServiceLoadingText: { color: COLORS.muted, fontSize: 12 },
+  mailServiceList: { marginBottom: 16 },
+  mailServiceRow: { minHeight: 62, flexDirection: 'row', alignItems: 'center', borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#f9fbfa', paddingHorizontal: 12, marginBottom: 8 },
+  mailServiceRowActive: { borderColor: '#77c8b5', backgroundColor: '#f0faf6' },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: '#aebdb5', alignItems: 'center', justifyContent: 'center' },
+  radioSelected: { borderColor: COLORS.primary },
+  radioDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: COLORS.primary },
+  mailServiceCopy: { flex: 1, minWidth: 0, marginLeft: 11 },
+  mailServiceName: { color: COLORS.ink, fontSize: 13, fontWeight: '800' },
+  mailServiceMeta: { color: COLORS.faint, fontSize: 10, lineHeight: 15, marginTop: 3 },
+  mailServiceEmpty: { color: COLORS.faint, fontSize: 12, lineHeight: 18, textAlign: 'center', borderRadius: 14, backgroundColor: COLORS.canvas, padding: 16, marginBottom: 16 },
   switchRow: { minHeight: 66, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: 14, backgroundColor: COLORS.canvas, paddingHorizontal: 13, marginBottom: 16 },
   switchCopy: { flex: 1, marginRight: 12 },
   switchLabel: { color: COLORS.ink, fontSize: 13, fontWeight: '800' },
