@@ -198,6 +198,40 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ndk_version="$(sed -n 's/^ndkVersion = "\([^"]*\)"/\1/p' apps/native/node_modules/react-native/gradle/libs.versions.toml)"
+          if [[ -z "$ndk_version" ]]; then
+            echo "::error::Unable to determine the React Native NDK version."
+            exit 1
+          fi
+
+          android_sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          sdkmanager="$android_sdk_root/cmdline-tools/latest/bin/sdkmanager"
+          if [[ -z "$android_sdk_root" || ! -x "$sdkmanager" ]]; then
+            echo "::error::Android SDK command-line tools are unavailable."
+            exit 1
+          fi
+
+          for attempt in 1 2 3; do
+            if "$sdkmanager" "ndk;$ndk_version" \
+              && [[ -f "$android_sdk_root/ndk/$ndk_version/source.properties" ]]; then
+              exit 0
+            fi
+
+            echo "::warning::NDK $ndk_version installation failed (attempt $attempt of 3)."
+            rm -rf "$android_sdk_root/ndk/$ndk_version" "$android_sdk_root/.temp"
+            if [[ "$attempt" -lt 3 ]]; then
+              sleep $((attempt * 10))
+            fi
+          done
+
+          echo "::error::Failed to install NDK $ndk_version after 3 attempts."
+          exit 1
+
       - name: Type-check native app
         run: npm run check -w @codex-switch/native
 
