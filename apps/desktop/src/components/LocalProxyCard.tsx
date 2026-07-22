@@ -1,31 +1,38 @@
 import { Button, Popconfirm, Switch, Tag, Tooltip } from "antd";
-import { Power, PowerOff, RadioTower } from "lucide-react";
+import { History, Power, PowerOff, RadioTower } from "lucide-react";
 import type { Translate } from "../i18n";
 import type { LocalProxyStatus } from "../types";
 
 interface LocalProxyCardProps {
   localProxy: LocalProxyStatus | null;
   proxyBusy: boolean;
+  conversationRestoreBusy: boolean;
   onStartProxy: () => void;
   onStopProxy: () => void;
+  onRestoreConversations: () => void;
   onAutoSwitchChange: (enabled: boolean) => void;
   onAutoDisableUnreachableChange: (enabled: boolean) => void;
+  startDisabledReason?: string;
   t: Translate;
 }
 
 export function LocalProxyCard({
   localProxy,
   proxyBusy,
+  conversationRestoreBusy,
   onStartProxy,
   onStopProxy,
+  onRestoreConversations,
   onAutoSwitchChange,
   onAutoDisableUnreachableChange,
+  startDisabledReason,
   t,
 }: LocalProxyCardProps) {
   const proxyRunning = Boolean(localProxy?.running);
   const proxyBaseUrl = localProxy?.baseUrl ?? "http://127.0.0.1:15722/v1";
   const actionButton = (
     <Button size="small" type={proxyRunning ? "default" : "primary"} loading={proxyBusy}
+      disabled={conversationRestoreBusy || (!proxyRunning && Boolean(startDisabledReason))}
       icon={proxyRunning ? <PowerOff size={14} /> : <Power size={14} />}
       onClick={proxyRunning ? onStopProxy : undefined}>
       {proxyRunning ? t("providers.proxy.stop") : t("providers.proxy.start")}
@@ -45,7 +52,22 @@ export function LocalProxyCard({
         <Tag className={proxyRunning ? "current-tag" : undefined}>
           {proxyRunning ? t("providers.proxy.running") : t("providers.proxy.stopped")}
         </Tag>
-        {proxyRunning ? actionButton : (
+        {!proxyRunning && (
+          <Popconfirm title={t("providers.proxy.restoreConversationsConfirmTitle")}
+            description={(
+              <span className="proxy-start-confirm-description">
+                {t("providers.proxy.restoreConversationsConfirmDescription")}
+              </span>
+            )}
+            okText={t("providers.proxy.restoreConversations")} cancelText={t("providers.proxy.cancel")}
+            disabled={proxyBusy || conversationRestoreBusy} onConfirm={onRestoreConversations}>
+            <Button size="small" icon={<History size={14} />} loading={conversationRestoreBusy}
+              disabled={proxyBusy}>{t("providers.proxy.restoreConversations")}</Button>
+          </Popconfirm>
+        )}
+        {proxyRunning ? actionButton : startDisabledReason ? (
+          <Tooltip title={startDisabledReason}><span>{actionButton}</span></Tooltip>
+        ) : (
           <Popconfirm title={t("providers.proxy.startConfirmTitle")}
             description={(
               <span className="proxy-start-confirm-description">
@@ -53,7 +75,7 @@ export function LocalProxyCard({
               </span>
             )}
             okText={t("providers.proxy.start")} cancelText={t("providers.proxy.cancel")}
-            disabled={proxyBusy} onConfirm={onStartProxy}>
+            disabled={proxyBusy || conversationRestoreBusy} onConfirm={onStartProxy}>
             {actionButton}
           </Popconfirm>
         )}

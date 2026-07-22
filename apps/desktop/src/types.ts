@@ -21,6 +21,7 @@ export interface Account {
   accountId?: string | null;
   active: boolean;
   autoSwitchEnabled: boolean;
+  localProxyCompatible: boolean;
   usage: UsageSummary;
 }
 
@@ -80,6 +81,11 @@ export interface LocalProxyStatus {
   baseUrl: string;
   autoSwitchOnQuotaExhaustion: boolean;
   autoDisableUnreachableAccounts: boolean;
+}
+
+export interface DirectConversationSyncResult {
+  conversationsUpdated: number;
+  rolloutFilesUpdated: number;
 }
 
 export interface TokenUsageEntry {

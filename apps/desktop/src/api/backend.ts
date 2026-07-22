@@ -19,6 +19,7 @@ import type {
   DreamSkinAppearance,
   DreamSkinStatus,
   DailyTokenUsage,
+  DirectConversationSyncResult,
   FeedbackImageInput,
   LoginStart,
   LoginStatus,
@@ -382,6 +383,11 @@ export async function stopLocalProxy(): Promise<LocalProxyStatus> {
     return previewLocalProxyStatus();
   }
   return invoke<LocalProxyStatus>("stop_local_proxy");
+}
+
+export async function restoreNonProxyConversations(): Promise<DirectConversationSyncResult> {
+  if (!isDesktopApp) return { conversationsUpdated: 0, rolloutFilesUpdated: 0 };
+  return invoke<DirectConversationSyncResult>("restore_non_proxy_conversations");
 }
 
 export async function setLocalProxyAutoSwitch(enabled: boolean): Promise<LocalProxyStatus> {

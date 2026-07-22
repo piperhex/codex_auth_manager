@@ -13,6 +13,7 @@ pub(crate) struct AccountSummary {
     pub(crate) account_id: Option<String>,
     pub(crate) active: bool,
     pub(crate) auto_switch_enabled: bool,
+    pub(crate) local_proxy_compatible: bool,
     pub(crate) usage: UsageSummary,
 }
 

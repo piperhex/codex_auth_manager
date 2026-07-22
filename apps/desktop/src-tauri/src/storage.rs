@@ -411,8 +411,12 @@ pub(crate) fn import_value<R: Runtime>(
     let should_activate = should_activate_import(&state, activate, paths.current_auth.exists());
     write_managed_auth_if_changed(&paths, &id, &auth)?;
     if should_activate {
-        let can_activate = crate::local_proxy::is_running()
-            || crate::commands::sync_current_auth_if_client_stopped(&paths, &auth)?;
+        let proxy_running = crate::local_proxy::is_running();
+        let can_activate = if proxy_running {
+            !crate::auth::is_agent_identity_auth(&auth)
+        } else {
+            crate::commands::sync_current_auth_if_client_stopped(&paths, &auth)?
+        };
         if can_activate {
             state.active_account_id = Some(id.clone());
             write_state(&paths, &state)?;

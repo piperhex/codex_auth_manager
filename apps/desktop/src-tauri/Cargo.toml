@@ -17,7 +17,9 @@ tauri-build = { version = "2", features = [] }
 base64 = "0.22"
 aes-gcm = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
+crypto_box = { version = "0.9.1", features = ["seal"] }
 dirs = "6"
+ed25519-dalek = { version = "2.2", features = ["pkcs8"] }
 flate2 = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 rand = "0.9"

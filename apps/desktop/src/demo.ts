@@ -9,6 +9,7 @@ export const DEMO_ACCOUNTS: Account[] = [
     plan: "Plus",
     active: true,
     autoSwitchEnabled: true,
+    localProxyCompatible: true,
     accountId: "workspace-personal",
     usage: {
       primary: { usedPercent: 28, remainingPercent: 72, resetsAt: Date.now() / 1000 + 8200 },
@@ -24,6 +25,7 @@ export const DEMO_ACCOUNTS: Account[] = [
     plan: "Business",
     active: false,
     autoSwitchEnabled: false,
+    localProxyCompatible: true,
     accountId: "workspace-studio",
     usage: {
       primary: { usedPercent: 64, remainingPercent: 36, resetsAt: Date.now() / 1000 + 4500 },

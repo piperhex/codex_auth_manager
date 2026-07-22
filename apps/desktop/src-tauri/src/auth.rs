@@ -37,7 +37,7 @@ fn nested_auth(claims: &Value) -> Option<&Value> {
     claims.get("https://api.openai.com/auth")
 }
 
-fn is_agent_identity_auth(auth: &Value) -> bool {
+pub(crate) fn is_agent_identity_auth(auth: &Value) -> bool {
     auth.get("auth_mode")
         .and_then(Value::as_str)
         .is_some_and(|value| value.eq_ignore_ascii_case("agentIdentity"))

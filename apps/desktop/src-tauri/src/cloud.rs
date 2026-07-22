@@ -495,8 +495,12 @@ fn apply_remote_account<R: Runtime>(
     if apply_auth && active_account_id.as_deref() == Some(&account.id) {
         crate::commands::sync_current_auth_if_client_stopped(&paths, &account_auth)?;
     } else if apply_active && account.active && active_account_id.is_none() {
-        let can_activate = crate::local_proxy::is_running()
-            || crate::commands::sync_current_auth_if_client_stopped(&paths, &account_auth)?;
+        let proxy_running = crate::local_proxy::is_running();
+        let can_activate = if proxy_running {
+            !crate::auth::is_agent_identity_auth(&account_auth)
+        } else {
+            crate::commands::sync_current_auth_if_client_stopped(&paths, &account_auth)?
+        };
         if can_activate {
             let mut state = read_state(&paths);
             state.active_account_id = Some(account.id.clone());

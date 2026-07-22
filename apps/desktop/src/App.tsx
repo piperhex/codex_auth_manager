@@ -677,10 +677,12 @@ function DashboardApp() {
             <MemoProvidersPage providers={providerManager.providers} loading={providerManager.loading}
               busyProviderId={providerManager.busyProviderId} saving={providerManager.saving}
               localProxy={providerManager.localProxy} proxyBusy={providerManager.proxyBusy}
+              conversationRestoreBusy={providerManager.conversationRestoreBusy}
               info={manager.info} onSave={providerManager.saveProvider}
               onSwitch={switchProvider} onSwitchModel={switchProviderModel}
               onModelControlChange={setProviderModelControl} onDelete={deleteProvider}
               onStartProxy={providerManager.startProxy} onStopProxy={providerManager.stopProxy}
+              onRestoreConversations={providerManager.restoreConversations}
               onAutoSwitchChange={providerManager.setProxyAutoSwitch}
               onAutoDisableUnreachableChange={providerManager.setProxyAutoDisableUnreachable}
               displayMode={accountDisplayMode.displayMode} t={t} />
@@ -696,6 +698,7 @@ function DashboardApp() {
             <MemoAccountsPage accounts={manager.accounts} loading={manager.loading}
               busyAccountId={manager.busyAccountId} onAdd={openLogin}
               localProxy={providerManager.localProxy} proxyBusy={providerManager.proxyBusy}
+              conversationRestoreBusy={providerManager.conversationRestoreBusy}
               onSwitch={switchAccount}
               onRefresh={refreshUsage}
               onDelete={deleteAccount}
@@ -707,6 +710,7 @@ function DashboardApp() {
               onUseResetCredit={(id) => void useResetCredit(id)}
               resetCreditBusyAccountId={resetCreditBusyAccountId}
               onStartProxy={providerManager.startProxy} onStopProxy={providerManager.stopProxy}
+              onRestoreConversations={providerManager.restoreConversations}
               onAutoSwitchChange={providerManager.setProxyAutoSwitch}
               onAutoDisableUnreachableChange={providerManager.setProxyAutoDisableUnreachable}
               privacyMode={privacyMode.enabled}

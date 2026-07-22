@@ -11,6 +11,7 @@ export function AccountsPage({
   busyAccountId,
   localProxy,
   proxyBusy,
+  conversationRestoreBusy,
   resetCredits,
   onAdd,
   onSwitch,
@@ -24,6 +25,7 @@ export function AccountsPage({
   resetCreditBusyAccountId,
   onStartProxy,
   onStopProxy,
+  onRestoreConversations,
   onAutoSwitchChange,
   onAutoDisableUnreachableChange,
   privacyMode,
@@ -38,6 +40,7 @@ export function AccountsPage({
   busyAccountId: string | null;
   localProxy: LocalProxyStatus | null;
   proxyBusy: boolean;
+  conversationRestoreBusy: boolean;
   resetCredits: Record<string, ResetCreditsLoadState>;
   onAdd: () => void;
   onSwitch: (id: string) => void;
@@ -51,6 +54,7 @@ export function AccountsPage({
   resetCreditBusyAccountId: string | null;
   onStartProxy: () => void;
   onStopProxy: () => void;
+  onRestoreConversations: () => void;
   onAutoSwitchChange: (enabled: boolean) => void;
   onAutoDisableUnreachableChange: (enabled: boolean) => void;
   privacyMode: boolean;
@@ -61,10 +65,17 @@ export function AccountsPage({
   t: Translate;
 }) {
   const hotSwitchEnabled = Boolean(localProxy?.running);
+  const activeAccount = accounts.find((account) => account.active);
+  const proxyStartDisabledReason = activeAccount && !activeAccount.localProxyCompatible
+    ? t("providers.proxy.agentIdentityUnsupported")
+    : undefined;
   const proxyCard = (
     <div className="home-proxy-wrap">
       <LocalProxyCard localProxy={localProxy} proxyBusy={proxyBusy}
+        conversationRestoreBusy={conversationRestoreBusy}
+        startDisabledReason={proxyStartDisabledReason}
         onStartProxy={onStartProxy} onStopProxy={onStopProxy}
+        onRestoreConversations={onRestoreConversations}
         onAutoSwitchChange={onAutoSwitchChange}
         onAutoDisableUnreachableChange={onAutoDisableUnreachableChange} t={t} />
     </div>

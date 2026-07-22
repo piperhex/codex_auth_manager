@@ -20,7 +20,8 @@ use tauri::{Emitter, Runtime};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::{
-    auth::{account_fields, canonicalize_chatgpt_auth, validate_auth},
+    agent_identity,
+    auth::{account_fields, canonicalize_chatgpt_auth, is_agent_identity_auth, validate_auth},
     codex_api::{
         consume_reset_credit_request, parse_reset_credits, parse_usage, refresh_tokens,
         reset_credits_request, token_expiring, usage_request,
@@ -136,7 +137,9 @@ pub(crate) fn list_accounts<R: Runtime>(
         if repaired {
             write_managed_auth_if_changed(&paths, &id, &auth)?;
         }
-        let auto_switch_enabled = !state.disabled_account_ids.contains(&id);
+        let local_proxy_compatible = !is_agent_identity_auth(&auth);
+        let auto_switch_enabled =
+            local_proxy_compatible && !state.disabled_account_ids.contains(&id);
         accounts.push(AccountSummary {
             active: active_id.as_deref() == Some(&id),
             usage: load_usage(&usage_path(&paths, &id)),
@@ -147,6 +150,7 @@ pub(crate) fn list_accounts<R: Runtime>(
             plan,
             account_id,
             auto_switch_enabled,
+            local_proxy_compatible,
         });
     }
     accounts.sort_by(|left, right| left.email.cmp(&right.email));
@@ -571,6 +575,7 @@ fn switch_account_unlocked<R: Runtime>(app: &tauri::AppHandle<R>, id: &str) -> R
     let proxy_running = crate::local_proxy::is_running();
     let paths = resolve_paths(app)?;
     let selected = load_validated_managed_auth(&paths, id)?;
+    ensure_account_switch_allowed(&selected, proxy_running)?;
     if !proxy_running {
         // The local proxy reads the selected managed credential.  Avoid modifying the
         // authentication file watched by the already-running Codex application.
@@ -593,6 +598,15 @@ fn switch_account_unlocked<R: Runtime>(app: &tauri::AppHandle<R>, id: &str) -> R
     app.emit("providers-changed", ())
         .map_err(|error| error.to_string())?;
     crate::system_tray::refresh_menu(&app);
+    Ok(())
+}
+
+fn ensure_account_switch_allowed(auth: &Value, proxy_running: bool) -> Result<(), String> {
+    if proxy_running && is_agent_identity_auth(auth) {
+        return Err(
+            "Agent Identity 账号不支持本地代理模式；请先停止本地代理，再切换到该账号".to_string(),
+        );
+    }
     Ok(())
 }
 
@@ -619,6 +633,9 @@ pub(crate) fn set_account_auto_switch_enabled<R: Runtime>(
     let paths = resolve_paths(&app)?;
     if !managed_auth_path(&paths, &id).exists() {
         return Err("Account does not exist".to_string());
+    }
+    if enabled && is_agent_identity_auth(&load_validated_managed_auth(&paths, &id)?) {
+        return Err("Agent Identity 账号不能参与本地代理自动切号".to_string());
     }
 
     set_account_auto_switch_enabled_for_paths(&paths, &id, enabled)?;
@@ -738,6 +755,76 @@ pub(crate) fn sync_conversation_metadata_if_present(
     sync_conversation_metadata(codex_home)
 }
 
+#[tauri::command]
+pub(crate) async fn restore_non_proxy_conversations<R: Runtime + 'static>(
+    app: tauri::AppHandle<R>,
+) -> Result<DirectConversationSyncResult, String> {
+    tauri::async_runtime::spawn_blocking(move || restore_non_proxy_conversations_blocking(app))
+        .await
+        .map_err(|error| format!("恢复非代理模式对话任务失败：{error}"))?
+}
+
+fn restore_non_proxy_conversations_blocking<R: Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<DirectConversationSyncResult, String> {
+    if crate::local_proxy::is_running() {
+        return Err("请先停止本地代理，再恢复非代理模式对话".to_string());
+    }
+
+    let _switch_guard = account_switch_lock()
+        .lock()
+        .map_err(|_| "Account switch lock is poisoned".to_string())?;
+    let paths = resolve_paths(&app)?;
+    let client_was_running = chatgpt_or_codex_is_running()?;
+    let launch_target = client_was_running
+        .then(|| refresh_and_get_chatgpt_launch_target(&app))
+        .flatten();
+    if client_was_running {
+        stop_chatgpt_processes()?;
+        wait_for_chatgpt_processes_to_exit(Duration::from_secs(10))?;
+    }
+
+    let restore_result = restore_conversation_metadata_if_present(&paths.codex_home);
+    let restart_result = if client_was_running {
+        crate::dream_skin::restart_active_session().and_then(|restarted| {
+            if restarted {
+                Ok(())
+            } else {
+                start_chatgpt(launch_target.as_ref())
+            }
+        })
+    } else {
+        Ok(())
+    };
+
+    match (restore_result, restart_result) {
+        (Ok(result), Ok(())) => Ok(result),
+        (Err(restore_error), Ok(())) => Err(restore_error),
+        (Ok(_), Err(restart_error)) => Err(format!(
+            "非代理模式对话已恢复，但重新启动 ChatGPT/Codex 失败：{restart_error}。请手动启动 ChatGPT 或 Codex。"
+        )),
+        (Err(restore_error), Err(restart_error)) => Err(format!(
+            "恢复非代理模式对话失败：{restore_error}；重新启动 ChatGPT/Codex 也失败：{restart_error}"
+        )),
+    }
+}
+
+fn restore_conversation_metadata_if_present(
+    codex_home: &Path,
+) -> Result<DirectConversationSyncResult, String> {
+    if !has_codex_state_database(codex_home)? {
+        return Ok(DirectConversationSyncResult {
+            conversations_updated: 0,
+            rollout_files_updated: 0,
+        });
+    }
+    replace_conversation_provider(
+        codex_home,
+        LOCAL_PROXY_CONVERSATION_PROVIDER,
+        OFFICIAL_CONVERSATION_PROVIDER,
+    )
+}
+
 fn has_codex_state_database(codex_home: &Path) -> Result<bool, String> {
     let entries = match fs::read_dir(codex_home) {
         Ok(entries) => entries,
@@ -767,6 +854,18 @@ fn has_codex_state_database(codex_home: &Path) -> Result<bool, String> {
 }
 
 fn sync_conversation_metadata(codex_home: &Path) -> Result<DirectConversationSyncResult, String> {
+    replace_conversation_provider(
+        codex_home,
+        OFFICIAL_CONVERSATION_PROVIDER,
+        LOCAL_PROXY_CONVERSATION_PROVIDER,
+    )
+}
+
+fn replace_conversation_provider(
+    codex_home: &Path,
+    source_provider: &str,
+    target_provider: &str,
+) -> Result<DirectConversationSyncResult, String> {
     let state_database = latest_codex_state_database(codex_home)?;
     let mut connection = open_conversation_database(&state_database)?;
     if !sqlite_table_has_column(&connection, "threads", "model_provider")? {
@@ -776,12 +875,13 @@ fn sync_conversation_metadata(codex_home: &Path) -> Result<DirectConversationSyn
         ));
     }
 
-    let conversation_rollouts = openai_conversation_rollouts(&connection, &state_database)?;
+    let conversation_rollouts =
+        conversation_rollouts_for_provider(&connection, &state_database, source_provider)?;
     let mut rollout_files_updated = 0;
     let mut unique_rollout_paths = HashSet::new();
     for rollout_path in conversation_rollouts {
         if unique_rollout_paths.insert(rollout_path.clone())
-            && update_rollout_provider(&rollout_path)?
+            && update_rollout_provider(&rollout_path, source_provider, target_provider)?
         {
             rollout_files_updated += 1;
         }
@@ -793,17 +893,14 @@ fn sync_conversation_metadata(codex_home: &Path) -> Result<DirectConversationSyn
     let conversations_updated = transaction
         .execute(
             "UPDATE threads SET model_provider = ?1 WHERE model_provider = ?2",
-            params![
-                LOCAL_PROXY_CONVERSATION_PROVIDER,
-                OFFICIAL_CONVERSATION_PROVIDER
-            ],
+            params![target_provider, source_provider],
         )
         .map_err(|error| format!("更新 {} 失败：{error}", state_database.display()))?;
     transaction
         .commit()
         .map_err(|error| format!("提交 {} 失败：{error}", state_database.display()))?;
 
-    update_desktop_thread_catalogs(codex_home)?;
+    update_desktop_thread_catalogs(codex_home, source_provider, target_provider)?;
 
     Ok(DirectConversationSyncResult {
         conversations_updated,
@@ -865,17 +962,16 @@ fn sqlite_table_has_column(
     Ok(false)
 }
 
-fn openai_conversation_rollouts(
+fn conversation_rollouts_for_provider(
     connection: &Connection,
     database_path: &Path,
+    provider: &str,
 ) -> Result<Vec<PathBuf>, String> {
     let mut statement = connection
         .prepare("SELECT rollout_path FROM threads WHERE model_provider = ?1")
         .map_err(|error| format!("无法查询 {}：{error}", database_path.display()))?;
     let rows = statement
-        .query_map(params![OFFICIAL_CONVERSATION_PROVIDER], |row| {
-            row.get::<_, String>(0)
-        })
+        .query_map(params![provider], |row| row.get::<_, String>(0))
         .map_err(|error| format!("无法读取 {} 中的对话：{error}", database_path.display()))?;
     rows.map(|row| {
         row.map(PathBuf::from)
@@ -884,7 +980,11 @@ fn openai_conversation_rollouts(
     .collect()
 }
 
-fn update_rollout_provider(path: &Path) -> Result<bool, String> {
+fn update_rollout_provider(
+    path: &Path,
+    source_provider: &str,
+    target_provider: &str,
+) -> Result<bool, String> {
     if !path.exists() {
         return Err(format!("Codex 对话文件不存在：{}", path.display()));
     }
@@ -908,10 +1008,10 @@ fn update_rollout_provider(path: &Path) -> Result<bool, String> {
             path.display()
         ));
     };
-    if provider.as_str() != Some(OFFICIAL_CONVERSATION_PROVIDER) {
+    if provider.as_str() != Some(source_provider) {
         return Ok(false);
     }
-    *provider = Value::String(LOCAL_PROXY_CONVERSATION_PROVIDER.to_string());
+    *provider = Value::String(target_provider.to_string());
 
     let temp_path = path.with_extension(format!("codex-switch-sync-{}.tmp", std::process::id()));
     let write_result = (|| -> Result<(), String> {
@@ -947,7 +1047,11 @@ fn update_rollout_provider(path: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
-fn update_desktop_thread_catalogs(codex_home: &Path) -> Result<(), String> {
+fn update_desktop_thread_catalogs(
+    codex_home: &Path,
+    source_provider: &str,
+    target_provider: &str,
+) -> Result<(), String> {
     let catalog_dir = codex_home.join("sqlite");
     if !catalog_dir.exists() {
         return Ok(());
@@ -967,10 +1071,7 @@ fn update_desktop_thread_catalogs(codex_home: &Path) -> Result<(), String> {
         connection
             .execute(
                 "UPDATE local_thread_catalog SET model_provider = ?1 WHERE model_provider = ?2",
-                params![
-                    LOCAL_PROXY_CONVERSATION_PROVIDER,
-                    OFFICIAL_CONVERSATION_PROVIDER
-                ],
+                params![target_provider, source_provider],
             )
             .map_err(|error| format!("更新 Codex 对话目录 {} 失败：{error}", path.display()))?;
     }
@@ -990,6 +1091,9 @@ fn refresh_auth_if_needed(
     paths: &Paths,
     id: &str,
 ) -> Result<(), String> {
+    if is_agent_identity_auth(auth) {
+        return Ok(());
+    }
     if token_expiring(auth) {
         refresh_tokens(client, auth)?;
         persist_request_auth(paths, id, auth)?;
@@ -1132,12 +1236,34 @@ fn try_refresh_usage_blocking<R: Runtime>(
     let client = api_client()?;
     refresh_auth_if_needed(&client, &mut auth, &paths, id)?;
 
-    let mut response = usage_request(&client, &auth)?;
-    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
-        refresh_tokens(&client, &mut auth)?;
-        persist_request_auth(&paths, id, &auth)?;
-        response = usage_request(&client, &auth)?;
-    }
+    let response = if is_agent_identity_auth(&auth) {
+        if agent_identity::ensure_task(&client, &mut auth)? {
+            persist_request_auth(&paths, id, &auth)?;
+        }
+        let response = agent_identity::usage_request(&client, &auth)?;
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            let status = response.status();
+            let body = response
+                .text()
+                .map_err(|error| format!("读取 Agent Identity 鉴权失败响应失败：{error}"))?;
+            if !agent_identity::is_invalid_task_response(status, &body) {
+                return Err(format!("Codex 用量接口返回 HTTP {status}"));
+            }
+            agent_identity::register_task(&client, &mut auth)?;
+            persist_request_auth(&paths, id, &auth)?;
+            agent_identity::usage_request(&client, &auth)?
+        } else {
+            response
+        }
+    } else {
+        let mut response = usage_request(&client, &auth)?;
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            refresh_tokens(&client, &mut auth)?;
+            persist_request_auth(&paths, id, &auth)?;
+            response = usage_request(&client, &auth)?;
+        }
+        response
+    };
 
     if !response.status().is_success() {
         return Err(format!("Codex 用量接口返回 HTTP {}", response.status()));
@@ -1701,10 +1827,12 @@ fn status_error(action: &str, status: std::process::ExitStatus) -> String {
 #[cfg(test)]
 mod compatible_json_import_tests {
     use super::{
-        normalize_compatible_json_auth, normalize_sub2api_auth, parse_compatible_json_auth_values,
-        parse_sub2api_auth_values, should_disable_account_auto_switch, sync_conversation_metadata,
-        sync_current_auth_with_client_state, update_disabled_account_ids,
-        write_managed_auth_to_current, LOCAL_PROXY_CONVERSATION_PROVIDER,
+        ensure_account_switch_allowed, normalize_compatible_json_auth, normalize_sub2api_auth,
+        parse_compatible_json_auth_values, parse_sub2api_auth_values,
+        restore_conversation_metadata_if_present, should_disable_account_auto_switch,
+        sync_conversation_metadata, sync_current_auth_with_client_state,
+        update_disabled_account_ids, write_managed_auth_to_current,
+        LOCAL_PROXY_CONVERSATION_PROVIDER, OFFICIAL_CONVERSATION_PROVIDER,
     };
     use crate::models::ManagerStateFile;
     use crate::storage::{managed_auth_path, read_json, write_json_atomic, Paths};
@@ -1729,6 +1857,20 @@ mod compatible_json_import_tests {
                 "chatgpt_account_id": "compatible-account"
             }
         }))
+    }
+
+    fn agent_identity_auth() -> Value {
+        json!({
+            "auth_mode": "agentIdentity",
+            "agent_identity": {
+                "agent_runtime_id": "agent-runtime",
+                "agent_private_key": base64::engine::general_purpose::STANDARD.encode([7_u8; 48]),
+                "account_id": "agent-workspace",
+                "chatgpt_user_id": "agent-user",
+                "email": "agent@example.com",
+                "plan_type": "business"
+            }
+        })
     }
 
     fn test_paths() -> Paths {
@@ -1833,6 +1975,27 @@ mod compatible_json_import_tests {
         assert_eq!(auth["agent_identity"]["account_id"], "workspace-1");
         assert_eq!(auth["agent_identity"]["email"], "agent@example.com");
         assert!(auth.get("tokens").is_none());
+    }
+
+    #[test]
+    fn synchronizes_agent_identity_auth_to_local_codex_auth_json() {
+        let paths = test_paths();
+        let auth = agent_identity_auth();
+        let (_, _, _, id) = crate::auth::account_fields(&auth).unwrap();
+        write_json_atomic(&managed_auth_path(&paths, &id), &auth).unwrap();
+
+        write_managed_auth_to_current(&paths, &id).unwrap();
+
+        assert_eq!(read_json(&paths.current_auth).unwrap(), auth);
+        fs::remove_dir_all(paths.codex_home.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn blocks_agent_identity_switches_only_while_local_proxy_is_running() {
+        let auth = agent_identity_auth();
+        ensure_account_switch_allowed(&auth, false).unwrap();
+        let error = ensure_account_switch_allowed(&auth, true).unwrap_err();
+        assert!(error.contains("Agent Identity"));
     }
 
     #[test]
@@ -2013,6 +2176,49 @@ mod compatible_json_import_tests {
                 .pointer("/payload/model_provider")
                 .and_then(Value::as_str),
             Some(LOCAL_PROXY_CONVERSATION_PROVIDER)
+        );
+
+        drop(catalog);
+        drop(state);
+
+        let restored = restore_conversation_metadata_if_present(&codex_home)
+            .expect("restore non-proxy conversations");
+        assert_eq!(restored.conversations_updated, 1);
+        assert_eq!(restored.rollout_files_updated, 1);
+
+        let state = Connection::open(&state_path).expect("reopen restored state database");
+        let state_provider: String = state
+            .query_row(
+                "SELECT model_provider FROM threads WHERE id = 'thread-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read restored state provider");
+        assert_eq!(state_provider, OFFICIAL_CONVERSATION_PROVIDER);
+
+        let catalog = Connection::open(&catalog_path).expect("reopen restored catalog database");
+        let catalog_provider: String = catalog
+            .query_row(
+                "SELECT model_provider FROM local_thread_catalog WHERE thread_id = 'thread-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read restored catalog provider");
+        assert_eq!(catalog_provider, OFFICIAL_CONVERSATION_PROVIDER);
+
+        let metadata: Value = serde_json::from_str(
+            fs::read_to_string(&rollout_path)
+                .expect("read restored rollout")
+                .lines()
+                .next()
+                .expect("restored rollout metadata"),
+        )
+        .expect("parse restored rollout metadata");
+        assert_eq!(
+            metadata
+                .pointer("/payload/model_provider")
+                .and_then(Value::as_str),
+            Some(OFFICIAL_CONVERSATION_PROVIDER)
         );
 
         drop(catalog);

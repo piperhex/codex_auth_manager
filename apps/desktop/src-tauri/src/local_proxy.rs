@@ -475,6 +475,11 @@ pub(crate) fn restore_local_proxy_if_enabled<R: Runtime>(
 pub(crate) fn start_local_proxy<R: Runtime>(
     app: tauri::AppHandle<R>,
 ) -> Result<LocalProxyStatus, String> {
+    let paths = resolve_paths(&app)?;
+    // Reject incompatible official credentials before stopping a running client.
+    // Agent Identity accounts are valid direct auth.json credentials, but the local
+    // proxy only implements OAuth bearer-token forwarding.
+    providers::ensure_local_proxy_compatible_for_state(&paths)?;
     // Only interrupt and relaunch a client that is actually running. When no
     // client is open, proxy mode can be enabled by updating its configuration
     // directly, without treating the absence of a process as a stop failure.
@@ -489,7 +494,6 @@ pub(crate) fn start_local_proxy<R: Runtime>(
         crate::commands::wait_for_chatgpt_processes_to_exit(std::time::Duration::from_secs(10))?;
     }
 
-    let paths = resolve_paths(&app)?;
     let started = start_server(app.clone())?;
     if let Err(error) = providers::apply_local_proxy_config_for_state(&app) {
         if started {
@@ -3809,6 +3813,7 @@ mod tests {
             account_id: None,
             active: id == "current",
             auto_switch_enabled: true,
+            local_proxy_compatible: true,
             usage: UsageSummary {
                 primary: Some(UsageWindow {
                     used_percent: 100.0 - primary,

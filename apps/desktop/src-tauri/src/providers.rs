@@ -7,7 +7,7 @@ use tauri::{Emitter, Runtime};
 use url::Url;
 
 use crate::{
-    auth::validate_auth,
+    auth::{is_agent_identity_auth, validate_auth},
     models::{ProviderApiFormat, ProviderProfile, ProviderSummary},
     storage::{
         managed_auth_path, read_json, read_state, resolve_paths, write_json_atomic,
@@ -269,6 +269,25 @@ pub(crate) fn apply_local_proxy_config_for_paths(paths: &Paths) -> Result<(), St
     }
 }
 
+pub(crate) fn ensure_local_proxy_compatible_for_state(paths: &Paths) -> Result<(), String> {
+    let state = read_state(paths);
+    if let Some(account_id) = state.active_account_id.as_deref() {
+        if let Ok(auth) = read_json(&managed_auth_path(paths, account_id)) {
+            if is_agent_identity_auth(&auth) {
+                return Err(
+                    "当前账号使用 Agent Identity 鉴权，不支持本地代理模式；请先切换到 OAuth Token 账号"
+                        .to_string(),
+                );
+            }
+        }
+    }
+    if state.active_provider_id.is_some() {
+        return Ok(());
+    }
+    let auth = selected_official_auth_for_local_proxy(paths, state.active_account_id.as_deref())?;
+    validate_official_auth_for_local_proxy(&auth)
+}
+
 pub(crate) fn activate_provider_for_sync(paths: &Paths, id: &str) -> Result<bool, String> {
     let provider = read_provider(paths, id)?;
     ensure_not_local_proxy_base_url(&provider.base_url)?;
@@ -509,24 +528,41 @@ fn is_local_proxy_url(url: &Url) -> bool {
 }
 
 fn ensure_official_auth_for_local_proxy(paths: &Paths) -> Result<(), String> {
-    if let Ok(auth) = read_json(&paths.current_auth) {
-        if validate_auth(&auth).is_ok() {
-            return Ok(());
-        }
-    }
-
     let state = read_state(paths);
-    let account_id = state.active_account_id.ok_or_else(|| {
+    let account_id = state.active_account_id.as_deref();
+    let auth = selected_official_auth_for_local_proxy(paths, account_id)?;
+    validate_official_auth_for_local_proxy(&auth)?;
+    if account_id.is_some() {
+        write_json_if_changed(&paths.current_auth, &auth)?;
+    }
+    Ok(())
+}
+
+fn selected_official_auth_for_local_proxy(
+    paths: &Paths,
+    active_account_id: Option<&str>,
+) -> Result<Value, String> {
+    if let Some(account_id) = active_account_id {
+        return read_json(&managed_auth_path(paths, account_id));
+    }
+    read_json(&paths.current_auth).map_err(|_| {
         "Official Codex local proxy requires a signed-in official Codex account. Add or switch to an official account before starting proxy."
             .to_string()
-    })?;
-    let auth = read_json(&managed_auth_path(paths, &account_id))?;
-    validate_auth(&auth).map_err(|error| {
+    })
+}
+
+fn validate_official_auth_for_local_proxy(auth: &Value) -> Result<(), String> {
+    validate_auth(auth).map_err(|error| {
         format!(
             "Official Codex local proxy requires a ChatGPT auth.json with tokens.access_token. Switch to a valid signed-in official Codex account before starting proxy: {error}"
         )
     })?;
-    write_json_if_changed(&paths.current_auth, &auth)?;
+    if is_agent_identity_auth(auth) {
+        return Err(
+            "当前账号使用 Agent Identity 鉴权，不支持本地代理模式；请先切换到 OAuth Token 账号"
+                .to_string(),
+        );
+    }
     Ok(())
 }
 
@@ -1010,6 +1046,19 @@ mod tests {
         })
     }
 
+    fn test_agent_identity_auth() -> Value {
+        json!({
+            "auth_mode": "agentIdentity",
+            "agent_identity": {
+                "agent_runtime_id": "agent-runtime",
+                "agent_private_key": base64::engine::general_purpose::STANDARD.encode([8_u8; 48]),
+                "account_id": "agent-workspace",
+                "chatgpt_user_id": "agent-user",
+                "email": "agent@example.com"
+            }
+        })
+    }
+
     fn test_paths() -> Paths {
         let root = std::env::temp_dir().join(format!(
             "codex-switch-provider-test-{}",
@@ -1048,6 +1097,49 @@ mod tests {
         assert_eq!(read_json(&paths.current_auth).unwrap(), auth);
         let root = paths.codex_home.parent().unwrap();
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn official_proxy_rejects_an_active_agent_identity_account() {
+        let paths = test_paths();
+        let auth = test_agent_identity_auth();
+        let (_, _, _, id) = crate::auth::account_fields(&auth).unwrap();
+        write_json_atomic(&managed_auth_path(&paths, &id), &auth).unwrap();
+        write_state(
+            &paths,
+            &crate::models::ManagerStateFile {
+                active_account_id: Some(id),
+                ..crate::models::ManagerStateFile::default()
+            },
+        )
+        .unwrap();
+
+        let error = ensure_local_proxy_compatible_for_state(&paths).unwrap_err();
+
+        assert!(error.contains("Agent Identity"));
+        fs::remove_dir_all(paths.codex_home.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn proxy_start_rejects_the_current_agent_identity_even_with_a_provider_selected() {
+        let paths = test_paths();
+        let auth = test_agent_identity_auth();
+        let (_, _, _, id) = crate::auth::account_fields(&auth).unwrap();
+        write_json_atomic(&managed_auth_path(&paths, &id), &auth).unwrap();
+        write_state(
+            &paths,
+            &crate::models::ManagerStateFile {
+                active_account_id: Some(id),
+                active_provider_id: Some("provider".to_string()),
+                ..crate::models::ManagerStateFile::default()
+            },
+        )
+        .unwrap();
+
+        let error = ensure_local_proxy_compatible_for_state(&paths).unwrap_err();
+
+        assert!(error.contains("Agent Identity"));
+        fs::remove_dir_all(paths.codex_home.parent().unwrap()).unwrap();
     }
 
     #[test]
