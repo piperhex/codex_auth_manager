@@ -10,6 +10,7 @@ vi.mock('expo-secure-store', () => ({
 import {
   consumeResetCredit,
   fetchAccountSummary,
+  fetchAccountUsage,
   fetchResetCredits,
 } from './client';
 
@@ -107,6 +108,31 @@ describe('mobile Codex API client', () => {
     expect(result[0]?.usage.primary).toBeNull();
     expect(result[0]?.usage.error).toContain('没有可用于手机直连的 Codex Token');
     expect(apiFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes one account usage without requesting the account list', async () => {
+    const apiFetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
+      rate_limit: {
+        primary_window: {
+          used_percent: 35,
+          limit_window_seconds: 18_000,
+          reset_at: 1_800_000_000,
+        },
+      },
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', apiFetch);
+
+    await expect(fetchAccountUsage(account())).resolves.toEqual(expect.objectContaining({
+      primary: {
+        usedPercent: 35,
+        remainingPercent: 65,
+        resetsAt: 1_800_000_000,
+        windowMinutes: 300,
+      },
+      error: null,
+    }));
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+    expect(apiFetch.mock.calls[0]?.[0]).toBe('https://chatgpt.com/backend-api/wham/usage');
   });
 
   it('reads and normalizes reset credits directly from Codex', async () => {

@@ -27,6 +27,7 @@ import {
   DEFAULT_GLOBAL_REFRESH_MINUTES,
   DEFAULT_CLOUD_BASE_URL,
   fetchAccountSummary,
+  fetchAccountUsage,
   fetchResetCredits,
   fetchRemoteDevices,
   fetchUserProfile,
@@ -295,20 +296,33 @@ function AccountCard({ account, privateMode, switchBusy, switching, onOpenDetail
   </Pressable>;
 }
 
-function Dashboard({ accounts, devices, loading, refreshing, switchingAccountId, onRefresh, onSwitch }: {
+function Dashboard({
+  accounts,
+  devices,
+  loading,
+  refreshing,
+  refreshingAccountId,
+  switchingAccountId,
+  onRefresh,
+  onRefreshAccount,
+  onSwitch,
+}: {
   accounts: AccountSummary[];
   devices: RemoteDevice[];
   loading: boolean;
   refreshing: boolean;
+  refreshingAccountId: string | null;
   switchingAccountId: string | null;
   onRefresh: () => Promise<void>;
+  onRefreshAccount: (accountId: string) => Promise<void>;
   onSwitch: (deviceId: string, accountId: string) => Promise<void>;
 }) {
   const [privateMode, setPrivateMode] = useState(true);
-  const [detailAccount, setDetailAccount] = useState<AccountSummary | null>(null);
+  const [detailAccountId, setDetailAccountId] = useState<string | null>(null);
   const [resetCreditsAccount, setResetCreditsAccount] = useState<AccountSummary | null>(null);
   const [noteAccount, setNoteAccount] = useState<AccountSummary | null>(null);
   const [switchAccount, setSwitchAccount] = useState<AccountSummary | null>(null);
+  const detailAccount = accounts.find((account) => account.id === detailAccountId) ?? null;
   const latestUpdate = useMemo(() => {
     const timestamps = accounts.map((account) => account.usage.fetchedAt).filter(Boolean).sort();
     return timestamps.length ? timestamps[timestamps.length - 1] : null;
@@ -342,7 +356,7 @@ function Dashboard({ accounts, devices, loading, refreshing, switchingAccountId,
         privateMode={privateMode}
         switchBusy={Boolean(switchingAccountId)}
         switching={switchingAccountId === account.id}
-        onOpenDetails={setDetailAccount}
+        onOpenDetails={(selectedAccount) => setDetailAccountId(selectedAccount.id)}
         onOpenSwitch={setSwitchAccount} />)}
       <Text style={styles.footer}>下拉页面或点击“刷新全部”将更新所有账号</Text>
     </ScrollView>
@@ -350,7 +364,9 @@ function Dashboard({ accounts, devices, loading, refreshing, switchingAccountId,
       account={detailAccount}
       devices={devices}
       privateMode={privateMode}
-      onClose={() => setDetailAccount(null)}
+      refreshing={refreshing || detailAccount?.id === refreshingAccountId}
+      onClose={() => setDetailAccountId(null)}
+      onRefresh={onRefreshAccount}
       onOpenResetCredits={(account) => setResetCreditsAccount(account)}
       onOpenNote={(account) => setNoteAccount(account)}
     />
@@ -835,14 +851,18 @@ function AccountDetailsDrawer({
   account,
   devices,
   privateMode,
+  refreshing,
   onClose,
+  onRefresh,
   onOpenResetCredits,
   onOpenNote,
 }: {
   account: AccountSummary | null;
   devices: RemoteDevice[];
   privateMode: boolean;
+  refreshing: boolean;
   onClose: () => void;
+  onRefresh: (accountId: string) => Promise<void>;
   onOpenResetCredits: (account: AccountSummary) => void;
   onOpenNote: (account: AccountSummary) => void;
 }) {
@@ -871,6 +891,23 @@ function AccountDetailsDrawer({
               : '当前没有设备使用此账号'}
           </Text>
         </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`刷新 ${account.email} 的用量`}
+          accessibilityHint="仅刷新当前账号的用量"
+          disabled={refreshing}
+          hitSlop={8}
+          onPress={() => void onRefresh(account.id)}
+          style={({ pressed }) => [
+            styles.detailRefreshButton,
+            pressed && styles.pressed,
+            refreshing && styles.disabled,
+          ]}
+        >
+          {refreshing
+            ? <ActivityIndicator color={COLORS.green} size="small" />
+            : <Text style={styles.detailRefreshIcon}>↻</Text>}
+        </Pressable>
       </View>
 
       <View style={styles.detailInfoCard}>
@@ -1157,15 +1194,17 @@ function AppContent() {
   const [initializing, setInitializing] = useState(true);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshingAccountId, setRefreshingAccountId] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [devices, setDevices] = useState<RemoteDevice[]>([]);
   const [switchingAccountId, setSwitchingAccountId] = useState<string | null>(null);
   const [globalRefreshMinutes, setGlobalRefreshMinutes] = useState(DEFAULT_GLOBAL_REFRESH_MINUTES);
   const refreshingRef = useRef(false);
+  const refreshingAccountIdRef = useRef<string | null>(null);
   const lastRefreshAtRef = useRef(0);
 
   const refreshAll = useCallback(async (activeSession = session, quiet = false) => {
-    if (!activeSession || refreshingRef.current) return;
+    if (!activeSession || refreshingRef.current || refreshingAccountIdRef.current) return;
     refreshingRef.current = true;
     setRefreshing(true);
     try {
@@ -1190,6 +1229,27 @@ function AppContent() {
       setRefreshing(false);
     }
   }, [session]);
+
+  const refreshAccount = useCallback(async (accountId: string) => {
+    if (!session || refreshingRef.current || refreshingAccountIdRef.current) return;
+    const account = accounts.find((candidate) => candidate.id === accountId);
+    if (!account) return;
+
+    refreshingAccountIdRef.current = accountId;
+    setRefreshingAccountId(accountId);
+    try {
+      const usage = await fetchAccountUsage(account);
+      setAccounts((current) => current.map((candidate) => (
+        candidate.id === accountId ? { ...candidate, usage } : candidate
+      )));
+      Toast.success('当前账号用量已刷新');
+    } catch (error) {
+      Toast.fail(`刷新用量失败：${errorMessage(error)}`);
+    } finally {
+      refreshingAccountIdRef.current = null;
+      setRefreshingAccountId(null);
+    }
+  }, [accounts, session]);
 
   useEffect(() => {
     let mounted = true;
@@ -1338,7 +1398,8 @@ function AppContent() {
     <StatusBar style="dark" />
     {activePage === 'accounts'
       ? <Dashboard accounts={accounts} devices={devices} loading={loading} refreshing={refreshing}
-        switchingAccountId={switchingAccountId} onRefresh={refreshAll} onSwitch={handleRemoteSwitch} />
+        refreshingAccountId={refreshingAccountId} switchingAccountId={switchingAccountId}
+        onRefresh={refreshAll} onRefreshAccount={refreshAccount} onSwitch={handleRemoteSwitch} />
       : activePage === 'admin' && profile?.role === 'admin'
         ? <AdminArea session={session} profile={profile} />
         : activePage === 'about'
@@ -1397,6 +1458,8 @@ const styles = StyleSheet.create({
   detailIdentityText: { flex: 1, minWidth: 0, marginLeft: 12 },
   detailEmail: { color: COLORS.ink, fontSize: 16, fontWeight: '800' },
   detailStatus: { color: COLORS.muted, fontSize: 12, lineHeight: 17, marginTop: 4 },
+  detailRefreshButton: { width: 40, height: 40, marginLeft: 10, borderRadius: 20, borderWidth: 1, borderColor: '#bde8d8', backgroundColor: COLORS.paleGreen, alignItems: 'center', justifyContent: 'center' },
+  detailRefreshIcon: { color: COLORS.green, fontSize: 24, lineHeight: 27, fontWeight: '700', marginTop: -1 },
   detailInfoCard: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, backgroundColor: COLORS.canvas, paddingHorizontal: 14, paddingVertical: 8 },
   detailInfoRow: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 14 },
   detailInfoLabel: { width: 64, color: COLORS.muted, fontSize: 13 },

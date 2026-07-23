@@ -158,7 +158,7 @@ function usageWindow(value: unknown): UsageWindow | null {
   };
 }
 
-async function fetchCodexUsage(account: AccountSummary): Promise<UsageSummary> {
+export async function fetchAccountUsage(account: AccountSummary): Promise<UsageSummary> {
   const response = await codexRequest(account, CODEX_USAGE_URL);
   const body = await codexResponseObject(response, '解析 Codex 用量失败');
   const rateLimit = objectValue(body.rate_limit);
@@ -356,7 +356,7 @@ export async function fetchAccountSummary(session: AuthSession): Promise<Account
   const accounts = (payload as { accounts: AccountSummary[] }).accounts;
   return mapWithConcurrency(accounts, 4, async (account) => {
     try {
-      return { ...account, usage: await fetchCodexUsage(account) };
+      return { ...account, usage: await fetchAccountUsage(account) };
     } catch (error) {
       return {
         ...account,
