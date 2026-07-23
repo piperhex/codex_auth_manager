@@ -43,9 +43,11 @@ export function LocalProxyCard({
   const imageAccounts = accounts.filter((account) => !account.agentIdentity);
   const openaiAuthAccounts = accounts.filter((account) => !account.agentIdentity);
   const showImageAccountSelect = proxyRunning && Boolean(activeAccount?.agentIdentity);
-  const proxyBaseUrl = localProxy?.baseUrl ?? "http://127.0.0.1:15722/v1";
+  const proxyBaseUrl = localProxy
+    ? `http://${localProxy.address}:${localProxy.port}/v1`
+    : "http://127.0.0.1:15722/v1";
   const actionButton = (
-    <Button size="small" type={proxyRunning ? "default" : "primary"} loading={proxyBusy}
+    <Button size="small" type="primary" danger={proxyRunning} loading={proxyBusy}
       disabled={conversationRestoreBusy || (!proxyRunning && Boolean(startDisabledReason))}
       icon={proxyRunning ? <PowerOff size={14} /> : <Power size={14} />}
       onClick={proxyRunning ? onStopProxy : undefined}>
