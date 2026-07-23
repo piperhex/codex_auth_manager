@@ -230,7 +230,12 @@ function AccountCard({ account, privateMode, switchBusy, switching, onOpenDetail
     style={({ pressed }) => [styles.accountCard, pressed && styles.accountCardPressed]}
   >
     <View style={styles.compactAccountContent}>
-      <Text style={styles.compactAccountEmail} numberOfLines={1}>{email}</Text>
+      <View style={styles.compactAccountHeader}>
+        <View style={styles.compactPlanBadge}>
+          <Text style={styles.compactPlanText} numberOfLines={1}>{account.plan || 'ChatGPT'}</Text>
+        </View>
+        <Text style={styles.compactAccountEmail} numberOfLines={1}>{email}</Text>
+      </View>
       <CompactPrimaryUsage usage={account.usage.primary} />
     </View>
     <Pressable
@@ -902,7 +907,10 @@ const styles = StyleSheet.create({
   accountCard: { minHeight: 102, flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: COLORS.card, borderColor: COLORS.border, borderWidth: 1, borderRadius: 16, paddingVertical: 14, paddingLeft: 16, paddingRight: 14, marginBottom: 12, shadowColor: '#456152', shadowOpacity: 0.04, shadowRadius: 8, elevation: 1 },
   accountCardPressed: { backgroundColor: '#f2f8f4', borderColor: '#bcd7c5' },
   compactAccountContent: { flex: 1, minWidth: 0, justifyContent: 'center' },
-  compactAccountEmail: { color: COLORS.ink, fontWeight: '800', fontSize: 15, marginBottom: 10 },
+  compactAccountHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  compactPlanBadge: { flexShrink: 0, maxWidth: 86, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: COLORS.paleGreen, borderWidth: 1, borderColor: '#bde8d8' },
+  compactPlanText: { color: '#128368', fontSize: 11, fontWeight: '800' },
+  compactAccountEmail: { flex: 1, minWidth: 0, color: COLORS.ink, fontWeight: '800', fontSize: 15 },
   compactUsageRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   compactProgressTrack: { flex: 1, height: 7, borderRadius: 10, overflow: 'hidden', backgroundColor: '#dbe8e0' },
   compactRemaining: { width: 38, textAlign: 'right', fontWeight: '800', fontSize: 12 },
