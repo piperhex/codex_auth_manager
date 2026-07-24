@@ -17,6 +17,7 @@ export function AccountsPage({
   onSwitch,
   onRefresh,
   onDelete,
+  onDeleteMany,
   onAutoSwitchEnabledChange,
   autoSwitchBusyAccountId,
   onAutoSwitchPriorityChange,
@@ -52,6 +53,7 @@ export function AccountsPage({
   onSwitch: (id: string) => void;
   onRefresh: (id: string) => void;
   onDelete: (id: string) => void;
+  onDeleteMany: (ids: string[]) => Promise<string[]>;
   onAutoSwitchEnabledChange: (id: string, enabled: boolean) => void;
   autoSwitchBusyAccountId: string | null;
   onAutoSwitchPriorityChange: (id: string, priority: number) => Promise<boolean>;
@@ -92,7 +94,6 @@ export function AccountsPage({
         onCustomAutoSwitchPriorityEnabledChange={onCustomAutoSwitchPriorityEnabledChange}
         onAutoDisableUnreachableChange={onAutoDisableUnreachableChange}
         onImageAccountChange={onImageAccountChange}
-        onOpenaiAuthAccountChange={onOpenaiAuthAccountChange}
         onListenOnAllInterfacesChange={onListenOnAllInterfacesChange} t={t} />
     </div>
   );
@@ -120,7 +121,7 @@ export function AccountsPage({
     <div className="accounts-page">
       {proxyCard}
       <AccountTable accounts={accounts} busyAccountId={busyAccountId}
-        onSwitch={onSwitch} onRefresh={onRefresh} onDelete={onDelete}
+        onSwitch={onSwitch} onRefresh={onRefresh} onDelete={onDelete} onDeleteMany={onDeleteMany}
         onAutoSwitchEnabledChange={onAutoSwitchEnabledChange} autoSwitchBusyAccountId={autoSwitchBusyAccountId}
         onAutoSwitchPriorityChange={onAutoSwitchPriorityChange}
         autoSwitchPriorityBusyAccountId={autoSwitchPriorityBusyAccountId}
@@ -130,6 +131,8 @@ export function AccountsPage({
         resetCredits={resetCredits} onLoadResetCredits={onLoadResetCredits}
         onUseResetCredit={onUseResetCredit} resetCreditBusyAccountId={resetCreditBusyAccountId}
         hotSwitchEnabled={hotSwitchEnabled} privacyMode={privacyMode} displayMode={displayMode}
+        openaiAuthAccountId={localProxy?.openaiAuthAccountId ?? null} openaiAuthBusy={proxyBusy}
+        onOpenaiAuthAccountChange={onOpenaiAuthAccountChange}
         currentModel={currentModel} tokenUsageRefreshSeconds={tokenUsageRefreshSeconds}
         language={language} t={t} />
     </div>

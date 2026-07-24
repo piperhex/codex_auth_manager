@@ -894,7 +894,6 @@ function DashboardApp() {
               onCustomAutoSwitchPriorityEnabledChange={providerManager.setProxyCustomPriority}
               onAutoDisableUnreachableChange={providerManager.setProxyAutoDisableUnreachable}
               onImageAccountChange={providerManager.setProxyImageAccount}
-              onOpenaiAuthAccountChange={providerManager.setProxyOpenaiAuthAccount}
               onListenOnAllInterfacesChange={providerManager.setProxyListenOnAllInterfaces}
               displayMode={accountDisplayMode.displayMode} t={t} />
           </section>
@@ -913,6 +912,7 @@ function DashboardApp() {
               onSwitch={switchAccount}
               onRefresh={refreshUsage}
               onDelete={deleteAccount}
+              onDeleteMany={manager.deleteAccounts}
               onAutoSwitchEnabledChange={setAccountAutoSwitchEnabled}
               autoSwitchBusyAccountId={manager.autoSwitchBusyAccountId}
               onAutoSwitchPriorityChange={manager.setAutoSwitchPriority}

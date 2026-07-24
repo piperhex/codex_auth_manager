@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, InputNumber, Popconfirm, Space, Switch, Table, Tag, Tooltip } from "antd";
+import { Button, Dropdown, InputNumber, Popconfirm, Space, Switch, Table, Tag, Tooltip } from "antd";
 import type { TableProps } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { CalendarClock, Check, RefreshCw, RotateCcw, ToggleLeft, ToggleRight, Trash2, X } from "lucide-react";
+import { CalendarClock, Check, MoreHorizontal, RefreshCw, RotateCcw, ToggleLeft, ToggleRight, Trash2, X } from "lucide-react";
 import { loadTokenUsageEntries } from "../../api/backend";
 import type { Language, Translate } from "../../i18n";
 import type { AccountDisplayMode } from "../../hooks/useAccountDisplayMode";
@@ -18,6 +18,7 @@ interface AccountTableProps {
   onSwitch: (id: string) => void;
   onRefresh: (id: string) => void;
   onDelete: (id: string) => void;
+  onDeleteMany: (ids: string[]) => Promise<string[]>;
   onAutoSwitchEnabledChange: (id: string, enabled: boolean) => void;
   autoSwitchBusyAccountId: string | null;
   onAutoSwitchPriorityChange: (id: string, priority: number) => Promise<boolean>;
@@ -30,6 +31,9 @@ interface AccountTableProps {
   onUseResetCredit: (id: string) => void;
   resetCreditBusyAccountId: string | null;
   hotSwitchEnabled: boolean;
+  openaiAuthAccountId: string | null;
+  openaiAuthBusy: boolean;
+  onOpenaiAuthAccountChange: (accountId: string | null) => void;
   privacyMode: boolean;
   displayMode: AccountDisplayMode;
   currentModel: string;
@@ -266,6 +270,7 @@ export function AccountTable({
   onSwitch,
   onRefresh,
   onDelete,
+  onDeleteMany,
   onAutoSwitchEnabledChange,
   autoSwitchBusyAccountId,
   onAutoSwitchPriorityChange,
@@ -278,6 +283,9 @@ export function AccountTable({
   onUseResetCredit,
   resetCreditBusyAccountId,
   hotSwitchEnabled,
+  openaiAuthAccountId,
+  openaiAuthBusy,
+  onOpenaiAuthAccountChange,
   privacyMode,
   displayMode,
   currentModel,
@@ -290,6 +298,10 @@ export function AccountTable({
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [resetCreditsAccount, setResetCreditsAccount] = useState<Account | null>(null);
   const [contextMenu, setContextMenu] = useState<AccountContextMenu | null>(null);
+  const [tableActionMenuAccountId, setTableActionMenuAccountId] = useState<string | null>(null);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
+  const [openaiAuthPendingAccountId, setOpenaiAuthPendingAccountId] = useState<string | null>(null);
   const [usageSort, setUsageSort] = useState<UsageSortPreference | null>(loadUsageSortPreference);
   const [tableScrollY, setTableScrollY] = useState(0);
   const [tokenUsageEntries, setTokenUsageEntries] = useState<TokenUsageEntry[]>([]);
@@ -299,7 +311,8 @@ export function AccountTable({
 
     const updateScrollHeight = () => {
       const headerHeight = tableWrap.querySelector(".ant-table-thead")?.getBoundingClientRect().height ?? 0;
-      setTableScrollY(Math.max(1, Math.floor(tableWrap.clientHeight - headerHeight)));
+      const toolbarHeight = tableWrap.querySelector(".account-table-toolbar")?.getBoundingClientRect().height ?? 0;
+      setTableScrollY(Math.max(1, Math.floor(tableWrap.clientHeight - headerHeight - toolbarHeight)));
     };
     const observer = new ResizeObserver(updateScrollHeight);
     observer.observe(tableWrap);
@@ -335,6 +348,16 @@ export function AccountTable({
       window.clearInterval(timer);
     };
   }, [hotSwitchEnabled, tokenUsageRefreshSeconds]);
+  useEffect(() => {
+    const deletableIds = new Set(accounts.filter((account) => !account.active).map((account) => account.id));
+    setSelectedAccountIds((current) => {
+      const next = current.filter((id) => deletableIds.has(id));
+      return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
+    });
+  }, [accounts]);
+  useEffect(() => {
+    if (!openaiAuthBusy) setOpenaiAuthPendingAccountId(null);
+  }, [openaiAuthBusy]);
   const effectiveCurrentModel = currentModel.trim() || tokenUsageEntries[0]?.model || "";
   const customPriorityActive = hotSwitchEnabled
     && autoSwitchOnQuotaExhaustion
@@ -468,6 +491,8 @@ export function AccountTable({
       render: (_, account) => {
         const waiting = busyAccountId === account.id;
         const resetWaiting = resetCreditBusyAccountId === account.id;
+        const officialAuthActive = openaiAuthAccountId === account.id;
+        const officialAuthUnsupported = Boolean(account.agentIdentity) && !officialAuthActive;
         const switchBlocked = hotSwitchEnabled
           ? !account.localProxyCompatible
           : !account.directSwitchCompatible;
@@ -486,32 +511,32 @@ export function AccountTable({
                 </Button>
               </span>
             </Tooltip>
-            <Popconfirm title={t("table.useResetCreditConfirmTitle")}
-              description={<span className="reset-credit-confirm-description">{t("table.useResetCreditConfirmDescription")}</span>}
-              okText={t("table.useResetCreditOk")} cancelText={t("table.cancel")}
-              classNames={{ root: "reset-credit-popconfirm" }}
-              styles={{ root: { width: 320, maxWidth: "calc(100vw - 32px)" } }}
-              disabled={waiting || resetWaiting}
-              onConfirm={() => onUseResetCredit(account.id)}>
-              <Tooltip title={t("table.useResetCreditTooltip")}>
-                <Button size="small" className="reset-credit-action" loading={resetWaiting}
-                  disabled={waiting} icon={<CalendarClock size={14} />}>
-                  {t("table.useResetCredit")}
-                </Button>
+            {hotSwitchEnabled && (
+              <Tooltip placement="top" classNames={{ root: "openai-auth-action-tooltip" }} title={(
+                <div className="openai-auth-action-tooltip-content">
+                  <p>{t("providers.proxy.openaiAuthAccountTooltipRemote")}</p>
+                  <p>{t("providers.proxy.openaiAuthAccountTooltipCapabilities")}</p>
+                  {officialAuthUnsupported && (
+                    <p className="warning">{t("providers.error.openaiAuthAccountOAuthRequired")}</p>
+                  )}
+                </div>
+              )}>
+                <span>
+                  <Button size="small" type={officialAuthActive ? "primary" : "default"}
+                    danger={officialAuthActive}
+                    loading={openaiAuthBusy && openaiAuthPendingAccountId === account.id}
+                    disabled={openaiAuthBusy || officialAuthUnsupported}
+                    onClick={() => {
+                      setOpenaiAuthPendingAccountId(account.id);
+                      onOpenaiAuthAccountChange(officialAuthActive ? null : account.id);
+                    }}>
+                    {t(officialAuthActive
+                      ? "providers.proxy.deactivateOpenaiAuthAccount"
+                      : "providers.proxy.activateOpenaiAuthAccount")}
+                  </Button>
+                </span>
               </Tooltip>
-            </Popconfirm>
-            <Tooltip title={t("table.refreshUsage")}>
-              <Button size="small" className="table-icon-button" loading={waiting}
-                icon={<RefreshCw size={14} />} onClick={() => onRefresh(account.id)} />
-            </Tooltip>
-            <Popconfirm title={t("table.deleteConfirmTitle")} description={t("table.deleteConfirmDescription")}
-              okText={t("table.delete")} cancelText={t("table.cancel")} okButtonProps={{ danger: true }} disabled={account.active}
-              onConfirm={() => onDelete(account.id)}>
-              <Tooltip title={account.active ? t("table.activeDeleteTooltip") : t("table.deleteAccount")}>
-                <Button danger size="small" className="table-icon-button" aria-label={t("table.deleteAccount")}
-                  disabled={account.active} icon={<Trash2 size={14} />} />
-              </Tooltip>
-            </Popconfirm>
+            )}
             {hotSwitchEnabled && (
               <Tooltip title={t("table.autoSwitchTooltip")}>
                 <Switch size="small" checked={account.autoSwitchEnabled}
@@ -521,6 +546,54 @@ export function AccountTable({
                   onChange={(enabled) => onAutoSwitchEnabledChange(account.id, enabled)} />
               </Tooltip>
             )}
+            <Dropdown trigger={["click"]} placement="bottomRight"
+              open={tableActionMenuAccountId === account.id}
+              onOpenChange={(open) => setTableActionMenuAccountId(open ? account.id : null)}
+              dropdownRender={() => (
+                <div className="account-action-menu" onClick={(event) => event.stopPropagation()}>
+                  <Popconfirm title={t("table.useResetCreditConfirmTitle")}
+                    description={<span className="reset-credit-confirm-description">{t("table.useResetCreditConfirmDescription")}</span>}
+                    okText={t("table.useResetCreditOk")} cancelText={t("table.cancel")}
+                    classNames={{ root: "reset-credit-popconfirm" }}
+                    styles={{ root: { width: 320, maxWidth: "calc(100vw - 32px)" } }}
+                    disabled={waiting || resetWaiting}
+                    onConfirm={() => {
+                      setTableActionMenuAccountId(null);
+                      onUseResetCredit(account.id);
+                    }}>
+                    <button type="button" disabled={waiting || resetWaiting}>
+                      <CalendarClock size={14} />
+                      {resetWaiting ? t("table.resetCreditsRefreshing") : t("table.useResetCredit")}
+                    </button>
+                  </Popconfirm>
+                  <button type="button" disabled={waiting} onClick={() => {
+                    setTableActionMenuAccountId(null);
+                    onRefresh(account.id);
+                  }}>
+                    <RefreshCw size={14} />
+                    {t("table.refreshUsage")}
+                  </button>
+                  <div className="account-action-menu-divider" />
+                  <Popconfirm title={t("table.deleteConfirmTitle")} description={t("table.deleteConfirmDescription")}
+                    okText={t("table.delete")} cancelText={t("table.cancel")} okButtonProps={{ danger: true }}
+                    disabled={account.active}
+                    onConfirm={() => {
+                      setTableActionMenuAccountId(null);
+                      onDelete(account.id);
+                    }}>
+                    <button type="button" className="destructive" disabled={account.active}
+                      title={account.active ? t("table.activeDeleteTooltip") : undefined}>
+                      <Trash2 size={14} />
+                      {t("table.delete")}
+                    </button>
+                  </Popconfirm>
+                </div>
+              )}>
+              <Tooltip title={t("table.moreActions")}>
+                <Button size="small" className="table-icon-button" aria-label={t("table.moreActions")}
+                  icon={<MoreHorizontal size={16} />} />
+              </Tooltip>
+            </Dropdown>
           </Space>
         );
       },
@@ -640,8 +713,40 @@ export function AccountTable({
 
   return <>
     <div ref={tableWrapRef} className="account-table-wrap">
+      <div className="account-table-toolbar">
+        <Popconfirm title={t("table.batchDeleteConfirmTitle", { count: selectedAccountIds.length })}
+          description={t("table.batchDeleteConfirmDescription")}
+          okText={t("table.delete")} cancelText={t("table.cancel")} okButtonProps={{ danger: true }}
+          disabled={!selectedAccountIds.length || bulkDeleteBusy}
+          onConfirm={async () => {
+            const ids = [...selectedAccountIds];
+            setBulkDeleteBusy(true);
+            try {
+              const deletedIds = await onDeleteMany(ids);
+              const deletedIdSet = new Set(deletedIds);
+              setSelectedAccountIds((current) => current.filter((id) => !deletedIdSet.has(id)));
+            } finally {
+              setBulkDeleteBusy(false);
+            }
+          }}>
+          <Button danger size="small" icon={<Trash2 size={14} />} loading={bulkDeleteBusy}
+            disabled={!selectedAccountIds.length}>
+            {t("table.batchDelete", { count: selectedAccountIds.length })}
+          </Button>
+        </Popconfirm>
+      </div>
       <Table rowKey="id" size="small" tableLayout="fixed" columns={columns} dataSource={orderedAccounts} pagination={false}
         onChange={handleTableChange}
+        rowSelection={{
+          fixed: true,
+          columnWidth: 36,
+          selectedRowKeys: selectedAccountIds,
+          onChange: (keys) => setSelectedAccountIds(keys.map(String)),
+          getCheckboxProps: (account) => ({
+            disabled: account.active,
+            title: account.active ? t("table.activeDeleteTooltip") : undefined,
+          }),
+        }}
         rowClassName={(account) => [
           account.active ? "active-row" : "",
           isAccountDisabled(account, hotSwitchEnabled) ? "account-alert-row" : "",

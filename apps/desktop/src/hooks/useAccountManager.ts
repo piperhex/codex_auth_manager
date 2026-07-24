@@ -218,6 +218,30 @@ export function useAccountManager(
     }
   }, [cloudSync, load, notify, t]);
 
+  const deleteAccounts = useCallback(async (ids: string[]) => {
+    const uniqueIds = [...new Set(ids)];
+    const deletedIds: string[] = [];
+    let failedCount = 0;
+
+    for (const id of uniqueIds) {
+      try {
+        await removeAccount(id);
+        deletedIds.push(id);
+      } catch {
+        failedCount += 1;
+      }
+    }
+
+    if (deletedIds.length) {
+      if (isDesktopApp) await load();
+      else setAccounts((items) => items.filter((item) => !deletedIds.includes(item.id)));
+      await Promise.allSettled(deletedIds.map((id) => cloudSync?.deleteAccount?.(id)));
+      notify(t("toast.batchDeleted", { count: deletedIds.length }));
+    }
+    if (failedCount) notify(t("toast.batchDeleteFailed", { count: failedCount }));
+    return deletedIds;
+  }, [cloudSync, load, notify, t]);
+
   const setAutoSwitchEnabled = useCallback(async (id: string, enabled: boolean) => {
     setAutoSwitchBusyAccountId(id);
     try {
@@ -282,6 +306,7 @@ export function useAccountManager(
     refreshUsage,
     refreshAll,
     deleteAccount,
+    deleteAccounts,
     setAutoSwitchEnabled,
     setAutoSwitchPriority,
     saveAccountNote,
