@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { AuthUser } from '@/common/decorators/user.decorator';
@@ -8,8 +8,10 @@ import type {
   ListAnnouncementClicksQueryDto,
 } from './dto/announcement-click.dto';
 import type { UpdateAnnouncementDto } from './dto/update-announcement.dto';
+import type { UpsertNotificationDto } from './dto/upsert-notification.dto';
 import { AnnouncementLinkClickEntity } from './entities/announcement-link-click.entity';
 import { AppAnnouncementEntity } from './entities/app-announcement.entity';
+import { AppNotificationEntity } from './entities/app-notification.entity';
 
 const CURRENT_ANNOUNCEMENT_ID = 'current';
 
@@ -24,6 +26,20 @@ export interface AnnouncementResponse {
   backgroundColor: string;
   scrollDurationSeconds: number;
   updatedAt: string | null;
+}
+
+export interface NotificationResponse {
+  id: string;
+  titleZh: string;
+  titleEn: string;
+  contentZh: string;
+  contentEn: string;
+  link: string;
+  linkLabelZh: string;
+  linkLabelEn: string;
+  enabled: boolean;
+  publishedAt: string;
+  updatedAt: string;
 }
 
 const DEFAULT_TEXT_COLOR = '#C4D7C8';
@@ -45,6 +61,8 @@ export class AnnouncementService {
     private readonly auditLogs: Repository<AdminAuditLogEntity>,
     @InjectRepository(AnnouncementLinkClickEntity)
     private readonly clicks: Repository<AnnouncementLinkClickEntity>,
+    @InjectRepository(AppNotificationEntity)
+    private readonly notifications: Repository<AppNotificationEntity>,
   ) {}
 
   async getPublic(): Promise<AnnouncementResponse> {
@@ -80,6 +98,62 @@ export class AnnouncementService {
         ?? DEFAULT_SCROLL_DURATION_SECONDS,
       updatedAt: announcement?.updatedAt?.toISOString() ?? null,
     };
+  }
+
+  async listPublicNotifications(): Promise<NotificationResponse[]> {
+    const notifications = await this.notifications.find({
+      where: { enabled: true },
+      order: { publishedAt: 'DESC', createdAt: 'DESC' },
+      take: 20,
+    });
+    return notifications.map((notification) => this.notificationResponse(notification));
+  }
+
+  async listAdminNotifications(): Promise<NotificationResponse[]> {
+    const notifications = await this.notifications.find({
+      order: { publishedAt: 'DESC', createdAt: 'DESC' },
+      take: 100,
+    });
+    return notifications.map((notification) => this.notificationResponse(notification));
+  }
+
+  async createNotification(
+    actor: AuthUser,
+    dto: UpsertNotificationDto,
+  ): Promise<NotificationResponse> {
+    const notification = this.notifications.create();
+    this.applyNotification(notification, actor, dto);
+    const saved = await this.notifications.save(notification);
+    await this.auditNotification(actor, 'notification.create', saved.id, saved);
+    return this.notificationResponse(saved);
+  }
+
+  async updateNotification(
+    actor: AuthUser,
+    id: string,
+    dto: UpsertNotificationDto,
+  ): Promise<NotificationResponse> {
+    const notification = await this.notifications.findOne({ where: { id } });
+    if (!notification) throw new NotFoundException('Notification not found');
+    this.applyNotification(notification, actor, dto);
+    const saved = await this.notifications.save(notification);
+    await this.auditNotification(actor, 'notification.update', saved.id, saved);
+    return this.notificationResponse(saved);
+  }
+
+  async deleteNotification(actor: AuthUser, id: string) {
+    const notification = await this.notifications.findOne({ where: { id } });
+    if (!notification) throw new NotFoundException('Notification not found');
+    await this.notifications.remove(notification);
+    await this.auditLogs.save(this.auditLogs.create({
+      actorId: actor.id,
+      actorEmail: actor.email,
+      action: 'notification.delete',
+      targetType: 'notification',
+      targetId: id,
+      metadata: { titleZh: notification.titleZh, titleEn: notification.titleEn },
+    }));
+    return { ok: true };
   }
 
   async recordClick(dto: CreateAnnouncementClickDto, user?: AuthUser) {
@@ -188,5 +262,67 @@ export class AnnouncementService {
 
   private findCurrent() {
     return this.announcements.findOne({ where: { id: CURRENT_ANNOUNCEMENT_ID } });
+  }
+
+  private applyNotification(
+    notification: AppNotificationEntity,
+    actor: AuthUser,
+    dto: UpsertNotificationDto,
+  ) {
+    const titleZh = dto.titleZh.trim();
+    const titleEn = dto.titleEn.trim();
+    const contentZh = dto.contentZh.trim();
+    const contentEn = dto.contentEn.trim();
+    if (!titleZh || !titleEn || !contentZh || !contentEn) {
+      throw new BadRequestException(
+        'Chinese and English notification titles and content are required',
+      );
+    }
+    notification.titleZh = titleZh;
+    notification.titleEn = titleEn;
+    notification.contentZh = contentZh;
+    notification.contentEn = contentEn;
+    notification.link = dto.link.trim();
+    notification.linkLabelZh = dto.linkLabelZh.trim();
+    notification.linkLabelEn = dto.linkLabelEn.trim();
+    notification.enabled = dto.enabled;
+    notification.publishedAt = new Date(dto.publishedAt);
+    notification.updatedById = actor.id;
+    notification.updatedByEmail = actor.email;
+  }
+
+  private notificationResponse(notification: AppNotificationEntity): NotificationResponse {
+    return {
+      id: notification.id,
+      titleZh: notification.titleZh,
+      titleEn: notification.titleEn,
+      contentZh: notification.contentZh,
+      contentEn: notification.contentEn,
+      link: notification.link,
+      linkLabelZh: notification.linkLabelZh,
+      linkLabelEn: notification.linkLabelEn,
+      enabled: notification.enabled,
+      publishedAt: notification.publishedAt.toISOString(),
+      updatedAt: notification.updatedAt.toISOString(),
+    };
+  }
+
+  private async auditNotification(
+    actor: AuthUser,
+    action: 'notification.create' | 'notification.update',
+    id: string,
+    notification: AppNotificationEntity,
+  ) {
+    await this.auditLogs.save(this.auditLogs.create({
+      actorId: actor.id,
+      actorEmail: actor.email,
+      action,
+      targetType: 'notification',
+      targetId: id,
+      metadata: {
+        enabled: notification.enabled,
+        publishedAt: notification.publishedAt.toISOString(),
+      },
+    }));
   }
 }

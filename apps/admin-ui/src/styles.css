@@ -247,6 +247,14 @@ body {
   max-width: 560px;
 }
 
+.notification-form-row {
+  width: 100%;
+}
+
+.notification-form-row > .ant-form-item {
+  flex: 1 1 0;
+}
+
 .announcement-preview {
   width: 100%;
   height: 42px;

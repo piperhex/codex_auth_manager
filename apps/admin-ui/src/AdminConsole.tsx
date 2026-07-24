@@ -35,6 +35,8 @@ import type {
   AnnouncementClickFilters,
   AnnouncementClickOverview,
   AnnouncementConfig,
+  AppNotification,
+  AppNotificationInput,
   AuditLog,
   AuthTokens,
   Invitation,
@@ -185,6 +187,9 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
   const [announcement, setAnnouncement] = useState<AnnouncementConfig>(emptyAnnouncement);
   const [announcementLoading, setAnnouncementLoading] = useState(false);
   const [announcementSaving, setAnnouncementSaving] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationSaving, setNotificationSaving] = useState(false);
   const [announcementClickOverview, setAnnouncementClickOverview] = useState(
     emptyAnnouncementClickOverview,
   );
@@ -532,6 +537,53 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
     }
   }, [api, message]);
 
+  const loadNotifications = useCallback(async () => {
+    setNotificationsLoading(true);
+    try {
+      setNotifications(await api<AppNotification[]>("/admin/api/notifications"));
+    } catch (error) {
+      message.error((error as Error).message);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  }, [api, message]);
+
+  const saveNotification = useCallback(async (
+    id: string | null,
+    input: AppNotificationInput,
+  ) => {
+    setNotificationSaving(true);
+    try {
+      await api<AppNotification>(id
+        ? `/admin/api/notifications/${id}`
+        : "/admin/api/notifications", {
+        method: id ? "PATCH" : "POST",
+        body: JSON.stringify(input),
+      });
+      message.success(t("notification.saved"));
+      await loadNotifications();
+    } catch (error) {
+      message.error((error as Error).message);
+      throw error;
+    } finally {
+      setNotificationSaving(false);
+    }
+  }, [api, loadNotifications, message, t]);
+
+  const deleteNotification = useCallback(async (id: string) => {
+    setNotificationSaving(true);
+    try {
+      await api(`/admin/api/notifications/${id}`, { method: "DELETE" });
+      message.success(t("notification.deleted"));
+      await loadNotifications();
+    } catch (error) {
+      message.error((error as Error).message);
+      throw error;
+    } finally {
+      setNotificationSaving(false);
+    }
+  }, [api, loadNotifications, message, t]);
+
   const loadAnnouncementClickOverview = useCallback(async () => {
     setAnnouncementClickOverviewLoading(true);
     try {
@@ -638,6 +690,7 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
     if (activeKey === "officialAccounts") void loadSystemAccounts();
     if (activeKey === "announcement") {
       void loadAnnouncement();
+      void loadNotifications();
       void loadAnnouncementClickOverview();
       void loadAnnouncementClicks();
     }
@@ -661,6 +714,7 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
     loadMailServices,
     loadDashboard,
     loadAnnouncement,
+    loadNotifications,
     loadAnnouncementClickOverview,
     loadAnnouncementClicks,
     loadOwnAccounts,
@@ -886,8 +940,11 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
       return (
         <AnnouncementPage
           announcement={announcement}
+          notifications={notifications}
           loading={announcementLoading}
+          notificationsLoading={notificationsLoading}
           saving={announcementSaving}
+          notificationSaving={notificationSaving}
           clickOverview={announcementClickOverview}
           clicks={announcementClicks}
           clickOverviewLoading={announcementClickOverviewLoading}
@@ -898,10 +955,13 @@ export function AdminConsole({ dark, onThemeChange }: AdminConsoleProps) {
           canManage={canManageAnnouncements}
           onRefresh={() => {
             void loadAnnouncement();
+            void loadNotifications();
             void loadAnnouncementClickOverview();
             void loadAnnouncementClicks();
           }}
           onSave={saveAnnouncement}
+          onSaveNotification={saveNotification}
+          onDeleteNotification={deleteNotification}
         />
       );
     }

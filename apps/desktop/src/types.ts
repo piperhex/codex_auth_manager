@@ -190,6 +190,20 @@ export interface CloudAnnouncement {
   updatedAt?: string | null;
 }
 
+export interface CloudNotification {
+  id: string;
+  titleZh: string;
+  titleEn: string;
+  contentZh: string;
+  contentEn: string;
+  link: string;
+  linkLabelZh: string;
+  linkLabelEn: string;
+  enabled: boolean;
+  publishedAt: string;
+  updatedAt: string;
+}
+
 export interface FeedbackImageInput {
   fileName: string;
   mimeType: string;

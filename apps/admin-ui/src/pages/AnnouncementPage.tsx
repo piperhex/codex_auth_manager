@@ -3,9 +3,12 @@ import {
   App,
   Button,
   ColorPicker,
+  DatePicker,
   Form,
   Input,
   InputNumber,
+  Modal,
+  Popconfirm,
   Select,
   Space,
   Switch,
@@ -15,13 +18,16 @@ import {
   Typography,
 } from "antd";
 import type { TableColumnsType } from "antd";
-import { BellRing, RefreshCw, Search } from "lucide-react";
+import dayjs, { type Dayjs } from "dayjs";
+import { BellRing, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { useI18n } from "../i18n-context";
 import type {
   AnnouncementClick,
   AnnouncementClickFilters,
   AnnouncementClickOverview,
   AnnouncementConfig,
+  AppNotification,
+  AppNotificationInput,
   PageResult,
   TelemetryPlatform,
 } from "../types";
@@ -67,8 +73,11 @@ function isValidAnnouncementLink(link: string) {
 
 interface AnnouncementPageProps {
   announcement: AnnouncementConfig;
+  notifications: AppNotification[];
   loading: boolean;
+  notificationsLoading: boolean;
   saving: boolean;
+  notificationSaving: boolean;
   clickOverview: AnnouncementClickOverview;
   clicks: PageResult<AnnouncementClick>;
   clickOverviewLoading: boolean;
@@ -82,8 +91,14 @@ interface AnnouncementPageProps {
     "contentZh" | "contentEn" | "link" | "enabled" | "textColor"
     | "backgroundColor" | "scrollDurationSeconds"
   >) => Promise<void>;
+  onSaveNotification: (id: string | null, notification: AppNotificationInput) => Promise<void>;
+  onDeleteNotification: (id: string) => Promise<void>;
   canManage: boolean;
 }
+
+type NotificationFormValues = Omit<AppNotificationInput, "publishedAt"> & {
+  publishedAt: Dayjs;
+};
 
 const platforms: TelemetryPlatform[] = ["windows", "macos", "linux", "android", "ios"];
 
@@ -97,8 +112,11 @@ const platformColors: Record<TelemetryPlatform, string> = {
 
 export function AnnouncementPage({
   announcement,
+  notifications,
   loading,
+  notificationsLoading,
   saving,
+  notificationSaving,
   clickOverview,
   clicks,
   clickOverviewLoading,
@@ -108,6 +126,8 @@ export function AnnouncementPage({
   onLoadClicks,
   onRefresh,
   onSave,
+  onSaveNotification,
+  onDeleteNotification,
   canManage,
 }: AnnouncementPageProps) {
   const { message } = App.useApp();
@@ -121,6 +141,9 @@ export function AnnouncementPage({
   const [scrollDurationSeconds, setScrollDurationSeconds] = useState(
     announcement.scrollDurationSeconds,
   );
+  const [notificationModalOpen, setNotificationModalOpen] = useState(false);
+  const [editingNotification, setEditingNotification] = useState<AppNotification | null>(null);
+  const [notificationForm] = Form.useForm<NotificationFormValues>();
   const lastSubmitted = useRef<EditableAnnouncement>(editableAnnouncement(announcement));
   const pendingSaves = useRef(0);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -170,6 +193,77 @@ export function AnnouncementPage({
       title: t("announcement.clickDeviceId"),
       dataIndex: "deviceId",
       render: (value: string) => <Typography.Text code copyable>{value}</Typography.Text>,
+    },
+  ];
+  const notificationColumns: TableColumnsType<AppNotification> = [
+    {
+      title: t("notification.titleColumn"),
+      key: "title",
+      render: (_, row) => language === "zh" ? row.titleZh : row.titleEn,
+    },
+    {
+      title: t("notification.publishedAt"),
+      dataIndex: "publishedAt",
+      width: 190,
+      render: (value: string) => formatDate(value, language),
+    },
+    {
+      title: t("notification.status"),
+      dataIndex: "enabled",
+      width: 100,
+      render: (value: boolean) => (
+        <Tag color={value ? "green" : "default"}>
+          {t(value ? "notification.enabled" : "notification.disabled")}
+        </Tag>
+      ),
+    },
+    {
+      title: t("notification.link"),
+      dataIndex: "link",
+      width: 120,
+      render: (value: string) => value
+        ? <Tag color="blue">{t("notification.hasLink")}</Tag>
+        : <Typography.Text type="secondary">—</Typography.Text>,
+    },
+    {
+      title: t("common.actions"),
+      key: "actions",
+      width: 150,
+      render: (_, row) => (
+        <Space>
+          <Button
+            size="small"
+            icon={<Pencil size={14} />}
+            disabled={!canManage}
+            onClick={() => {
+              setEditingNotification(row);
+              notificationForm.setFieldsValue({
+                titleZh: row.titleZh,
+                titleEn: row.titleEn,
+                contentZh: row.contentZh,
+                contentEn: row.contentEn,
+                link: row.link,
+                linkLabelZh: row.linkLabelZh,
+                linkLabelEn: row.linkLabelEn,
+                enabled: row.enabled,
+                publishedAt: dayjs(row.publishedAt),
+              });
+              setNotificationModalOpen(true);
+            }}
+          >
+            {t("common.edit")}
+          </Button>
+          <Popconfirm
+            title={t("notification.deleteConfirm")}
+            okText={t("common.delete")}
+            cancelText={t("common.cancel")}
+            disabled={!canManage}
+            onConfirm={() => onDeleteNotification(row.id)}
+          >
+            <Button size="small" danger icon={<Trash2 size={14} />} disabled={!canManage} />
+          </Popconfirm>
+        </Space>
+      ),
     },
   ];
 
@@ -234,6 +328,59 @@ export function AnnouncementPage({
       </div>
       <Tabs
         items={[
+          {
+            key: "notifications",
+            label: t("notification.tab"),
+            children: (
+              <>
+                <Typography.Paragraph type="secondary">
+                  {t("notification.description")}
+                </Typography.Paragraph>
+                <div className="toolbar">
+                  <div className="toolbar-left">
+                    <Typography.Text type="secondary">
+                      {t("notification.pollingHint")}
+                    </Typography.Text>
+                  </div>
+                  <div className="toolbar-right">
+                    <Button
+                      type="primary"
+                      icon={<Plus size={15} />}
+                      disabled={!canManage}
+                      onClick={() => {
+                        setEditingNotification(null);
+                        notificationForm.resetFields();
+                        notificationForm.setFieldsValue({
+                          titleZh: "",
+                          titleEn: "",
+                          contentZh: "",
+                          contentEn: "",
+                          link: "",
+                          linkLabelZh: "",
+                          linkLabelEn: "",
+                          enabled: true,
+                          publishedAt: dayjs(),
+                        });
+                        setNotificationModalOpen(true);
+                      }}
+                    >
+                      {t("notification.create")}
+                    </Button>
+                  </div>
+                </div>
+                <div className="panel telemetry-panel">
+                  <Table
+                    rowKey="id"
+                    loading={notificationsLoading || notificationSaving}
+                    columns={notificationColumns}
+                    dataSource={notifications}
+                    pagination={{ pageSize: 10, showSizeChanger: true }}
+                    scroll={{ x: 860 }}
+                  />
+                </div>
+              </>
+            ),
+          },
           {
             key: "settings",
             label: t("announcement.settingsTab"),
@@ -428,6 +575,98 @@ export function AnnouncementPage({
           },
         ]}
       />
+      <Modal
+        open={notificationModalOpen}
+        title={t(editingNotification ? "notification.edit" : "notification.create")}
+        okText={t("common.save")}
+        cancelText={t("common.cancel")}
+        confirmLoading={notificationSaving}
+        destroyOnClose
+        onCancel={() => setNotificationModalOpen(false)}
+        onOk={() => notificationForm.submit()}
+      >
+        <Form<NotificationFormValues>
+          form={notificationForm}
+          layout="vertical"
+          preserve={false}
+          onFinish={async (values) => {
+            await onSaveNotification(editingNotification?.id ?? null, {
+              ...values,
+              titleZh: values.titleZh.trim(),
+              titleEn: values.titleEn.trim(),
+              contentZh: values.contentZh.trim(),
+              contentEn: values.contentEn.trim(),
+              link: values.link.trim(),
+              linkLabelZh: values.linkLabelZh.trim(),
+              linkLabelEn: values.linkLabelEn.trim(),
+              publishedAt: values.publishedAt.toISOString(),
+            });
+            setNotificationModalOpen(false);
+          }}
+        >
+          <Form.Item name="enabled" label={t("notification.publish")} valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Space align="start" size="middle" className="notification-form-row">
+            <Form.Item
+              name="titleZh"
+              label={t("notification.titleZh")}
+              rules={[{ required: true, whitespace: true }]}
+            >
+              <Input maxLength={160} showCount />
+            </Form.Item>
+            <Form.Item
+              name="titleEn"
+              label={t("notification.titleEn")}
+              rules={[{ required: true, whitespace: true }]}
+            >
+              <Input maxLength={160} showCount />
+            </Form.Item>
+          </Space>
+          <Form.Item
+            name="contentZh"
+            label={t("notification.contentZh")}
+            rules={[{ required: true, whitespace: true }]}
+          >
+            <Input.TextArea rows={4} maxLength={4000} showCount />
+          </Form.Item>
+          <Form.Item
+            name="contentEn"
+            label={t("notification.contentEn")}
+            rules={[{ required: true, whitespace: true }]}
+          >
+            <Input.TextArea rows={4} maxLength={4000} showCount />
+          </Form.Item>
+          <Form.Item
+            name="publishedAt"
+            label={t("notification.publishedAt")}
+            rules={[{ required: true }]}
+          >
+            <DatePicker showTime style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item
+            name="link"
+            label={t("notification.link")}
+            extra={t("notification.linkHint")}
+            rules={[{
+              validator: async (_, value: string) => {
+                if (!value || isValidAnnouncementLink(value.trim())) return;
+                throw new Error(t("announcement.linkInvalid"));
+              },
+            }]}
+          >
+            <Input maxLength={2048} placeholder="https://example.com/release" allowClear />
+          </Form.Item>
+          <Space align="start" size="middle" className="notification-form-row">
+            <Form.Item name="linkLabelZh" label={t("notification.linkLabelZh")}>
+              <Input maxLength={80} placeholder={t("notification.linkLabelZhPlaceholder")} />
+            </Form.Item>
+            <Form.Item name="linkLabelEn" label={t("notification.linkLabelEn")}>
+              <Input maxLength={80} placeholder={t("notification.linkLabelEnPlaceholder")} />
+            </Form.Item>
+          </Space>
+        </Form>
+      </Modal>
     </>
   );
 }

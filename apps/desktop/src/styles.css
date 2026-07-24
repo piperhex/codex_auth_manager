@@ -61,9 +61,28 @@ button:focus-visible { outline: 3px solid rgba(45, 131, 87, .24); outline-offset
 .cloud-avatar-button:hover:not(:disabled), .cloud-avatar-button.authenticated { color: #eff7ef; border-color: var(--green-highlight); background: rgba(var(--green-rgb), .28); }
 .cloud-avatar-button span { font: 700 11px/1 Manrope, sans-serif; letter-spacing: .02em; }
 .cloud-avatar-button:disabled { opacity: .62; cursor: default; }
-.update-ready-button { position: relative; width: 36px; height: 36px; border: 1px solid rgba(77, 163, 255, .72); border-radius: 50%; display: grid; place-items: center; padding: 0; color: #fff; background: #1677ff; box-shadow: 0 0 0 3px rgba(22, 119, 255, .14), 0 7px 18px rgba(22, 119, 255, .28); cursor: pointer; transition: .18s ease; }
-.update-ready-button:hover { border-color: #91caff; background: #4096ff; transform: translateY(-1px); }
-.update-ready-button.downloading { border-color: rgba(145, 202, 255, .9); background: conic-gradient(#4096ff var(--update-progress), rgba(22, 119, 255, .22) 0); }
+.notification-button,
+.update-ready-button { position: relative; width: 36px; height: 36px; border: 1px solid rgba(var(--green-rgb), .48); border-radius: 50%; display: grid; place-items: center; padding: 0; color: var(--green-highlight); background: rgba(var(--green-rgb), .14); cursor: pointer; transition: .18s ease; }
+.notification-button:hover,
+.update-ready-button:hover { color: #fff; border-color: var(--green-highlight); background: rgba(var(--green-rgb), .3); transform: translateY(-1px); }
+.notification-unread-badge { position: absolute; top: -5px; right: -6px; min-width: 17px; height: 17px; padding: 0 4px; display: grid; place-items: center; border: 2px solid #17251d; border-radius: 999px; color: #fff; background: var(--green); font-size: 9px; font-weight: 700; line-height: 1; }
+.notification-panel { width: min(380px, calc(100vw - 32px)); color: var(--ink); }
+.notification-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 4px 12px; border-bottom: 1px solid var(--line); }
+.notification-panel-header strong { font: 700 15px/1.2 Manrope, sans-serif; }
+.notification-panel-header span { color: var(--muted); font-size: 11px; }
+.notification-list { max-height: min(520px, calc(100vh - 120px)); overflow-y: auto; }
+.notification-item { padding: 15px 4px; border-bottom: 1px solid var(--line); }
+.notification-item:last-child { border-bottom: 0; }
+.notification-item-heading { display: grid; gap: 5px; }
+.notification-item-heading strong { color: var(--ink); font-size: 13px; }
+.notification-item-heading time { color: var(--muted); font-size: 10px; }
+.notification-item p { margin: 9px 0 0; color: #526158; font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
+.notification-item button { margin-top: 10px; padding: 6px 10px; border: 1px solid rgba(var(--green-rgb), .38); border-radius: 7px; color: var(--green-dark); background: var(--green-soft); font-size: 11px; font-weight: 600; cursor: pointer; }
+.notification-item button:hover { border-color: var(--green); background: var(--green-selection); }
+.notification-empty { padding: 42px 12px; color: var(--muted); font-size: 12px; text-align: center; }
+.update-ready-button { color: #fff; background: var(--green); box-shadow: 0 0 0 3px rgba(var(--green-rgb), .14), 0 7px 18px rgba(var(--green-rgb), .28); }
+.update-ready-button:hover { background: var(--green-dark); }
+.update-ready-button.downloading { border-color: var(--green-highlight); background: conic-gradient(var(--green-highlight) var(--update-progress), rgba(var(--green-rgb), .22) 0); }
 .update-ready-button.downloading::before { position: absolute; inset: 3px; border-radius: 50%; background: #173653; content: ""; }
 .update-ready-button.downloading > svg { position: relative; z-index: 1; }
 .cloud-sync-action { border-color: rgba(var(--green-rgb), .4); color: var(--green-dark); background: var(--green-soft); }

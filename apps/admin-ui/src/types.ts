@@ -54,6 +54,22 @@ export interface AnnouncementConfig {
   updatedAt?: string | null;
 }
 
+export interface AppNotification {
+  id: string;
+  titleZh: string;
+  titleEn: string;
+  contentZh: string;
+  contentEn: string;
+  link: string;
+  linkLabelZh: string;
+  linkLabelEn: string;
+  enabled: boolean;
+  publishedAt: string;
+  updatedAt: string;
+}
+
+export type AppNotificationInput = Omit<AppNotification, "id" | "updatedAt">;
+
 export interface EmailTemplateVariable {
   key: string;
   description: string;

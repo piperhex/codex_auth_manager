@@ -1,10 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { ConfigProvider, Dropdown, Modal, Tooltip, theme as antdTheme } from "antd";
+import { ConfigProvider, Dropdown, Modal, Popover, Tooltip, theme as antdTheme } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
-import { Archive, BarChart3, CalendarClock, Check, CircleHelp, Cloud, Download, Github, LogIn, LogOut, Megaphone, MessageSquareText, Palette, Play, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Upload, UploadCloud, UserRound } from "lucide-react";
+import { Archive, BarChart3, Bell, CalendarClock, Check, CircleHelp, Cloud, Download, Github, LogIn, LogOut, Megaphone, MessageSquareText, Palette, Play, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Upload, UploadCloud, UserRound } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { checkForUpdate, chooseAndExportDiagnosticLogs, consumeResetCredit, DEFAULT_CLOUD_BASE_URL, downloadAvailableUpdate, fetchCloudAnnouncement, installDownloadedUpdate, isDesktopApp, launchChatGpt, loadAppSettings, openManagedFolder, reportAnnouncementClick, reportBaseUrlChange, reportFirstInstallation, restartChatGpt, setProxyOnboardingChoice, showTokenUsageWindow, submitFeedback, subscribeToCloudSessionExpired } from "./api/backend";
+import { checkForUpdate, chooseAndExportDiagnosticLogs, consumeResetCredit, DEFAULT_CLOUD_BASE_URL, downloadAvailableUpdate, fetchCloudAnnouncement, fetchCloudNotifications, installDownloadedUpdate, isDesktopApp, launchChatGpt, loadAppSettings, openManagedFolder, reportAnnouncementClick, reportBaseUrlChange, reportFirstInstallation, restartChatGpt, setProxyOnboardingChoice, showTokenUsageWindow, submitFeedback, subscribeToCloudSessionExpired } from "./api/backend";
 import { HelpModal, type HelpVersionState } from "./components/modals/HelpModal";
 import { FeedbackModal } from "./components/modals/FeedbackModal";
 import { FloatingUsageBubble } from "./components/FloatingUsageBubble";
@@ -34,9 +34,10 @@ import { DreamSkinPage } from "./pages/DreamSkinPage";
 import { ProvidersPage } from "./pages/ProvidersPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { formatRefreshTime } from "./utils/format";
-import type { BubbleResetDisplay, CloudAnnouncement, UpdateInfo } from "./types";
+import type { BubbleResetDisplay, CloudAnnouncement, CloudNotification, UpdateInfo } from "./types";
 
 const LAST_REFRESH_ALL_KEY = "codex-switch:last-refresh-all-at";
+const LAST_NOTIFICATION_SEEN_KEY = "codex-switch:last-notification-seen-at";
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const REPOSITORY_URL = "https://github.com/piperhex/codex-switch.git";
 const APP_LOGO_URL = new URL("../src-tauri/icons/128x128.png", import.meta.url).href;
@@ -86,8 +87,14 @@ function DashboardApp() {
   const [exportingLogs, setExportingLogs] = useState(false);
   const [resetCreditBusyAccountId, setResetCreditBusyAccountId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState<CloudAnnouncement | null>(null);
+  const [notifications, setNotifications] = useState<CloudNotification[]>([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [lastNotificationSeenAt, setLastNotificationSeenAt] = useState(
+    () => window.localStorage.getItem(LAST_NOTIFICATION_SEEN_KEY),
+  );
   const helpVersionRequestId = useRef(0);
   const announcementRequestId = useRef(0);
+  const notificationRequestId = useRef(0);
   const availableUpdateRef = useRef<UpdateInfo | null>(null);
   const downloadingUpdateRef = useRef(false);
   const updateDownloadedRef = useRef(false);
@@ -146,6 +153,15 @@ function DashboardApp() {
       if (announcementRequestId.current === requestId) setAnnouncement(null);
     }
   }, []);
+  const loadNotifications = useCallback(async () => {
+    const requestId = ++notificationRequestId.current;
+    try {
+      const result = await fetchCloudNotifications();
+      if (notificationRequestId.current === requestId) setNotifications(result);
+    } catch {
+      // Keep the last successful result during a transient server failure.
+    }
+  }, []);
   const markRefreshAll = useCallback(() => {
     const refreshedAt = new Date().toISOString();
     window.localStorage.setItem(LAST_REFRESH_ALL_KEY, refreshedAt);
@@ -157,11 +173,12 @@ function DashboardApp() {
       await Promise.all([
         manager.refreshAll({ quiet: true, showSpinner: false }),
         loadAnnouncement(),
+        loadNotifications(),
       ]);
     },
-    [loadAnnouncement, manager.refreshAll, markRefreshAll],
+    [loadAnnouncement, loadNotifications, manager.refreshAll, markRefreshAll],
   );
-  const autoRefresh = useAutoRefresh(manager.accounts.length > 0, automaticRefresh);
+  const autoRefresh = useAutoRefresh(true, automaticRefresh);
   const accountAutoRefresh = useAccountAutoRefresh(
     activeAccount?.id ?? null,
     (accountId) => manager.refreshUsage(accountId, true, false),
@@ -330,13 +347,16 @@ function DashboardApp() {
 
   useEffect(() => {
     setAnnouncement(null);
+    setNotifications([]);
     void loadAnnouncement();
+    void loadNotifications();
     const timer = window.setInterval(() => void loadAnnouncement(), 60 * 60 * 1000);
     return () => {
       announcementRequestId.current += 1;
+      notificationRequestId.current += 1;
       window.clearInterval(timer);
     };
-  }, [cloud.state.baseUrl, loadAnnouncement]);
+  }, [cloud.state.baseUrl, loadAnnouncement, loadNotifications]);
 
   useEffect(() => {
     void reportFirstInstallation().catch(() => undefined);
@@ -392,6 +412,7 @@ function DashboardApp() {
     markRefreshAll();
     void manager.refreshAll();
     void loadAnnouncement();
+    void loadNotifications();
   };
   const restartChatGptProcess = useCallback(async () => {
     setChatGptOperation("restart");
@@ -583,6 +604,55 @@ function DashboardApp() {
     }
     window.open(announcementLink, "_blank", "noopener,noreferrer");
   };
+  const openExternalLink = (link: string) => {
+    const normalized = normalizeHttpUrl(link);
+    if (!normalized) return;
+    if (isDesktopApp) {
+      void openUrl(normalized).catch((error) => notify(String(error)));
+      return;
+    }
+    window.open(normalized, "_blank", "noopener,noreferrer");
+  };
+  const unreadNotificationCount = notifications.filter((notification) => {
+    if (!lastNotificationSeenAt) return true;
+    return new Date(notification.updatedAt).getTime() > new Date(lastNotificationSeenAt).getTime();
+  }).length;
+  const notificationPanel = (
+    <section className="notification-panel" aria-label={t("notification.title")}>
+      <div className="notification-panel-header">
+        <strong>{t("notification.title")}</strong>
+        <span>{t("notification.count", { count: notifications.length })}</span>
+      </div>
+      <div className="notification-list">
+        {notifications.length ? notifications.map((notification) => {
+          const title = language === "zh" ? notification.titleZh : notification.titleEn;
+          const content = language === "zh" ? notification.contentZh : notification.contentEn;
+          const linkLabel = (language === "zh"
+            ? notification.linkLabelZh
+            : notification.linkLabelEn).trim() || t("notification.learnMore");
+          return (
+            <article className="notification-item" key={notification.id}>
+              <div className="notification-item-heading">
+                <strong>{title}</strong>
+                <time dateTime={notification.publishedAt}>
+                  {new Date(notification.publishedAt).toLocaleString(
+                    language === "zh" ? "zh-CN" : "en-US",
+                    { dateStyle: "medium", timeStyle: "short" },
+                  )}
+                </time>
+              </div>
+              <p>{content}</p>
+              {normalizeHttpUrl(notification.link) && (
+                <button type="button" onClick={() => openExternalLink(notification.link)}>
+                  {linkLabel}
+                </button>
+              )}
+            </article>
+          );
+        }) : <div className="notification-empty">{t("notification.empty")}</div>}
+      </div>
+    </section>
+  );
   const chatGptActionMenu = (
     <Dropdown
       trigger={["hover"]}
@@ -768,6 +838,28 @@ function DashboardApp() {
             ) : (
               <div className="security-chip"><ShieldCheck size={16} /><span><b>{t("chip.title")}</b><small>{t("chip.description")}</small></span></div>
             )}
+            <Popover
+              placement="bottomRight"
+              trigger="click"
+              open={notificationsOpen}
+              content={notificationPanel}
+              onOpenChange={(open) => {
+                setNotificationsOpen(open);
+                if (!open) return;
+                const seenAt = new Date().toISOString();
+                window.localStorage.setItem(LAST_NOTIFICATION_SEEN_KEY, seenAt);
+                setLastNotificationSeenAt(seenAt);
+              }}
+            >
+              <button type="button" className="notification-button" aria-label={t("notification.title")}>
+                <Bell size={18} />
+                {unreadNotificationCount > 0 && (
+                  <span className="notification-unread-badge">
+                    {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
+                  </span>
+                )}
+              </button>
+            </Popover>
             {availableUpdate && (updateDownloaded || (downloadingUpdate && installAfterDownloadRequested)) && (
               <Tooltip title={downloadingUpdate
                 ? (updateProgress === null

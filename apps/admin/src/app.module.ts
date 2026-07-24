@@ -44,6 +44,7 @@ import { DeviceModule } from '@/modules/devices/device.module';
         '/sync/{*any}',
         '/admin/api/{*any}',
         '/announcements/{*any}',
+        '/notifications/{*any}',
         '/feedback/{*any}',
         '/telemetry/{*any}',
         '/devices/{*any}',

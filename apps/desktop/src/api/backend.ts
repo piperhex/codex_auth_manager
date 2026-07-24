@@ -15,6 +15,7 @@ import type {
   CloudAuthenticationResult,
   CloudAuthState,
   CloudAnnouncement,
+  CloudNotification,
   CloudSyncResult,
   DreamSkinImportOptions,
   DreamSkinAppearance,
@@ -674,6 +675,18 @@ export async function registerCloud(
     verificationCode,
     rememberPassword,
   });
+}
+
+export async function fetchCloudNotifications(): Promise<CloudNotification[]> {
+  if (isDesktopApp) return invoke<CloudNotification[]>("fetch_cloud_notifications");
+  const { baseUrl } = previewCloudState();
+  if (!baseUrl) return [];
+  const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/notifications/recent`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`Notification request failed with HTTP ${response.status}`);
+  return response.json() as Promise<CloudNotification[]>;
 }
 
 export async function changeCloudPassword(currentPassword: string, newPassword: string): Promise<void> {

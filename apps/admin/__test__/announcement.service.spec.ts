@@ -5,6 +5,7 @@ import { AnnouncementController } from '@/modules/announcement/announcement.cont
 import { AnnouncementService } from '@/modules/announcement/announcement.service';
 import type { AppAnnouncementEntity } from '@/modules/announcement/entities/app-announcement.entity';
 import type { AnnouncementLinkClickEntity } from '@/modules/announcement/entities/announcement-link-click.entity';
+import type { AppNotificationEntity } from '@/modules/announcement/entities/app-notification.entity';
 import type { AdminAuditLogEntity } from '@/modules/admin/entities/admin-audit-log.entity';
 
 function createService() {
@@ -23,12 +24,20 @@ function createService() {
     count: vi.fn(),
     createQueryBuilder: vi.fn(),
   };
+  const notifications = {
+    find: vi.fn(),
+    findOne: vi.fn(),
+    create: vi.fn((value = {}) => value),
+    save: vi.fn(),
+    remove: vi.fn(),
+  };
   const service = new AnnouncementService(
     announcements as unknown as Repository<AppAnnouncementEntity>,
     auditLogs as unknown as Repository<AdminAuditLogEntity>,
     clicks as unknown as Repository<AnnouncementLinkClickEntity>,
+    notifications as unknown as Repository<AppNotificationEntity>,
   );
-  return { service, announcements, auditLogs, clicks };
+  return { service, announcements, auditLogs, clicks, notifications };
 }
 
 describe('AnnouncementService', () => {
@@ -176,6 +185,44 @@ describe('AnnouncementService', () => {
       { since: expect.any(Date) },
     );
   });
+
+  it('returns only recent published notifications for desktop clients', async () => {
+    const { service, notifications } = createService();
+    const publishedAt = new Date('2026-07-24T01:00:00.000Z');
+    const updatedAt = new Date('2026-07-24T02:00:00.000Z');
+    notifications.find.mockResolvedValue([{
+      id: 'notification-1',
+      titleZh: '更新日志',
+      titleEn: 'Release notes',
+      contentZh: '新增通知中心',
+      contentEn: 'Added notification center',
+      link: 'https://example.com/release',
+      linkLabelZh: '查看详情',
+      linkLabelEn: 'Learn more',
+      enabled: true,
+      publishedAt,
+      updatedAt,
+    }]);
+
+    await expect(service.listPublicNotifications()).resolves.toEqual([{
+      id: 'notification-1',
+      titleZh: '更新日志',
+      titleEn: 'Release notes',
+      contentZh: '新增通知中心',
+      contentEn: 'Added notification center',
+      link: 'https://example.com/release',
+      linkLabelZh: '查看详情',
+      linkLabelEn: 'Learn more',
+      enabled: true,
+      publishedAt: publishedAt.toISOString(),
+      updatedAt: updatedAt.toISOString(),
+    }]);
+    expect(notifications.find).toHaveBeenCalledWith({
+      where: { enabled: true },
+      order: { publishedAt: 'DESC', createdAt: 'DESC' },
+      take: 20,
+    });
+  });
 });
 
 describe('AnnouncementController', () => {
@@ -187,6 +234,11 @@ describe('AnnouncementController', () => {
       getClickOverview: vi.fn().mockResolvedValue('click-overview'),
       listClicks: vi.fn().mockResolvedValue('click-list'),
       update: vi.fn().mockResolvedValue('updated-announcement'),
+      listPublicNotifications: vi.fn().mockResolvedValue('public-notifications'),
+      listAdminNotifications: vi.fn().mockResolvedValue('admin-notifications'),
+      createNotification: vi.fn().mockResolvedValue('created-notification'),
+      updateNotification: vi.fn().mockResolvedValue('updated-notification'),
+      deleteNotification: vi.fn().mockResolvedValue({ ok: true }),
     };
     const controller = new AnnouncementController(announcements as unknown as AnnouncementService);
     const actor: AuthUser = { id: 'admin-1', email: 'admin@example.com', role: 'admin' };
@@ -207,15 +259,40 @@ describe('AnnouncementController', () => {
     const clickQuery = { page: 2, platform: 'windows' as const };
 
     await expect(controller.getCurrent()).resolves.toBe('public-announcement');
+    await expect(controller.getRecentNotifications()).resolves.toBe('public-notifications');
     await expect(controller.getAdminConfig()).resolves.toBe('admin-announcement');
+    await expect(controller.listNotifications()).resolves.toBe('admin-notifications');
     await expect(controller.recordPublicClick(clickDto)).resolves.toEqual({ ok: true });
     await expect(controller.recordAuthenticatedClick(actor, clickDto)).resolves.toEqual({ ok: true });
     await expect(controller.getClickOverview()).resolves.toBe('click-overview');
     await expect(controller.listClicks(clickQuery)).resolves.toBe('click-list');
     await expect(controller.update(actor, dto)).resolves.toBe('updated-announcement');
+    const notificationDto = {
+      titleZh: '更新日志',
+      titleEn: 'Release notes',
+      contentZh: '新增通知中心',
+      contentEn: 'Added notification center',
+      link: '',
+      linkLabelZh: '',
+      linkLabelEn: '',
+      enabled: true,
+      publishedAt: '2026-07-24T01:00:00.000Z',
+    };
+    await expect(controller.createNotification(actor, notificationDto))
+      .resolves.toBe('created-notification');
+    await expect(controller.updateNotification(actor, 'notification-1', notificationDto))
+      .resolves.toBe('updated-notification');
+    await expect(controller.deleteNotification(actor, 'notification-1')).resolves.toEqual({ ok: true });
     expect(announcements.recordClick).toHaveBeenNthCalledWith(1, clickDto);
     expect(announcements.recordClick).toHaveBeenNthCalledWith(2, clickDto, actor);
     expect(announcements.listClicks).toHaveBeenCalledWith(clickQuery);
     expect(announcements.update).toHaveBeenCalledWith(actor, dto);
+    expect(announcements.createNotification).toHaveBeenCalledWith(actor, notificationDto);
+    expect(announcements.updateNotification).toHaveBeenCalledWith(
+      actor,
+      'notification-1',
+      notificationDto,
+    );
+    expect(announcements.deleteNotification).toHaveBeenCalledWith(actor, 'notification-1');
   });
 });

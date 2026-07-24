@@ -98,6 +98,25 @@ pub(crate) struct CloudAnnouncement {
     updated_at: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CloudNotification {
+    id: String,
+    title_zh: String,
+    title_en: String,
+    content_zh: String,
+    content_en: String,
+    #[serde(default)]
+    link: String,
+    #[serde(default)]
+    link_label_zh: String,
+    #[serde(default)]
+    link_label_en: String,
+    enabled: bool,
+    published_at: String,
+    updated_at: String,
+}
+
 fn default_announcement_scroll_duration_seconds() -> u16 {
     22
 }
@@ -1255,6 +1274,29 @@ pub(crate) async fn fetch_cloud_announcement<R: Runtime>(
     })
     .await
     .map_err(|error| format!("Announcement request task failed: {error}"))?
+}
+
+#[tauri::command]
+pub(crate) async fn fetch_cloud_notifications<R: Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<Vec<CloudNotification>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = api_client()?;
+        let settings = read_app_settings(&app)?;
+        let response = client
+            .get(endpoint(&settings, "/notifications/recent")?)
+            .header("Accept", "application/json")
+            .send()
+            .map_err(|error| format!("Notification request failed: {error}"))?;
+        if !response.status().is_success() {
+            return Err(response_error("Notification request", response));
+        }
+        response
+            .json()
+            .map_err(|error| format!("Notification response is invalid: {error}"))
+    })
+    .await
+    .map_err(|error| format!("Notification request task failed: {error}"))?
 }
 
 #[tauri::command]
