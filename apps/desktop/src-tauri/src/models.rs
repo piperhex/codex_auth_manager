@@ -193,6 +193,8 @@ pub(crate) struct AppSettings {
     pub(crate) cloud_user_id: Option<String>,
     #[serde(default)]
     pub(crate) cloud_last_sync_at: Option<String>,
+    #[serde(default)]
+    pub(crate) cloud_session_expired: bool,
     #[serde(default = "default_token_usage_weeks")]
     pub(crate) token_usage_weeks: u16,
     #[serde(default = "default_token_usage_refresh_seconds")]
@@ -266,6 +268,7 @@ impl Default for AppSettings {
             cloud_user_email: None,
             cloud_user_id: None,
             cloud_last_sync_at: None,
+            cloud_session_expired: false,
             token_usage_weeks: default_token_usage_weeks(),
             token_usage_refresh_seconds: default_token_usage_refresh_seconds(),
             proxy_onboarding_status: ProxyOnboardingStatus::Legacy,
@@ -296,6 +299,7 @@ pub(crate) struct CloudAuthState {
     pub(crate) user_email: Option<String>,
     pub(crate) user_id: Option<String>,
     pub(crate) last_sync_at: Option<String>,
+    pub(crate) session_expired: bool,
 }
 
 #[derive(Debug, Serialize)]

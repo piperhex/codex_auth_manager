@@ -158,6 +158,18 @@ export interface CloudAuthState {
   userEmail?: string | null;
   userId?: string | null;
   lastSyncAt?: string | null;
+  sessionExpired: boolean;
+}
+
+export interface SavedCloudLogin {
+  email: string;
+  password: string;
+}
+
+export interface CloudAuthenticationResult {
+  state: CloudAuthState;
+  passwordSaved: boolean;
+  credentialStorageUpdated: boolean;
 }
 
 export interface CloudSyncResult {

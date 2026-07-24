@@ -22,6 +22,7 @@ dirs = "6"
 ed25519-dalek = { version = "2.2", features = ["pkcs8"] }
 flate2 = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+keyring = "4.1.5"
 rand = "0.9"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }

@@ -25,6 +25,7 @@ const DISABLED_STATE: CloudAuthState = {
   userEmail: null,
   userId: null,
   lastSyncAt: null,
+  sessionExpired: false,
 };
 
 export function useCloudAuth(notify: (message: string) => void, t: Translate) {
@@ -68,12 +69,15 @@ export function useCloudAuth(notify: (message: string) => void, t: Translate) {
     }
   }, [notify, state, t]);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, rememberPassword: boolean) => {
     setLoading(true);
     try {
-      const nextState = await loginCloud(email, password);
-      setState(nextState);
+      const result = await loginCloud(email, password, rememberPassword);
+      setState(result.state);
       notify(t("toast.cloudLoginSuccess"));
+      if (!result.credentialStorageUpdated) {
+        notify(t("toast.cloudPasswordSaveFailed"));
+      }
       return true;
     } catch (error) {
       notify(String(error));
@@ -97,12 +101,20 @@ export function useCloudAuth(notify: (message: string) => void, t: Translate) {
     }
   }, [notify, t]);
 
-  const register = useCallback(async (email: string, password: string, verificationCode: string) => {
+  const register = useCallback(async (
+    email: string,
+    password: string,
+    verificationCode: string,
+    rememberPassword: boolean,
+  ) => {
     setLoading(true);
     try {
-      const nextState = await registerCloud(email, password, verificationCode);
-      setState(nextState);
+      const result = await registerCloud(email, password, verificationCode, rememberPassword);
+      setState(result.state);
       notify(t("toast.cloudRegisterSuccess"));
+      if (!result.credentialStorageUpdated) {
+        notify(t("toast.cloudPasswordSaveFailed"));
+      }
       return true;
     } catch (error) {
       notify(String(error));

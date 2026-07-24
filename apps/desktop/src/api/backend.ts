@@ -12,6 +12,7 @@ import type {
   AppInfo,
   AppSettings,
   BubbleResetDisplay,
+  CloudAuthenticationResult,
   CloudAuthState,
   CloudAnnouncement,
   CloudSyncResult,
@@ -27,6 +28,7 @@ import type {
   Provider,
   ProviderInput,
   ResetCreditsSummary,
+  SavedCloudLogin,
   TokenUsageEntry,
   UpdateInfo,
 } from "../types";
@@ -106,6 +108,7 @@ function previewCloudState(): CloudAuthState {
     userEmail,
     userId: userEmail ? "preview" : null,
     lastSyncAt: null,
+    sessionExpired: false,
   };
 }
 
@@ -533,6 +536,11 @@ export async function loadCloudAuthState(): Promise<CloudAuthState> {
   return invoke<CloudAuthState>("get_cloud_auth_state");
 }
 
+export async function loadSavedCloudLogin(): Promise<SavedCloudLogin | null> {
+  if (!isDesktopApp) return null;
+  return invoke<SavedCloudLogin | null>("get_saved_cloud_login");
+}
+
 export async function updateCloudBaseUrl(baseUrl: string): Promise<CloudAuthState> {
   if (!isDesktopApp) {
     const normalized = baseUrl.trim().replace(/\/+$/, "");
@@ -545,14 +553,22 @@ export async function updateCloudBaseUrl(baseUrl: string): Promise<CloudAuthStat
   return invoke<CloudAuthState>("set_cloud_base_url", { baseUrl });
 }
 
-export async function loginCloud(email: string, password: string): Promise<CloudAuthState> {
+export async function loginCloud(
+  email: string,
+  password: string,
+  rememberPassword: boolean,
+): Promise<CloudAuthenticationResult> {
   if (!isDesktopApp) {
     if (!previewCloudState().baseUrl) throw new Error("Cloud server base URL is not configured");
     if (!email || !password) throw new Error("Email and password are required");
     window.localStorage.setItem(CLOUD_USER_PREVIEW_KEY, email);
-    return previewCloudState();
+    return {
+      state: previewCloudState(),
+      passwordSaved: false,
+      credentialStorageUpdated: !rememberPassword,
+    };
   }
-  return invoke<CloudAuthState>("cloud_login", { email, password });
+  return invoke<CloudAuthenticationResult>("cloud_login", { email, password, rememberPassword });
 }
 
 export async function fetchCloudAnnouncement(): Promise<CloudAnnouncement> {
@@ -649,9 +665,15 @@ export async function registerCloud(
   email: string,
   password: string,
   verificationCode: string,
-): Promise<CloudAuthState> {
-  if (!isDesktopApp) return loginCloud(email, password);
-  return invoke<CloudAuthState>("cloud_register", { email, password, verificationCode });
+  rememberPassword: boolean,
+): Promise<CloudAuthenticationResult> {
+  if (!isDesktopApp) return loginCloud(email, password, rememberPassword);
+  return invoke<CloudAuthenticationResult>("cloud_register", {
+    email,
+    password,
+    verificationCode,
+    rememberPassword,
+  });
 }
 
 export async function changeCloudPassword(currentPassword: string, newPassword: string): Promise<void> {
@@ -1194,6 +1216,12 @@ export function subscribeToBackendEvents(
     listen<LoginStatus>("login-status", ({ payload }) => onLoginStatus(payload)),
   ];
   return () => subscriptions.forEach((subscription) => void subscription.then((unlisten) => unlisten()));
+}
+
+export function subscribeToCloudSessionExpired(onExpired: () => void): () => void {
+  if (!isDesktopApp) return () => undefined;
+  const subscription = listen("cloud-session-expired", onExpired);
+  return () => void subscription.then((unlisten) => unlisten());
 }
 
 export function subscribeToThemeColorChanges(onChange: (color: string) => void): () => void {

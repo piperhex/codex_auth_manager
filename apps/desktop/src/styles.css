@@ -334,10 +334,17 @@ main.accounts-main .accounts-page .account-card-grid { flex: 1; min-height: 0; }
 .cloud-login-label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .cloud-login-label-row button { border: 0; padding: 0; color: var(--green-dark); background: transparent; font-size: 11px; cursor: pointer; }
 .cloud-login-label-row button:hover { text-decoration: underline; }
+.cloud-session-expired { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 12px; padding: 10px 11px; border: 1px solid #e8c6a4; border-radius: 9px; color: #7d481e; background: #fff7ed; font-size: 11px; line-height: 1.5; }
+.cloud-session-expired > svg { flex: 0 0 auto; margin-top: 1px; }
 .cloud-login-input { height: 39px; display: flex; align-items: center; gap: 8px; padding: 0 11px; border: 1px solid #d7e0d8; border-radius: 9px; color: #6d7a72; background: white; }
 .cloud-login-input:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px rgba(var(--green-rgb), .12); }
 .cloud-login-input input { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--ink); background: transparent; font: 12px "DM Sans", "Microsoft YaHei UI", sans-serif; }
 .cloud-login-input input::placeholder { color: #9aa69f; }
+.cloud-login-form .cloud-remember-password { display: flex; align-items: flex-start; gap: 8px; padding: 3px 1px 1px; cursor: pointer; }
+.cloud-remember-password input { width: 14px; height: 14px; margin: 1px 0 0; accent-color: var(--green); }
+.cloud-remember-password span { display: grid; gap: 2px; }
+.cloud-remember-password b { color: #526259; font-size: 11px; }
+.cloud-remember-password small { color: #88948d; font-size: 9px; font-weight: 400; line-height: 1.4; }
 .cloud-verification-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .cloud-code-button { min-width: 104px; border: 1px solid rgba(var(--green-rgb), .35); border-radius: 9px; padding: 0 12px; color: var(--green-dark); background: #f6fbf7; font-size: 11px; font-weight: 600; cursor: pointer; }
 .cloud-code-button:hover:not(:disabled) { border-color: var(--green); background: #edf7ef; }

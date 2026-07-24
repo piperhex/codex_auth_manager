@@ -4,7 +4,7 @@ import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
 import { Archive, BarChart3, CalendarClock, Check, CircleHelp, Cloud, Download, Github, LogIn, LogOut, Megaphone, MessageSquareText, Palette, Play, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Upload, UploadCloud, UserRound } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { checkForUpdate, chooseAndExportDiagnosticLogs, consumeResetCredit, DEFAULT_CLOUD_BASE_URL, downloadAvailableUpdate, fetchCloudAnnouncement, installDownloadedUpdate, isDesktopApp, launchChatGpt, loadAppSettings, openManagedFolder, reportAnnouncementClick, reportBaseUrlChange, reportFirstInstallation, restartChatGpt, setProxyOnboardingChoice, showTokenUsageWindow, submitFeedback } from "./api/backend";
+import { checkForUpdate, chooseAndExportDiagnosticLogs, consumeResetCredit, DEFAULT_CLOUD_BASE_URL, downloadAvailableUpdate, fetchCloudAnnouncement, installDownloadedUpdate, isDesktopApp, launchChatGpt, loadAppSettings, openManagedFolder, reportAnnouncementClick, reportBaseUrlChange, reportFirstInstallation, restartChatGpt, setProxyOnboardingChoice, showTokenUsageWindow, submitFeedback, subscribeToCloudSessionExpired } from "./api/backend";
 import { HelpModal, type HelpVersionState } from "./components/modals/HelpModal";
 import { FeedbackModal } from "./components/modals/FeedbackModal";
 import { FloatingUsageBubble } from "./components/FloatingUsageBubble";
@@ -65,6 +65,7 @@ function DashboardApp() {
   const [page, setPage] = useState<"accounts" | "providers" | "tokens" | "dreamSkin" | "settings">("accounts");
   const [showLogin, setShowLogin] = useState(false);
   const [showCloudLogin, setShowCloudLogin] = useState(false);
+  const [cloudSessionExpired, setCloudSessionExpired] = useState(false);
   const [showCloudAccount, setShowCloudAccount] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -93,9 +94,26 @@ function DashboardApp() {
   const downloadedUpdateUserInitiatedRef = useRef(false);
   const installAfterDownloadRequestedRef = useRef(false);
   const proxyOnboardingChecked = useRef(false);
+  const cloudSessionPromptedRef = useRef(false);
   const { message: toast, notify } = useToast();
   const { language, setLanguage, t } = useLanguage();
   const cloud = useCloudAuth(notify, t);
+  const promptCloudRelogin = useCallback((reloadState: boolean) => {
+    if (cloudSessionPromptedRef.current) return;
+    cloudSessionPromptedRef.current = true;
+    setShowCloudAccount(false);
+    setCloudSessionExpired(true);
+    setShowCloudLogin(true);
+    if (reloadState) void cloud.load().catch(() => undefined);
+    notify(t("toast.cloudSessionExpired"));
+  }, [cloud.load, notify, t]);
+  useEffect(
+    () => subscribeToCloudSessionExpired(() => promptCloudRelogin(true)),
+    [promptCloudRelogin],
+  );
+  useEffect(() => {
+    if (cloud.state.sessionExpired) promptCloudRelogin(false);
+  }, [cloud.state.sessionExpired, promptCloudRelogin]);
   const accountCloudSync = useMemo(() => ({
     pushAll: cloud.pushQuietly,
     pushAccount: cloud.pushAccountQuietly,
@@ -149,7 +167,10 @@ function DashboardApp() {
     (accountId) => manager.refreshUsage(accountId, true, false),
   );
   const openLogin = useCallback(() => setShowLogin(true), []);
-  const openCloudLogin = useCallback(() => setShowCloudLogin(true), []);
+  const openCloudLogin = useCallback(() => {
+    setCloudSessionExpired(false);
+    setShowCloudLogin(true);
+  }, []);
   const openCloudAccount = useCallback(() => setShowCloudAccount(true), []);
   const switchAccount = useCallback((id: string) => {
     void manager.switchAccount(id);
@@ -211,14 +232,29 @@ function DashboardApp() {
       void reportBaseUrlChange().catch(() => undefined);
     }
   }, [cloud.saveBaseUrl, cloud.state.baseUrl]);
-  const loginCloudAccount = useCallback(async (email: string, password: string) => {
-    const ok = await cloud.login(email, password);
-    if (ok) await manager.reload();
+  const loginCloudAccount = useCallback(async (
+    email: string,
+    password: string,
+    rememberPassword: boolean,
+  ) => {
+    const ok = await cloud.login(email, password, rememberPassword);
+    if (ok) {
+      cloudSessionPromptedRef.current = false;
+      await manager.reload();
+    }
     return ok;
   }, [cloud.login, manager.reload]);
-  const registerCloudAccount = useCallback(async (email: string, password: string, verificationCode: string) => {
-    const ok = await cloud.register(email, password, verificationCode);
-    if (ok) await manager.reload();
+  const registerCloudAccount = useCallback(async (
+    email: string,
+    password: string,
+    verificationCode: string,
+    rememberPassword: boolean,
+  ) => {
+    const ok = await cloud.register(email, password, verificationCode, rememberPassword);
+    if (ok) {
+      cloudSessionPromptedRef.current = false;
+      await manager.reload();
+    }
     return ok;
   }, [cloud.register, manager.reload]);
   const openCloudPasswordReset = useCallback(() => {
@@ -904,10 +940,13 @@ function DashboardApp() {
 
         {showLogin && <LoginModal onClose={() => setShowLogin(false)} onStart={startLogin}
           onImport={importAccountJson} onImportClipboard={importAccountJsonFromClipboard} t={t} />}
-        {showCloudLogin && <CloudLoginModal loading={cloud.loading} onClose={() => setShowCloudLogin(false)}
+        {showCloudLogin && <CloudLoginModal loading={cloud.loading} onClose={() => {
+          setShowCloudLogin(false);
+          setCloudSessionExpired(false);
+        }}
           sendingRegistrationCode={cloud.sendingRegistrationCode} onLogin={loginCloudAccount}
           onForgotPassword={openCloudPasswordReset} onRegister={registerCloudAccount}
-          onSendRegistrationCode={cloud.sendRegistrationCode} t={t} />}
+          onSendRegistrationCode={cloud.sendRegistrationCode} sessionExpired={cloudSessionExpired} t={t} />}
         {showCloudAccount && cloud.state.authenticated && <CloudAccountModal
           email={cloud.state.userEmail} baseUrl={cloud.state.baseUrl}
           changingPassword={cloud.changingPassword} onChangePassword={cloud.changePassword}

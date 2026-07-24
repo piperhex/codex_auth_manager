@@ -155,6 +155,7 @@ pub fn run() {
             floating_bubble::show_dashboard_from_bubble,
             oauth::start_login,
             cloud::get_cloud_auth_state,
+            cloud::get_saved_cloud_login,
             cloud::fetch_cloud_announcement,
             cloud::report_announcement_click,
             cloud::submit_feedback,
