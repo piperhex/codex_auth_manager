@@ -131,7 +131,16 @@ pub(crate) fn save_provider<R: Runtime>(
 }
 
 #[tauri::command]
-pub(crate) fn switch_provider<R: Runtime>(
+pub(crate) async fn switch_provider<R: Runtime + 'static>(
+    app: tauri::AppHandle<R>,
+    id: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || switch_provider_blocking(app, id))
+        .await
+        .map_err(|error| format!("Provider switch task failed: {error}"))?
+}
+
+pub(crate) fn switch_provider_blocking<R: Runtime>(
     app: tauri::AppHandle<R>,
     id: String,
 ) -> Result<(), String> {

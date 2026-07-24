@@ -76,9 +76,12 @@ pub(crate) fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent
         return;
     }
     if id == RESTART_CHATGPT_ID {
-        if let Err(error) = commands::restart_chatgpt(app.clone()) {
-            eprintln!("failed to restart ChatGPT from menu: {error}");
-        }
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(error) = commands::restart_chatgpt_blocking(app) {
+                eprintln!("failed to restart ChatGPT from menu: {error}");
+            }
+        });
         return;
     }
     if id == QUIT_ID {
@@ -86,17 +89,25 @@ pub(crate) fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent
         return;
     }
     if let Some(account_id) = id.strip_prefix(ACCOUNT_PREFIX) {
-        if let Err(error) =
-            commands::switch_account_and_restart_chatgpt(app.clone(), account_id.to_string())
-        {
-            eprintln!("failed to switch account from tray: {error}");
-        }
+        let app = app.clone();
+        let account_id = account_id.to_string();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(error) =
+                commands::switch_account_and_restart_chatgpt_blocking(app, account_id)
+            {
+                eprintln!("failed to switch account from tray: {error}");
+            }
+        });
         return;
     }
     if let Some(provider_id) = id.strip_prefix(PROVIDER_PREFIX) {
-        if let Err(error) = providers::switch_provider(app.clone(), provider_id.to_string()) {
-            eprintln!("failed to switch provider from tray: {error}");
-        }
+        let app = app.clone();
+        let provider_id = provider_id.to_string();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(error) = providers::switch_provider_blocking(app, provider_id) {
+                eprintln!("failed to switch provider from tray: {error}");
+            }
+        });
     }
 }
 

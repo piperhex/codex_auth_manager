@@ -643,7 +643,15 @@ pub(crate) fn restore_local_proxy_if_enabled<R: Runtime>(
 }
 
 #[tauri::command]
-pub(crate) fn start_local_proxy<R: Runtime>(
+pub(crate) async fn start_local_proxy<R: Runtime + 'static>(
+    app: tauri::AppHandle<R>,
+) -> Result<LocalProxyStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || start_local_proxy_blocking(app))
+        .await
+        .map_err(|error| format!("Local proxy start task failed: {error}"))?
+}
+
+fn start_local_proxy_blocking<R: Runtime>(
     app: tauri::AppHandle<R>,
 ) -> Result<LocalProxyStatus, String> {
     let paths = resolve_paths(&app)?;
@@ -702,7 +710,15 @@ pub(crate) fn start_local_proxy<R: Runtime>(
 }
 
 #[tauri::command]
-pub(crate) fn stop_local_proxy<R: Runtime>(
+pub(crate) async fn stop_local_proxy<R: Runtime + 'static>(
+    app: tauri::AppHandle<R>,
+) -> Result<LocalProxyStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || stop_local_proxy_blocking(app))
+        .await
+        .map_err(|error| format!("Local proxy stop task failed: {error}"))?
+}
+
+fn stop_local_proxy_blocking<R: Runtime>(
     app: tauri::AppHandle<R>,
 ) -> Result<LocalProxyStatus, String> {
     let _switch_guard = crate::commands::account_switch_lock()
@@ -856,7 +872,18 @@ pub(crate) fn set_image_generation_account<R: Runtime>(
 }
 
 #[tauri::command]
-pub(crate) fn set_local_proxy_openai_auth_account<R: Runtime>(
+pub(crate) async fn set_local_proxy_openai_auth_account<R: Runtime + 'static>(
+    app: tauri::AppHandle<R>,
+    account_id: Option<String>,
+) -> Result<LocalProxyStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        set_local_proxy_openai_auth_account_blocking(app, account_id)
+    })
+    .await
+    .map_err(|error| format!("OpenAI login update task failed: {error}"))?
+}
+
+fn set_local_proxy_openai_auth_account_blocking<R: Runtime>(
     app: tauri::AppHandle<R>,
     account_id: Option<String>,
 ) -> Result<LocalProxyStatus, String> {

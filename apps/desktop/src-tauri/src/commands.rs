@@ -638,7 +638,18 @@ pub(crate) fn switch_account<R: Runtime>(
 /// credential while it is running, so proxy switches intentionally remain
 /// hot and do not restart ChatGPT.
 #[tauri::command]
-pub(crate) fn switch_account_and_restart_chatgpt<R: Runtime>(
+pub(crate) async fn switch_account_and_restart_chatgpt<R: Runtime + 'static>(
+    app: tauri::AppHandle<R>,
+    id: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        switch_account_and_restart_chatgpt_blocking(app, id)
+    })
+    .await
+    .map_err(|error| format!("Account switch task failed: {error}"))?
+}
+
+pub(crate) fn switch_account_and_restart_chatgpt_blocking<R: Runtime>(
     app: tauri::AppHandle<R>,
     id: String,
 ) -> Result<(), String> {
@@ -843,7 +854,17 @@ pub(crate) fn delete_account<R: Runtime>(
 }
 
 #[tauri::command]
-pub(crate) fn restart_chatgpt<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
+pub(crate) async fn restart_chatgpt<R: Runtime + 'static>(
+    app: tauri::AppHandle<R>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || restart_chatgpt_blocking(app))
+        .await
+        .map_err(|error| format!("ChatGPT restart task failed: {error}"))?
+}
+
+pub(crate) fn restart_chatgpt_blocking<R: Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<(), String> {
     // Keep a manual account switch and a restart as one operation.  In proxy mode the
     // switch deliberately leaves auth.json alone while Codex is running, so the
     // restarted process must receive the selected credential before it starts.
@@ -868,7 +889,15 @@ pub(crate) fn restart_chatgpt_unlocked<R: Runtime>(
 }
 
 #[tauri::command]
-pub(crate) fn launch_chatgpt<R: Runtime>(app: tauri::AppHandle<R>) -> Result<bool, String> {
+pub(crate) async fn launch_chatgpt<R: Runtime + 'static>(
+    app: tauri::AppHandle<R>,
+) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || launch_chatgpt_blocking(app))
+        .await
+        .map_err(|error| format!("ChatGPT launch task failed: {error}"))?
+}
+
+fn launch_chatgpt_blocking<R: Runtime>(app: tauri::AppHandle<R>) -> Result<bool, String> {
     let _switch_guard = account_switch_lock()
         .lock()
         .map_err(|_| "Account switch lock is poisoned".to_string())?;

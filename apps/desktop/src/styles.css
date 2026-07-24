@@ -126,7 +126,10 @@ h1 { margin: 5px 0 0; font: 700 26px/1.1 Manrope, sans-serif; letter-spacing: -.
 .home-proxy-wrap + .account-table-wrap { margin-top: 8px; }
 .account-list { margin: 0 var(--page-x); display: grid; gap: 14px; }
 .account-table-wrap { width: calc(100% - 32px); max-width: calc(100% - 32px); min-width: 0; margin: 30px 16px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: white; box-shadow: 0 5px 18px rgba(24,45,31,.035); }
-.account-table-toolbar { min-height: 40px; padding: 6px 10px; display: flex; align-items: center; justify-content: flex-end; border-bottom: 1px solid var(--line); background: #fbfcfa; }
+.account-table-toolbar { min-height: 40px; padding: 6px 10px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; border-bottom: 1px solid var(--line); background: #fbfcfa; }
+.account-table-toolbar-summary { min-width: 0; margin-right: auto; display: flex; align-items: center; gap: 16px; color: var(--muted); font-size: 11px; }
+.account-table-toolbar-summary span { min-width: 0; display: inline-flex; align-items: center; white-space: nowrap; }
+.account-table-toolbar-summary strong { max-width: 180px; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font-weight: 600; }
 main.accounts-main .accounts-page { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 8px 0 16px; }
 main.accounts-main .accounts-page .home-proxy-wrap { flex: 0 0 auto; margin: 0 16px; }
 main.accounts-main .accounts-page .account-table-wrap { flex: 1; min-height: 0; margin: 0 16px; }
@@ -282,6 +285,8 @@ main.accounts-main .accounts-page .account-card-grid { flex: 1; min-height: 0; }
 .context-menu button:hover { background: #f1f4f1; }
 .context-menu button.destructive { color: #ae4c42; }
 .context-menu button:disabled { opacity: .4; cursor: not-allowed; }
+.account-row-context-menu { position: fixed; top: auto; right: auto; z-index: 1000; width: 220px; }
+.context-menu-divider { height: 1px; margin: 4px 6px; background: var(--line); }
 .usage-grid { display: grid; grid-template-columns: 1fr 1fr; margin: 0 20px; border: 1px solid #e5e9e4; border-radius: 11px; background: #f6f8f5; }
 .usage-unit { display: flex; align-items: center; justify-content: center; gap: 15px; padding: 15px 12px; }
 .usage-unit + .usage-unit { border-left: 1px solid #e0e5df; }

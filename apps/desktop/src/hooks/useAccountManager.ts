@@ -257,6 +257,46 @@ export function useAccountManager(
     }
   }, [load, notify]);
 
+  const setAutoSwitchAccounts = useCallback(async (ids: string[], enabled: boolean) => {
+    const uniqueIds = [...new Set(ids)];
+    if (!uniqueIds.length) return [];
+
+    const updatedIds: string[] = [];
+    let failedCount = 0;
+    setAutoSwitchBusyAccountId("__batch__");
+    try {
+      for (const id of uniqueIds) {
+        try {
+          await setAccountAutoSwitchEnabled(id, enabled);
+          updatedIds.push(id);
+        } catch {
+          failedCount += 1;
+        }
+      }
+      if (updatedIds.length) {
+        setAccounts((items) => items.map((item) => updatedIds.includes(item.id)
+          ? { ...item, autoSwitchEnabled: enabled }
+          : item));
+        if (isDesktopApp) await load();
+        notify(t(enabled ? "toast.batchEnabled" : "toast.batchDisabled", { count: updatedIds.length }));
+      }
+      if (failedCount) {
+        notify(t(enabled ? "toast.batchEnableFailed" : "toast.batchDisableFailed", { count: failedCount }));
+      }
+      return updatedIds;
+    } finally {
+      setAutoSwitchBusyAccountId(null);
+    }
+  }, [load, notify, t]);
+  const enableAutoSwitchAccounts = useCallback(
+    (ids: string[]) => setAutoSwitchAccounts(ids, true),
+    [setAutoSwitchAccounts],
+  );
+  const disableAutoSwitchAccounts = useCallback(
+    (ids: string[]) => setAutoSwitchAccounts(ids, false),
+    [setAutoSwitchAccounts],
+  );
+
   const saveAccountNote = useCallback(async (id: string, note: string, expiresAt: string) => {
     try {
       await updateAccountNote(id, note, expiresAt);
@@ -308,6 +348,8 @@ export function useAccountManager(
     deleteAccount,
     deleteAccounts,
     setAutoSwitchEnabled,
+    enableAutoSwitchAccounts,
+    disableAutoSwitchAccounts,
     setAutoSwitchPriority,
     saveAccountNote,
     reload: load,

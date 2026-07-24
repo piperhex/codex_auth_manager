@@ -114,7 +114,8 @@ fn handle_switch<R: Runtime>(
     command_id: String,
     account_id: String,
 ) -> Result<(), String> {
-    let result = crate::commands::switch_account_and_restart_chatgpt(app.clone(), account_id);
+    let result =
+        crate::commands::switch_account_and_restart_chatgpt_blocking(app.clone(), account_id);
     let response = match result {
         Ok(()) => json!({
             "type": "switch-result",

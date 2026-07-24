@@ -1,8 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Dropdown, InputNumber, Popconfirm, Space, Switch, Table, Tag, Tooltip } from "antd";
+import { Button, Dropdown, InputNumber, Popconfirm, Space, Table, Tag, Tooltip } from "antd";
 import type { TableProps } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { CalendarClock, Check, MoreHorizontal, RefreshCw, RotateCcw, ToggleLeft, ToggleRight, Trash2, X } from "lucide-react";
+import {
+  CalendarClock,
+  Check,
+  LogIn,
+  LogOut,
+  MoreHorizontal,
+  Pencil,
+  RefreshCw,
+  RotateCcw,
+  ToggleLeft,
+  ToggleRight,
+  Trash2,
+  X,
+} from "lucide-react";
 import { loadTokenUsageEntries } from "../../api/backend";
 import type { Language, Translate } from "../../i18n";
 import type { AccountDisplayMode } from "../../hooks/useAccountDisplayMode";
@@ -19,6 +32,8 @@ interface AccountTableProps {
   onRefresh: (id: string) => void;
   onDelete: (id: string) => void;
   onDeleteMany: (ids: string[]) => Promise<string[]>;
+  onEnableMany: (ids: string[]) => Promise<string[]>;
+  onDisableMany: (ids: string[]) => Promise<string[]>;
   onAutoSwitchEnabledChange: (id: string, enabled: boolean) => void;
   autoSwitchBusyAccountId: string | null;
   onAutoSwitchPriorityChange: (id: string, priority: number) => Promise<boolean>;
@@ -271,6 +286,8 @@ export function AccountTable({
   onRefresh,
   onDelete,
   onDeleteMany,
+  onEnableMany,
+  onDisableMany,
   onAutoSwitchEnabledChange,
   autoSwitchBusyAccountId,
   onAutoSwitchPriorityChange,
@@ -301,6 +318,8 @@ export function AccountTable({
   const [tableActionMenuAccountId, setTableActionMenuAccountId] = useState<string | null>(null);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
+  const [bulkEnableBusy, setBulkEnableBusy] = useState(false);
+  const [bulkDisableBusy, setBulkDisableBusy] = useState(false);
   const [openaiAuthPendingAccountId, setOpenaiAuthPendingAccountId] = useState<string | null>(null);
   const [usageSort, setUsageSort] = useState<UsageSortPreference | null>(loadUsageSortPreference);
   const [tableScrollY, setTableScrollY] = useState(0);
@@ -349,9 +368,9 @@ export function AccountTable({
     };
   }, [hotSwitchEnabled, tokenUsageRefreshSeconds]);
   useEffect(() => {
-    const deletableIds = new Set(accounts.filter((account) => !account.active).map((account) => account.id));
+    const accountIds = new Set(accounts.map((account) => account.id));
     setSelectedAccountIds((current) => {
-      const next = current.filter((id) => deletableIds.has(id));
+      const next = current.filter((id) => accountIds.has(id));
       return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
     });
   }, [accounts]);
@@ -382,6 +401,22 @@ export function AccountTable({
     (left, right) => Number(needsAccountAttention(left, hotSwitchEnabled))
       - Number(needsAccountAttention(right, hotSwitchEnabled)),
   ), [accounts, hotSwitchEnabled]);
+  const selectedAccountIdSet = new Set(selectedAccountIds);
+  const deletableSelectedAccountIds = accounts
+    .filter((account) => selectedAccountIdSet.has(account.id) && !account.active)
+    .map((account) => account.id);
+  const enableableSelectedAccountIds = accounts
+    .filter((account) => selectedAccountIdSet.has(account.id) && !account.autoSwitchEnabled)
+    .map((account) => account.id);
+  const disableableSelectedAccountIds = accounts
+    .filter((account) => selectedAccountIdSet.has(account.id) && account.autoSwitchEnabled)
+    .map((account) => account.id);
+  const activeAccount = accounts.find((account) => account.active) ?? null;
+  const officialAuthAccount = accounts.find((account) => account.id === openaiAuthAccountId) ?? null;
+  const accountSummaryLabel = (account: Account | null) => {
+    if (!account) return "-";
+    return privacyMode ? maskAccountEmail(account.email) : account.email;
+  };
   const handleTableChange: NonNullable<TableProps<Account>["onChange"]> = (_, __, sorter) => {
     const activeSorter = Array.isArray(sorter) ? sorter[0] : sorter;
     const nextSort = isUsageSortColumn(activeSorter.columnKey) && isUsageSortOrder(activeSorter.order)
@@ -537,15 +572,6 @@ export function AccountTable({
                 </span>
               </Tooltip>
             )}
-            {hotSwitchEnabled && (
-              <Tooltip title={t("table.autoSwitchTooltip")}>
-                <Switch size="small" checked={account.autoSwitchEnabled}
-                  checkedChildren={t("table.enabled")} unCheckedChildren={t("table.disabled")}
-                  loading={autoSwitchBusyAccountId === account.id}
-                  disabled={autoSwitchBusyAccountId !== null && autoSwitchBusyAccountId !== account.id}
-                  onChange={(enabled) => onAutoSwitchEnabledChange(account.id, enabled)} />
-              </Tooltip>
-            )}
             <Dropdown trigger={["click"]} placement="bottomRight"
               open={tableActionMenuAccountId === account.id}
               onOpenChange={(open) => setTableActionMenuAccountId(open ? account.id : null)}
@@ -573,6 +599,19 @@ export function AccountTable({
                     <RefreshCw size={14} />
                     {t("table.refreshUsage")}
                   </button>
+                  {hotSwitchEnabled && (
+                    <Tooltip title={t("table.autoSwitchTooltip")} placement="left">
+                      <button type="button"
+                        disabled={autoSwitchBusyAccountId !== null || bulkEnableBusy || bulkDisableBusy}
+                        onClick={() => {
+                          setTableActionMenuAccountId(null);
+                          onAutoSwitchEnabledChange(account.id, !account.autoSwitchEnabled);
+                        }}>
+                        {account.autoSwitchEnabled ? <ToggleLeft size={14} /> : <ToggleRight size={14} />}
+                        {account.autoSwitchEnabled ? t("table.disableAutoSwitch") : t("table.enableAutoSwitch")}
+                      </button>
+                    </Tooltip>
+                  )}
                   <div className="account-action-menu-divider" />
                   <Popconfirm title={t("table.deleteConfirmTitle")} description={t("table.deleteConfirmDescription")}
                     okText={t("table.delete")} cancelText={t("table.cancel")} okButtonProps={{ danger: true }}
@@ -599,6 +638,121 @@ export function AccountTable({
       },
     },
   ];
+
+  const tableContextAccount = contextMenu
+    ? accounts.find((account) => account.id === contextMenu.accountId) ?? null
+    : null;
+  const tableContextMenu = tableContextAccount && contextMenu ? (() => {
+    const account = tableContextAccount;
+    const waiting = busyAccountId === account.id;
+    const resetWaiting = resetCreditBusyAccountId === account.id;
+    const switchBlocked = hotSwitchEnabled
+      ? !account.localProxyCompatible
+      : !account.directSwitchCompatible;
+    const switchBlockedReason = hotSwitchEnabled
+      ? t("providers.proxy.agentIdentityUnsupported")
+      : t("providers.proxy.agentIdentityProxyOnly");
+    const officialAuthActive = openaiAuthAccountId === account.id;
+    const officialAuthUnsupported = Boolean(account.agentIdentity) && !officialAuthActive;
+
+    return (
+      <div ref={contextMenuRef} className="context-menu account-row-context-menu"
+        style={{ left: contextMenu.x, top: contextMenu.y }}
+        onClick={(event) => event.stopPropagation()}>
+        <Tooltip title={switchBlocked ? switchBlockedReason : undefined} placement="left">
+          <button type="button" disabled={account.active || switchBlocked || waiting}
+            onClick={() => {
+              setContextMenu(null);
+              onSwitch(account.id);
+            }}>
+            {account.active ? <Check size={14} /> : <RotateCcw size={14} />}
+            {account.active ? t("table.inUse") : hotSwitchEnabled ? t("table.hotSwitch") : t("table.switch")}
+          </button>
+        </Tooltip>
+        {hotSwitchEnabled && (
+          <Tooltip placement="left" classNames={{ root: "openai-auth-action-tooltip" }} title={(
+            <div className="openai-auth-action-tooltip-content">
+              <p>{t("providers.proxy.openaiAuthAccountTooltipRemote")}</p>
+              <p>{t("providers.proxy.openaiAuthAccountTooltipCapabilities")}</p>
+              {officialAuthUnsupported && (
+                <p className="warning">{t("providers.error.openaiAuthAccountOAuthRequired")}</p>
+              )}
+            </div>
+          )}>
+            <button type="button" className={officialAuthActive ? "destructive" : undefined}
+              disabled={openaiAuthBusy || officialAuthUnsupported}
+              onClick={() => {
+                setContextMenu(null);
+                setOpenaiAuthPendingAccountId(account.id);
+                onOpenaiAuthAccountChange(officialAuthActive ? null : account.id);
+              }}>
+              {officialAuthActive ? <LogOut size={14} /> : <LogIn size={14} />}
+              {t(officialAuthActive
+                ? "providers.proxy.deactivateOpenaiAuthAccount"
+                : "providers.proxy.activateOpenaiAuthAccount")}
+            </button>
+          </Tooltip>
+        )}
+        {hotSwitchEnabled && (
+          <Tooltip title={t("table.autoSwitchTooltip")} placement="left">
+            <button type="button"
+              disabled={autoSwitchBusyAccountId !== null || bulkEnableBusy || bulkDisableBusy}
+              onClick={() => {
+                setContextMenu(null);
+                onAutoSwitchEnabledChange(account.id, !account.autoSwitchEnabled);
+              }}>
+              {account.autoSwitchEnabled ? <ToggleLeft size={14} /> : <ToggleRight size={14} />}
+              {account.autoSwitchEnabled ? t("table.disableAutoSwitch") : t("table.enableAutoSwitch")}
+            </button>
+          </Tooltip>
+        )}
+        <div className="context-menu-divider" />
+        <Popconfirm title={t("table.useResetCreditConfirmTitle")}
+          description={<span className="reset-credit-confirm-description">{t("table.useResetCreditConfirmDescription")}</span>}
+          okText={t("table.useResetCreditOk")} cancelText={t("table.cancel")}
+          classNames={{ root: "reset-credit-popconfirm" }}
+          styles={{ root: { width: 320, maxWidth: "calc(100vw - 32px)" } }}
+          disabled={waiting || resetWaiting}
+          onConfirm={() => {
+            setContextMenu(null);
+            onUseResetCredit(account.id);
+          }}>
+          <button type="button" disabled={waiting || resetWaiting}>
+            <CalendarClock size={14} />
+            {resetWaiting ? t("table.resetCreditsRefreshing") : t("table.useResetCredit")}
+          </button>
+        </Popconfirm>
+        <button type="button" disabled={waiting} onClick={() => {
+          setContextMenu(null);
+          onRefresh(account.id);
+        }}>
+          <RefreshCw size={14} />
+          {t("table.refreshUsage")}
+        </button>
+        <button type="button" onClick={() => {
+          setContextMenu(null);
+          setEditingAccount(account);
+        }}>
+          <Pencil size={14} />
+          {t("table.editNoteAndExpiry")}
+        </button>
+        <div className="context-menu-divider" />
+        <Popconfirm title={t("table.deleteConfirmTitle")} description={t("table.deleteConfirmDescription")}
+          okText={t("table.delete")} cancelText={t("table.cancel")} okButtonProps={{ danger: true }}
+          disabled={account.active}
+          onConfirm={() => {
+            setContextMenu(null);
+            onDelete(account.id);
+          }}>
+          <button type="button" className="destructive" disabled={account.active}
+            title={account.active ? t("table.activeDeleteTooltip") : undefined}>
+            <Trash2 size={14} />
+            {t("table.delete")}
+          </button>
+        </Popconfirm>
+      </div>
+    );
+  })() : null;
 
   if (displayMode === "cards") return <>
     <div className="account-card-grid">
@@ -714,12 +868,26 @@ export function AccountTable({
   return <>
     <div ref={tableWrapRef} className="account-table-wrap">
       <div className="account-table-toolbar">
-        <Popconfirm title={t("table.batchDeleteConfirmTitle", { count: selectedAccountIds.length })}
+        <div className="account-table-toolbar-summary">
+          <span>
+            {t("table.currentAccountLabel")}{language === "zh" ? "：" : ": "}
+            <strong title={privacyMode ? undefined : activeAccount?.email}>
+              {accountSummaryLabel(activeAccount)}
+            </strong>
+          </span>
+          <span>
+            {t("table.officialAuthAccountLabel")}{language === "zh" ? "：" : ": "}
+            <strong title={privacyMode ? undefined : officialAuthAccount?.email}>
+              {accountSummaryLabel(officialAuthAccount)}
+            </strong>
+          </span>
+        </div>
+        <Popconfirm title={t("table.batchDeleteConfirmTitle", { count: deletableSelectedAccountIds.length })}
           description={t("table.batchDeleteConfirmDescription")}
           okText={t("table.delete")} cancelText={t("table.cancel")} okButtonProps={{ danger: true }}
-          disabled={!selectedAccountIds.length || bulkDeleteBusy}
+          disabled={!deletableSelectedAccountIds.length || bulkDeleteBusy || bulkEnableBusy || bulkDisableBusy}
           onConfirm={async () => {
-            const ids = [...selectedAccountIds];
+            const ids = [...deletableSelectedAccountIds];
             setBulkDeleteBusy(true);
             try {
               const deletedIds = await onDeleteMany(ids);
@@ -730,10 +898,42 @@ export function AccountTable({
             }
           }}>
           <Button danger size="small" icon={<Trash2 size={14} />} loading={bulkDeleteBusy}
-            disabled={!selectedAccountIds.length}>
-            {t("table.batchDelete", { count: selectedAccountIds.length })}
+            disabled={!deletableSelectedAccountIds.length || bulkEnableBusy || bulkDisableBusy}>
+            {t("table.batchDelete", { count: deletableSelectedAccountIds.length })}
           </Button>
         </Popconfirm>
+        {hotSwitchEnabled && (
+          <Button type="primary" size="small" icon={<ToggleRight size={14} />} loading={bulkEnableBusy}
+            disabled={!enableableSelectedAccountIds.length || bulkDeleteBusy || bulkDisableBusy
+              || autoSwitchBusyAccountId !== null}
+            onClick={async () => {
+              const ids = [...enableableSelectedAccountIds];
+              setBulkEnableBusy(true);
+              try {
+                await onEnableMany(ids);
+              } finally {
+                setBulkEnableBusy(false);
+              }
+            }}>
+            {t("table.batchEnable", { count: enableableSelectedAccountIds.length })}
+          </Button>
+        )}
+        {hotSwitchEnabled && (
+          <Button size="small" icon={<ToggleLeft size={14} />} loading={bulkDisableBusy}
+            disabled={!disableableSelectedAccountIds.length || bulkDeleteBusy || bulkEnableBusy
+              || autoSwitchBusyAccountId !== null}
+            onClick={async () => {
+              const ids = [...disableableSelectedAccountIds];
+              setBulkDisableBusy(true);
+              try {
+                await onDisableMany(ids);
+              } finally {
+                setBulkDisableBusy(false);
+              }
+            }}>
+            {t("table.batchDisable", { count: disableableSelectedAccountIds.length })}
+          </Button>
+        )}
       </div>
       <Table rowKey="id" size="small" tableLayout="fixed" columns={columns} dataSource={orderedAccounts} pagination={false}
         onChange={handleTableChange}
@@ -742,10 +942,6 @@ export function AccountTable({
           columnWidth: 36,
           selectedRowKeys: selectedAccountIds,
           onChange: (keys) => setSelectedAccountIds(keys.map(String)),
-          getCheckboxProps: (account) => ({
-            disabled: account.active,
-            title: account.active ? t("table.activeDeleteTooltip") : undefined,
-          }),
         }}
         rowClassName={(account) => [
           account.active ? "active-row" : "",
@@ -753,6 +949,17 @@ export function AccountTable({
         ].filter(Boolean).join(" ")}
         onRow={(account) => ({
           title: t("note.doubleClick"),
+          onContextMenu: (event) => {
+            event.preventDefault();
+            const menuWidth = 220;
+            const menuHeight = hotSwitchEnabled ? 286 : 210;
+            setTableActionMenuAccountId(null);
+            setContextMenu({
+              accountId: account.id,
+              x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
+              y: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8)),
+            });
+          },
           onDoubleClick: (event) => {
             if ((event.target as HTMLElement).closest("button, a, input, textarea")) return;
             setEditingAccount(account);
@@ -769,6 +976,7 @@ export function AccountTable({
           ? { x: customPriorityActive ? 1380 : 1230, y: tableScrollY }
           : { x: customPriorityActive ? 1380 : 1230 }} />
     </div>
+    {tableContextMenu}
     {editingAccount && <AccountNoteModal key={editingAccount.id} account={editingAccount}
       onClose={() => setEditingAccount(null)}
       onSave={(note, expiresAt) => onSaveNote(editingAccount.id, note, expiresAt)} t={t} />}

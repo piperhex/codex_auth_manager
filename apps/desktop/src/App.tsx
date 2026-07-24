@@ -913,6 +913,8 @@ function DashboardApp() {
               onRefresh={refreshUsage}
               onDelete={deleteAccount}
               onDeleteMany={manager.deleteAccounts}
+              onEnableMany={manager.enableAutoSwitchAccounts}
+              onDisableMany={manager.disableAutoSwitchAccounts}
               onAutoSwitchEnabledChange={setAccountAutoSwitchEnabled}
               autoSwitchBusyAccountId={manager.autoSwitchBusyAccountId}
               onAutoSwitchPriorityChange={manager.setAutoSwitchPriority}

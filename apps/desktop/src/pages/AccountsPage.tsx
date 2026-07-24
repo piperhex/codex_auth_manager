@@ -18,6 +18,8 @@ export function AccountsPage({
   onRefresh,
   onDelete,
   onDeleteMany,
+  onEnableMany,
+  onDisableMany,
   onAutoSwitchEnabledChange,
   autoSwitchBusyAccountId,
   onAutoSwitchPriorityChange,
@@ -54,6 +56,8 @@ export function AccountsPage({
   onRefresh: (id: string) => void;
   onDelete: (id: string) => void;
   onDeleteMany: (ids: string[]) => Promise<string[]>;
+  onEnableMany: (ids: string[]) => Promise<string[]>;
+  onDisableMany: (ids: string[]) => Promise<string[]>;
   onAutoSwitchEnabledChange: (id: string, enabled: boolean) => void;
   autoSwitchBusyAccountId: string | null;
   onAutoSwitchPriorityChange: (id: string, priority: number) => Promise<boolean>;
@@ -121,7 +125,8 @@ export function AccountsPage({
     <div className="accounts-page">
       {proxyCard}
       <AccountTable accounts={accounts} busyAccountId={busyAccountId}
-        onSwitch={onSwitch} onRefresh={onRefresh} onDelete={onDelete} onDeleteMany={onDeleteMany}
+        onSwitch={onSwitch} onRefresh={onRefresh} onDelete={onDelete}
+        onDeleteMany={onDeleteMany} onEnableMany={onEnableMany} onDisableMany={onDisableMany}
         onAutoSwitchEnabledChange={onAutoSwitchEnabledChange} autoSwitchBusyAccountId={autoSwitchBusyAccountId}
         onAutoSwitchPriorityChange={onAutoSwitchPriorityChange}
         autoSwitchPriorityBusyAccountId={autoSwitchPriorityBusyAccountId}
