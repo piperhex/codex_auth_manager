@@ -2,7 +2,7 @@
   "expo": {
     "name": "Codex Switch",
     "slug": "codex-switch",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "icon": "./assets/icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -22,7 +22,7 @@
     "android": {
       "icon": "./assets/icon.png",
       "package": "com.codexswitch.mobile",
-      "versionCode": 10100199,
+      "versionCode": 10100299,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.REQUEST_INSTALL_PACKAGES"
